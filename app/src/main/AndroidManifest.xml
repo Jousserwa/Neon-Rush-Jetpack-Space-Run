@@ -13,6 +13,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.NeonRush">
+        android:largeHeap="true">
 
         <property
             android:name="android.adservices.AD_SERVICES_CONFIG"
