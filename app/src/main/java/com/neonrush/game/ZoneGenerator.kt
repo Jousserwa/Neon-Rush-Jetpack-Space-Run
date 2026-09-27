@@ -99,11 +99,24 @@ object ZoneGenerator {
             // 700-939) with gaps between them — a looser check would
             // wrongly match a "gap" zone against whichever phase the
             // worldForZone fallback happens to return.
-            world.environmentIds[zone % world.environmentIds.size]
+            //
+            // Indexed by sector (2-zone group), not raw zone: both zones in
+            // a sector share the same environment, and since consecutive
+            // sector numbers always differ by 1, the modulo index can never
+            // repeat between adjacent sectors (as long as the list has more
+            // than 1 entry) — this is half of what makes "every 2 zones"
+            // read as a real, guaranteed shift rather than just a
+            // possibility.
+            val sectorNumber = (zone - 1) / 2
+            world.environmentIds[sectorNumber % world.environmentIds.size]
         } else {
             // True endless/gap territory: cycle through every environment
             // instead of freezing on or narrowly looping one world's set.
-            ((zone * 41 + 7) % ENVIRONMENTS.size)
+            // 41 is coprime with ENVIRONMENTS.size for any size we'd
+            // realistically use, so consecutive sectors never collide here
+            // either.
+            val sectorNumber = (zone - 1) / 2
+            ((sectorNumber * 41 + 7) % ENVIRONMENTS.size)
         }
     }
     fun selectMechanics(zone: Int, random: Random): List<Int> {
@@ -137,12 +150,23 @@ object ZoneGenerator {
     fun generateZone(zone: Int, seed: Long): ZoneDNA {
         // Deterministic procedural generation based on zone index and seed
         val rand = Random(seed + zone * 1337 + 101)
+        // "Sector" = a 2-zone group. Obstacle set, mechanics, and environment
+        // are all keyed off the sector, not the raw zone, so both zones in a
+        // sector share one coherent flavor and crossing into the next
+        // sector always brings a genuinely different one — this is the
+        // fix for "every 2 zones should feel like a different game, not
+        // just bigger numbers under the hood."
+        val sectorNumber = (zone - 1) / 2
+        val sectorRand = Random(seed + sectorNumber * 7919L + 303)
         val envIdx = selectEnvironment(zone)
         val env = ENVIRONMENTS[envIdx]
-        val obsSetId = (((zone * 1597 + seed) % 24) + 24) % 24      
+        // 1597 mod 24 = 13, which is coprime with 24, so consecutive sector
+        // numbers can never land on the same obstacle set — guaranteed
+        // no-repeat between adjacent sectors, not just "usually different."
+        val obsSetId = (((sectorNumber * 1597L + seed) % 24) + 24) % 24
         val obsSetName = OBSTACLE_SETS[obsSetId.toInt()]
         
-        val mechIds = selectMechanics(zone, rand)
+        val mechIds = selectMechanics(zone, sectorRand)
         val mechNames = mechIds.map { MECHANICS[it] }
         
         val rhythmicPattern = List(5 + (zone % 6)) { rand.nextInt(10, 30) }
