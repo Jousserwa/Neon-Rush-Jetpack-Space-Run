@@ -2427,6 +2427,7 @@ fun RacingSimulatorScreen(
     var previousUserYPos by remember { mutableStateOf(simState.userYPos) }
     val tiltAngle = (simState.userYPos - previousUserYPos).toFloat().coerceIn(-10f, 10f) * 1.8f
     SideEffect { previousUserYPos = simState.userYPos }
+    val activity = LocalContext.current as? Activity
 
     // Default running frames (used when the equipped skin has no custom frames yet)
     val pf1 = ImageBitmap.imageResource(id = R.drawable.pilot_run_1)
@@ -2601,6 +2602,57 @@ val bossImagesByWorld = mapOf(
                         fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace
                     )
+                }
+            }
+
+            androidx.compose.animation.AnimatedVisibility(
+                visible = simState.tickIndex < simState.sectorBannerUntilTick,
+                enter = androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(200)),
+                exit = androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(500)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                            .border(1.dp, Color(0xFFFFD700).copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                            .padding(vertical = 6.dp, horizontal = 14.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = simState.sectorBannerText,
+                            color = Color(0xFFFFD700),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                    if (simState.sectorBonusPending > 0 && simState.tickIndex < simState.sectorBonusExpiresAtTick && !isPro) {
+                        Button(
+                            onClick = {
+                                activity?.let {
+                                    AdMobManager.showRewardedIfReady(it) {
+                                        viewModel.claimSectorAdBonus()
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFD700)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.padding(top = 4.dp)
+                        ) {
+                            Text(
+                                text = "🎬 WATCH AD: DOUBLE TO +${simState.sectorBonusPending * 2}💎",
+                                color = Color.Black,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
                 }
             }
 
@@ -2862,11 +2914,66 @@ val bossImagesByWorld = mapOf(
                                             }
                                             if (isVisible) {
                                                 val flicker = 0.75f + 0.25f * sin(simState.tickIndex * 0.9f)
+                                                // Outer soft halo — big, faint, sells "this thing radiates energy"
                                                 drawCircle(
-                                                    color = hazardColor.copy(alpha = 0.28f * flicker),
+                                                    color = hazardColor.copy(alpha = 0.14f * flicker),
+                                                    radius = baseSize * 1.05f,
+                                                    center = Offset(x, y)
+                                                )
+                                                // Mid glow ring
+                                                drawCircle(
+                                                    color = hazardColor.copy(alpha = 0.30f * flicker),
                                                     radius = baseSize * 0.65f,
                                                     center = Offset(x, y)
                                                 )
+                                                // Bright white-hot core flash directly behind the creature
+                                                drawCircle(
+                                                    color = Color.White.copy(alpha = 0.18f * flicker),
+                                                    radius = baseSize * 0.28f,
+                                                    center = Offset(x, y)
+                                                )
+                                                // Orbiting energy sparks — 4 small bright motes circling the
+                                                // creature, giving a "charged/alive" feel that a static image
+                                                // alone can't. Angle offset per-hazard (via spawnTick) so
+                                                // multiple on screen don't all spin in perfect unison.
+                                                val orbitAngleBase = (simState.tickIndex * 0.12f) + spawnTick * 0.7f
+                                                for (i in 0 until 4) {
+                                                    val angle = orbitAngleBase + (i * (kotlin.math.PI.toFloat() / 2f))
+                                                    val orbitRadius = baseSize * 0.55f
+                                                    val sparkX = x + kotlin.math.cos(angle) * orbitRadius
+                                                    val sparkY = y + kotlin.math.sin(angle) * orbitRadius * 0.6f
+                                                    drawCircle(
+                                                        color = Color.White.copy(alpha = 0.7f * flicker),
+                                                        radius = baseSize * 0.035f,
+                                                        center = Offset(sparkX, sparkY)
+                                                    )
+                                                    drawCircle(
+                                                        color = hazardColor.copy(alpha = 0.4f * flicker),
+                                                        radius = baseSize * 0.07f,
+                                                        center = Offset(sparkX, sparkY)
+                                                    )
+                                                }
+                                                // Jagged electric arcs flickering at the rim — reuses the
+                                                // tick index as a pseudo-random jitter seed so the arcs
+                                                // shimmer rather than sit static.
+                                                repeat(3) { i ->
+                                                    val seed = (simState.tickIndex + i * 37 + spawnTick)
+                                                    if (seed % 5 == 0) {
+                                                        val arcAngle = (seed * 47 % 360) * (kotlin.math.PI.toFloat() / 180f)
+                                                        val arcStart = baseSize * 0.5f
+                                                        val arcEnd = baseSize * (0.75f + (seed % 3) * 0.08f)
+                                                        val sx = x + kotlin.math.cos(arcAngle) * arcStart
+                                                        val sy = y + kotlin.math.sin(arcAngle) * arcStart * 0.6f
+                                                        val ex = x + kotlin.math.cos(arcAngle) * arcEnd
+                                                        val ey = y + kotlin.math.sin(arcAngle) * arcEnd * 0.6f
+                                                        drawLine(
+                                                            color = Color.White.copy(alpha = 0.6f),
+                                                            start = Offset(sx, sy),
+                                                            end = Offset(ex, ey),
+                                                            strokeWidth = 1.5.dp.toPx()
+                                                        )
+                                                    }
+                                                }
                                                 if (creatureImg != null) {
                                                     val cw2 = baseSize * (creatureImg.width.toFloat() / creatureImg.height.toFloat())
                                                     drawImage(
@@ -2894,11 +3001,14 @@ val bossImagesByWorld = mapOf(
                                                     )
                                                 }
                                             } else {
-                                                // Faint telltale during the "invisible" phase: harmless to touch,
-                                                // but gives sharp-eyed players a way to track its lane.
+                                                // Faint telltale during the "invisible" phase: harmless to
+                                                // touch, but gives sharp-eyed players a way to track its lane.
+                                                // A gentle pulsing ring (rather than a flat dot) reads as
+                                                // "still there, just phased out" instead of "gone."
+                                                val telltalePulse = 0.5f + 0.5f * sin(simState.tickIndex * 0.3f)
                                                 drawCircle(
-                                                    color = hazardColor.copy(alpha = 0.10f),
-                                                    radius = baseSize * 0.4f,
+                                                    color = hazardColor.copy(alpha = 0.08f + 0.06f * telltalePulse),
+                                                    radius = baseSize * (0.35f + 0.1f * telltalePulse),
                                                     center = Offset(x, y)
                                                 )
                                             }
@@ -2912,9 +3022,28 @@ val bossImagesByWorld = mapOf(
                                             val bob = sin(simState.tickIndex * 0.35f) * ch * 0.02f
                                             val baseSize = ch * 0.15f
                                             val w = baseSize * (droneImg.width.toFloat() / droneImg.height.toFloat())
+                                            val droneY = y - baseSize / 2f + bob
+                                            // Thruster trail streaking behind it (toward the right, where it
+                                            // came from) — sells "actively flying/hunting," not just floating.
+                                            val trailAlpha = 0.35f + 0.15f * sin(simState.tickIndex * 0.5f)
+                                            drawLine(
+                                                color = Color(0xFF00E5FF).copy(alpha = trailAlpha),
+                                                start = Offset(x + w * 0.65f, droneY + baseSize / 2f),
+                                                end = Offset(x + w * 0.35f, droneY + baseSize / 2f),
+                                                strokeWidth = (baseSize * 0.12f)
+                                            )
+                                            // Faint red targeting-scanner ring — a quiet "it's locked onto
+                                            // you" tell, reinforcing the homing behavior visually.
+                                            val scanPulse = 0.5f + 0.5f * sin(simState.tickIndex * 0.25f)
+                                            drawCircle(
+                                                color = Color(0xFFFF3355).copy(alpha = 0.18f * scanPulse),
+                                                radius = baseSize * 0.6f,
+                                                center = Offset(x, droneY + baseSize / 2f),
+                                                style = Stroke(1.5.dp.toPx())
+                                            )
                                             drawImage(
                                                 image = droneImg,
-                                                dstOffset = IntOffset((x - w / 2f).roundToInt(), (y - baseSize / 2f + bob).roundToInt()),
+                                                dstOffset = IntOffset((x - w / 2f).roundToInt(), droneY.roundToInt()),
                                                 dstSize = IntSize(w.roundToInt(), baseSize.roundToInt())
                                             )
                                         }
@@ -2931,13 +3060,28 @@ val bossImagesByWorld = mapOf(
                                     }
                                 }
                                "bullet" -> {
-    val baseSize = ch * 0.05f
-    val w = baseSize * (bulletImg.width.toFloat() / bulletImg.height.toFloat())
-    drawImage(
-        image = bulletImg,
-        dstOffset = IntOffset((x - w / 2f).roundToInt(), (y - baseSize / 2f).roundToInt()),
-        dstSize = IntSize(w.roundToInt(), baseSize.roundToInt())
-    )
+    if (elem.subType == "DRONE_SHOT") {
+        // Small glowing energy bolt with a motion trail, distinct from the
+        // boss's bullet sprite — reads as "fast small threat" at a glance.
+        val boltColor = Color(0xFF00E5FF)
+        val boltLen = ch * 0.045f
+        drawLine(
+            color = boltColor.copy(alpha = 0.35f),
+            start = Offset(x + boltLen * 1.6f, y),
+            end = Offset(x, y),
+            strokeWidth = 4.dp.toPx()
+        )
+        drawCircle(color = boltColor.copy(alpha = 0.9f), radius = ch * 0.014f, center = Offset(x, y))
+        drawCircle(color = Color.White.copy(alpha = 0.8f), radius = ch * 0.006f, center = Offset(x, y))
+    } else {
+        val baseSize = ch * 0.05f
+        val w = baseSize * (bulletImg.width.toFloat() / bulletImg.height.toFloat())
+        drawImage(
+            image = bulletImg,
+            dstOffset = IntOffset((x - w / 2f).roundToInt(), (y - baseSize / 2f).roundToInt()),
+            dstSize = IntSize(w.roundToInt(), baseSize.roundToInt())
+        )
+    }
 } 
                             }
                         }
@@ -2980,6 +3124,51 @@ val bossImagesByWorld = mapOf(
                             val bossDisplayHeight = ch * 0.32f
                             val bossDisplayWidth = bossDisplayHeight * (bossImg.width.toFloat() / bossImg.height.toFloat())
                             val bossFlicker = 0.9f + 0.1f * sin(simState.tickIndex * 0.5f)
+                            val bossColor = hexToColor(simState.zoneDNA.environmentColor)
+
+                            // Layered aura behind the boss — sells "imposing,
+                            // powered-up enemy" rather than a flat sprite.
+                            drawCircle(
+                                color = bossColor.copy(alpha = 0.10f * bossFlicker),
+                                radius = bossDisplayHeight * 0.85f,
+                                center = Offset(bossX, bossYPx)
+                            )
+                            drawCircle(
+                                color = bossColor.copy(alpha = 0.20f * bossFlicker),
+                                radius = bossDisplayHeight * 0.55f,
+                                center = Offset(bossX, bossYPx)
+                            )
+                            // Periodic "power surge" — a brief brighter flash
+                            // on a slow rhythm, so the boss doesn't just sit
+                            // there but visibly pulses with power over time.
+                            val surgePhase = simState.tickIndex % 60
+                            if (surgePhase < 6) {
+                                val surgeStrength = 1f - (surgePhase / 6f)
+                                drawCircle(
+                                    color = Color.White.copy(alpha = 0.25f * surgeStrength),
+                                    radius = bossDisplayHeight * 0.65f,
+                                    center = Offset(bossX, bossYPx)
+                                )
+                            }
+                            // Orbiting energy motes — larger, slower, more
+                            // menacing than the Blink Strike sparks.
+                            val bossOrbitAngle = simState.tickIndex * 0.05f
+                            for (i in 0 until 3) {
+                                val angle = bossOrbitAngle + (i * (2f * kotlin.math.PI.toFloat() / 3f))
+                                val orbitRadius = bossDisplayHeight * 0.6f
+                                val moteX = bossX + kotlin.math.cos(angle) * orbitRadius * 0.5f
+                                val moteY = bossYPx + kotlin.math.sin(angle) * orbitRadius
+                                drawCircle(
+                                    color = bossColor.copy(alpha = 0.5f * bossFlicker),
+                                    radius = bossDisplayHeight * 0.025f,
+                                    center = Offset(moteX, moteY)
+                                )
+                                drawCircle(
+                                    color = Color.White.copy(alpha = 0.6f * bossFlicker),
+                                    radius = bossDisplayHeight * 0.01f,
+                                    center = Offset(moteX, moteY)
+                                )
+                            }
                             drawImage(
                                 image = bossImg,
                                 dstOffset = IntOffset(
@@ -2990,20 +3179,33 @@ val bossImagesByWorld = mapOf(
                                 alpha = bossFlicker
                             )
 
-                            // Boss health bar, top-center of the screen.
+                            // Boss health bar, top-center of the screen —
+                            // color shifts green->amber->red as it depletes,
+                            // with a glowing border for a more premium feel.
                             val barWidth = cw * 0.6f
-                            val barHeight = ch * 0.018f
+                            val barHeight = ch * 0.022f
                             val barLeft = (cw - barWidth) / 2f
                             val barTop = ch * 0.1f
+                            val healthFrac = simState.bossHealth.coerceIn(0f, 1f)
+                            val healthColor = when {
+                                healthFrac > 0.5f -> Color(0xFF4CAF50)
+                                healthFrac > 0.25f -> Color(0xFFFFC107)
+                                else -> Color(0xFFFF3355)
+                            }
+                            drawRect(
+                                color = healthColor.copy(alpha = 0.25f),
+                                topLeft = Offset(barLeft - 2.dp.toPx(), barTop - 2.dp.toPx()),
+                                size = Size(barWidth + 4.dp.toPx(), barHeight + 4.dp.toPx())
+                            )
                             drawRect(
                                 color = Color.Black.copy(alpha = 0.5f),
                                 topLeft = Offset(barLeft, barTop),
                                 size = Size(barWidth, barHeight)
                             )
                             drawRect(
-                                color = Color(0xFFFF3355),
+                                color = healthColor,
                                 topLeft = Offset(barLeft, barTop),
-                                size = Size(barWidth * simState.bossHealth.coerceIn(0f, 1f), barHeight)
+                                size = Size(barWidth * healthFrac, barHeight)
                             )
                             drawRect(
                                 color = Color.White.copy(alpha = 0.6f),
@@ -3422,6 +3624,8 @@ fun GameOverOverlayScreen(
 
 @Composable
 fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
+    var showTutorial by remember { mutableStateOf(false) }
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -3430,6 +3634,40 @@ fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         HeaderProfileDeck(profile = profile, viewModel = viewModel)
+
+        Card(
+            colors = CardDefaults.cardColors(containerColor = CyberPrimary.copy(alpha = 0.12f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, CyberPrimary.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                .clickable { showTutorial = true }
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "❓", fontSize = 22.sp)
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "HOW TO PLAY",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberPrimary,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                        text = "Controls, power-ups, hazards, worlds & more",
+                        fontSize = 11.sp,
+                        color = CyberOnSurface.copy(alpha = 0.7f),
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+                Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = CyberPrimary)
+            }
+        }
 
         Card(
             colors = CardDefaults.cardColors(containerColor = CyberSurface),
@@ -3530,6 +3768,155 @@ fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
             )
         }
     }
+    if (showTutorial) {
+        TutorialScreen(onBack = { showTutorial = false })
+    }
+    }
+}
+
+@Composable
+private fun TutorialSection(icon: String, title: String, points: List<String>) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = CyberSurface),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, CyberPrimary.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "$icon $title",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = CyberPrimary,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(bottom = 10.dp)
+            )
+            points.forEach { point ->
+                Row(modifier = Modifier.padding(bottom = 8.dp)) {
+                    Text(
+                        text = "• ",
+                        color = CyberPrimary,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        text = point,
+                        color = CyberOnSurface,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TutorialScreen(onBack: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(CyberBackground)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = CyberPrimary)
+                }
+                Text(
+                    text = "HOW TO PLAY",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = CyberPrimary,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                TutorialSection("🎮", "THE BASICS", listOf(
+                    "Drag up or down anywhere on screen to move — your pilot always flies forward on its own.",
+                    "Survive as long as you can. Distance, zones cleared, and score all add up the further you fly.",
+                    "The closer you stay to the glowing guide line, the more points you earn each moment — precision pays."
+                ))
+                TutorialSection("⛽", "FUEL", listOf(
+                    "Your fuel bar drains as you fly. Run out and you'll need to refuel or revive to keep going.",
+                    "Refuel with gems mid-run — the cost rises each time you refuel in the same life, up to 6 refuels per life.",
+                    "Fly through floating fuel canisters to top up for free."
+                ))
+                TutorialSection("💔", "REVIVES", listOf(
+                    "When you're hit with no fuel left, revive with gems or by watching a short ad to keep your run going.",
+                    "You get up to 3 revives per run — after that, it's game over and your run is banked to your profile."
+                ))
+                TutorialSection("💎", "GEMS", listOf(
+                    "Gems are the main currency — collect them mid-run, and earn more from sector bonuses, missions, and daily rewards.",
+                    "Spend gems on refuels, revives, and pilot skins in the Skins shop."
+                ))
+                TutorialSection("⚡", "POWER-UPS", listOf(
+                    "🛡️ Shield — blocks one hit, then breaks.",
+                    "🧲 Magnet — pulls nearby gems, fuel, and power-ups toward you.",
+                    "🐌 Time Slow — slows the whole track down for a few seconds.",
+                    "👻 Ghost Mode — fly straight through obstacles for a short time.",
+                    "2️⃣ Score x2 / 5️⃣ Score x5 — temporary score multipliers.",
+                    "✨ Invincibility — nothing can hurt you, except a Blink Strike creature while it's visible.",
+                    "💥 Boom Clear — instantly wipes out obstacles in the path directly ahead of you.",
+                    "🔻 Shrink — shrinks your hitbox, making you harder to hit.",
+                    "↔️ Lane Warp — instantly snaps you onto the safest line.",
+                    "⏩ Zone Skip — instantly jumps you ahead to the next zone.",
+                    "👑 Legendary Aura — grants every other power-up at once for a short time."
+                ))
+                TutorialSection("🚧", "OBSTACLES & HAZARDS", listOf(
+                    "Pillars, lasers, blades, stalactites, barriers, zap fields and more — each zone mixes different hazard types together.",
+                    "⚡ Blink Strike creatures (wolf, raptor, hornet, arachnid, wraith) flicker between visible and invisible. They can only hurt you while VISIBLE — while invisible they're harmless, so time your pass through the invisible phase.",
+                    "Blink Strike creatures ignore shields and invincibility — while visible, dodging is the only way past.",
+                    "🛸 Drones hover and slowly home in on your lane, and sometimes fire a quick energy shot — a red targeting ring means one's locked onto you."
+                ))
+                TutorialSection("👹", "BOSSES", listOf(
+                    "A boss appears roughly every 5th zone, with its health bar shown at the top of the screen while active.",
+                    "Each world has its own unique boss. Defeating it grants bonus rewards and counts toward that world's completion."
+                ))
+                TutorialSection("🔥", "COMBO & MASTERY", listOf(
+                    "Fly precisely along the guide line and your combo streak builds, boosting your score multiplier the longer you hold it.",
+                    "Any hit resets your combo streak to zero — clean, precise flying is what really drives your score.",
+                    "Your best-ever streak is saved to your profile as a permanent skill record, separate from gems."
+                ))
+                TutorialSection("🚀", "SECTORS", listOf(
+                    "Every 2 zones is a new \"sector\" — obstacles, mechanics, and the environment are guaranteed to shift into something different.",
+                    "Crossing into a new sector gives you a small gem bonus, with the option to watch an ad to double it."
+                ))
+                TutorialSection("📅", "SPECIAL DAYS", listOf(
+                    "Wednesdays — precision scoring day: tight, accurate flying pays out noticeably more points than usual.",
+                    "Fridays — Golden Day: your entire score is multiplied x3 for the whole run.",
+                    "Saturdays — Boss Day: bosses can show up far more often than usual, on top of the normal every-5th-zone pattern."
+                ))
+                TutorialSection("🌍", "WORLDS & PROGRESSION", listOf(
+                    "5 main worlds carry the core story, each one returning in escalating phases the further you fly.",
+                    "Special Mission worlds unlock as you complete Daily, Weekly, and Monthly missions.",
+                    "New Game+ worlds unlock after you've beaten the final main-story boss — the true endgame for players who've mastered the run."
+                ))
+                TutorialSection("🎯", "MISSIONS", listOf(
+                    "Check the Special tab for Daily, Weekly, and Monthly missions — completing them earns gems and unlocks Special World access."
+                ))
+                TutorialSection("👑", "PRO", listOf(
+                    "Pro unlocks Worlds 4 and 5, every world's later phases, ad-free play, and more.",
+                    "Everything you've earned stays yours either way — Pro just opens up more of the map."
+                ))
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+        }
+    }
 }
 
 @Composable
@@ -3623,10 +4010,11 @@ fun PaywallDialog(onDismiss: () -> Unit, reason: String) {
                 ) {
                     Text("SUBSCRIBE ANNUAL", color = CyberBackground, fontFamily = FontFamily.Monospace)
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                TextButton(onClick = onDismiss) {
-                    Text("MAYBE LATER", color = CyberOnSurface, fontFamily = FontFamily.Monospace)
-                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("MAYBE LATER", color = CyberOnSurface, fontFamily = FontFamily.Monospace)
             }
         },
         containerColor = CyberSurface,
