@@ -100,7 +100,20 @@ data class SimulationState(
     // any obstacle/bullet hit. Rewards sustained skill, not just survival —
     // a second, independent progression axis alongside gems.
     val comboStreak: Int = 0,
-    val peakComboStreak: Int = 0
+    val peakComboStreak: Int = 0,
+    // Sector system: every 2 zones is a "sector" with guaranteed-different
+    // obstacle set/mechanics/environment from the previous one (see
+    // ZoneGenerator). These fields drive the on-screen banner + gem bonus
+    // + optional rewarded-ad double that fires on every sector transition.
+    val currentSectorNumber: Int = 0,
+    val sectorBannerText: String = "",
+    val sectorBannerUntilTick: Int = 0,
+    val sectorBonusPending: Int = 0,
+    val sectorBonusExpiresAtTick: Int = 0,
+    // Stable per-run seed for zone DNA generation (obstacle set,
+    // environment, mechanics) — must persist across revives so the
+    // sequence doesn't shift/reshuffle at the exact moment a player revives.
+    val runSeed: Long = 0L
 )
 class NeonRushViewModel(
     private val gameDao: GameDao,
@@ -208,6 +221,20 @@ class NeonRushViewModel(
         gameDao.updateProfile { prof -> MissionManager.recordAdWatched(prof) }
     }
 }
+    // Doubles the sector gem bonus after a rewarded ad. The base amount was
+    // already credited the instant the sector transition fired; this adds
+    // the same amount again, then clears the offer so the button disappears.
+    fun claimSectorAdBonus() {
+        val pending = _simState.value.sectorBonusPending
+        if (pending <= 0) return
+        viewModelScope.launch {
+            gameDao.updateProfile { prof ->
+                val afterMissionUpdate = MissionManager.recordAdWatched(prof)
+                afterMissionUpdate.copy(gems = afterMissionUpdate.gems + pending)
+            }
+        }
+        _simState.value = _simState.value.copy(sectorBonusPending = 0, sectorBonusExpiresAtTick = 0)
+    }
     fun getSoundEffectsEnabled(): Boolean = NeonSoundEngine.getSoundEffectsEnabled()
     fun setSoundEffectsEnabled(enabled: Boolean) = NeonSoundEngine.setSoundEffectsEnabled(enabled)
     fun getAmbientEnabled(): Boolean = NeonSoundEngine.getAmbientEnabled()
@@ -730,7 +757,18 @@ fun freezeStreak() {
                 elements.add(VisualTrackElement("${baseId}tu1", 1.2f, ghostY - 20, "obstacle", "TUNNEL_TOP"))
                 elements.add(VisualTrackElement("${baseId}tu2", 1.2f, ghostY + 20, "obstacle", "TUNNEL_BOTTOM"))
             }
-            23 -> elements.add(VisualTrackElement("${baseId}dr", 1.2f, ghostY + rand.nextInt(-15, 15).coerceIn(15, 85), "obstacle", "DRONE"))
+            23 -> {
+                val droneY = ghostY + rand.nextInt(-15, 15).coerceIn(15, 85)
+                elements.add(VisualTrackElement("${baseId}dr", 1.2f, droneY, "obstacle", "DRONE"))
+                // 30% chance the drone also fires a companion projectile —
+                // reuses the existing "bullet" collision handling (no new
+                // damage logic needed), spawned slightly ahead so dodging
+                // the drone's body and dodging its shot are two separate
+                // reads, not the same dodge twice.
+                if (rand.nextInt(100) < 30) {
+                    elements.add(VisualTrackElement("${baseId}drb", 1.35f, droneY + rand.nextInt(-10, 10), "bullet", "DRONE_SHOT"))
+                }
+            }
             else -> elements.add(VisualTrackElement("${baseId}st", 1.2f, ghostY + rand.nextInt(-12, 12).coerceIn(15, 85), "obstacle", "STANDARD"))
         }
         // BLINK STRIKE: a new, per-world "creature" hazard that flickers
@@ -899,9 +937,26 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             gameDao.updateProfile { p -> p.copy(currentRunGemsCredited = 0, currentRunBossZonesRewarded = "", currentRunMilestonesRewarded = "") }
             var tick = 0
             val random = kotlin.random.Random(System.currentTimeMillis())
+            // Stable per-run seed for zone DNA (obstacle set, environment,
+            // mechanics). Previously each tick called random.nextLong() fresh
+            // and fed that into generateZone(), so the "seed" changed every
+            // single tick — meaning obstacleSetId/environment could flicker
+            // tick-to-tick within the same zone instead of staying stable.
+            // Capturing one seed here and reusing it for the whole run fixes
+            // that, and is what makes the sector system's no-repeat
+            // guarantees actually hold (they rely on a stable seed).
+            val runSeed = random.nextLong()
             var runStartTime = System.currentTimeMillis()
             val currentFrustration = frustrationIndex
-            val spacingBias = if (currentFrustration > 3.0f) 0.85f else if (avgZoneReached > 15f) 1.10f else 1.0f
+            // Meta-progression difficulty: each fresh run should feel
+            // meaningfully more challenging than the last as the player
+            // racks up experience — not just within one run, but run over
+            // run. Asymptotic like the in-run curves (speed/spacing/
+            // mechanics), so it keeps nudging upward for a very long time
+            // without ever hard-capping, and totalRuns=0 gives exactly 1.0x
+            // (brand-new players see zero change from this).
+            val metaDifficultyMultiplier = 1f + 0.4f * (1f - kotlin.math.exp(-prof.totalRuns / 250f))
+            val spacingBias = (if (currentFrustration > 3.0f) 0.85f else if (avgZoneReached > 15f) 1.10f else 1.0f) * metaDifficultyMultiplier
             val isLuckyActive = isFirstLucky
             var liveDifficultyMultiplier = 1.0f
             var ticksSinceLastHit = 0
@@ -931,17 +986,39 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (hasHyperdrive) {
                     speedInPx *= 2.0f
                 }
-                speedInPx *= liveDifficultyMultiplier * selectedDifficulty.speedMultiplier
+                speedInPx *= liveDifficultyMultiplier * selectedDifficulty.speedMultiplier * metaDifficultyMultiplier
                 val tickDistanceOffset = speedInPx * 3.6f
                 val nextDistance = state.distanceMeters + tickDistanceOffset
                 val zoneM = (-776.25 + kotlin.math.sqrt(602564.0625 + 405.0 * nextDistance)) / 202.5
                 val nextZoneNumber = (kotlin.math.floor(zoneM).toInt() + 1).coerceAtLeast(1)
-                var activeDna = ZoneGenerator.generateZone(nextZoneNumber, random.nextLong())
+                var activeDna = ZoneGenerator.generateZone(nextZoneNumber, runSeed)
                 if (state.specialWorldId != null) activeDna = overrideEnvironment(activeDna, state.specialWorldId)
                 var updatedMsg = state.feedbackMessage
+                var sectorBannerText = state.sectorBannerText
+                var sectorBannerUntilTick = state.sectorBannerUntilTick
+                var sectorBonusPending = state.sectorBonusPending
+                var sectorBonusExpiresAtTick = state.sectorBonusExpiresAtTick
+                var nextSectorNumber = state.currentSectorNumber
                 if (nextZoneNumber != state.currentZoneNumber) {
                     soundEngine.playTone(660f, 300, "sawtooth")
                     updatedMsg = "ENTERING: ${activeDna.environmentName} ${activeDna.environmentEmoji}"
+
+                    // Sector transition: every 2 zones is a "sector" with a
+                    // guaranteed-different obstacle set/mechanics/environment
+                    // (see ZoneGenerator). Announce it clearly with a banner
+                    // + sound + small gem bonus, and a brief window to watch
+                    // an ad and double that bonus.
+                    val computedSectorNumber = (nextZoneNumber - 1) / 2
+                    if (computedSectorNumber != state.currentSectorNumber) {
+                        nextSectorNumber = computedSectorNumber
+                        val sectorBonusGems = 8 + (computedSectorNumber / 10).coerceAtMost(12)
+                        gameDao.updateProfile { current -> current.copy(gems = current.gems + sectorBonusGems) }
+                        soundEngine.playTone(880f, 200, "triangle")
+                        sectorBannerText = "SECTOR ${computedSectorNumber + 1}: ${activeDna.environmentName} ${activeDna.environmentEmoji}  +$sectorBonusGems💎"
+                        sectorBannerUntilTick = tick + 30
+                        sectorBonusPending = sectorBonusGems
+                        sectorBonusExpiresAtTick = tick + 45
+                    }
 
                     val isCheckpointZone = nextZoneNumber % 50 == 0
                     if (isCheckpointZone) {
@@ -991,6 +1068,15 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     if (pullActive && elem.type != "obstacle" && elem.type != "bullet" && nextX > 0.15f && nextX < 0.65f) {
                         val diffY = userY - actualY
                         actualY += (diffY * 0.25f).toInt()
+                    }
+                    if (elem.subType == "DRONE" && nextX > 0.05f && nextX < 0.9f) {
+                        // Homing: the drone gradually drifts toward the
+                        // player's current lane instead of holding a fixed
+                        // Y, giving it a genuine sense of pursuit. Gentle
+                        // rate (6%/tick) keeps it fair/dodgeable rather than
+                        // an inescapable lock-on.
+                        val diffY = userY - actualY
+                        actualY += (diffY * 0.06f).toInt()
                     }
                     updatedElements.add(elem.copy(xOffsetFraction = nextX, yMatchPos = actualY))
                 }
@@ -1098,9 +1184,11 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 val hasGhostMode = nextDurationsMap.containsKey("PU4") || activeDna.mechanicIds.contains(3)
                 var hasShield = nextDurationsMap.containsKey("PU1")
                 var hitThisTick = false
+                var boomClearTriggered = false
                 for (elem in updatedElements) {
                     if (!isBlinkHazardVisible(elem, tick)) continue
-                    val isAligned = elem.xOffsetFraction >= 0.16f && elem.xOffsetFraction <= 0.26f
+                    val prevX = elem.xOffsetFraction + (speedInPx * 0.018f)
+                    val isAligned = prevX >= 0.16f && elem.xOffsetFraction <= 0.26f
                     if (isAligned) {
                         val verticalDist = Math.abs(userY - elem.yMatchPos)
                         val collisionRadius = if (state.activePowerupDurations.containsKey("PU9")) 8 else 15
@@ -1145,7 +1233,24 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 "powerup" -> {
                                     soundEngine.playShieldPowerup()
                                     val puId = elem.subType
-                                    if (puId == "PU10") {
+                                    if (puId == "PU8") {
+                                        boomClearTriggered = true
+                                        updatedMsg = "BOOM CLEAR! PATH AHEAD WIPED!"
+                                        repeat(14) { i ->
+                                            activeParticles.add(
+                                                Particle(
+                                                    id = "boom_${tick}_$i",
+                                                    x = elem.xOffsetFraction,
+                                                    y = elem.yMatchPos.toFloat(),
+                                                    vx = random.nextFloat() * 0.05f - 0.025f,
+                                                    vy = random.nextFloat() * 14f - 7f,
+                                                    maxAge = 18,
+                                                    colorArgb = 0xFFFF8800L,
+                                                    kind = "explosion"
+                                                )
+                                            )
+                                        }
+                                    } else if (puId == "PU10") {
                                         val perfectY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                                         _simState.value = _simState.value.copy(userYPos = perfectY)
                                         updatedMsg = "LANE WARP COMPLETE! DRIFT SAFE LINE SECURED!"
@@ -1213,6 +1318,14 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         }
                     }
                     finalElements.add(elem)
+                }
+                if (boomClearTriggered) {
+                    // Clear obstacles/bullets in the path immediately ahead
+                    // of the player — a real "boom clear" effect, not just
+                    // a themed name with nothing behind it.
+                    finalElements.removeAll {
+                        (it.type == "obstacle" || it.type == "bullet") && it.xOffsetFraction in 0.05f..0.6f
+                    }
                 }
                 val agedParticles = activeParticles.mapNotNull { p ->
                     val newAge = p.age + 1
@@ -1282,6 +1395,12 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     score = nextScore,
                     comboStreak = nextComboStreak,
                     peakComboStreak = nextPeakComboStreak,
+                    runSeed = runSeed,
+                    currentSectorNumber = nextSectorNumber,
+                    sectorBannerText = sectorBannerText,
+                    sectorBannerUntilTick = sectorBannerUntilTick,
+                    sectorBonusPending = sectorBonusPending,
+                    sectorBonusExpiresAtTick = sectorBonusExpiresAtTick,
                     currentZoneName = activeDna.name,
                     speedKmh = (speedInPx * 40).toInt(),
                     distanceMeters = nextDistance,
@@ -1422,7 +1541,14 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (currentState.score >= ms) milestonesTriggered.add(ms)
             }
             val random = kotlin.random.Random(System.currentTimeMillis())
+            // Reuse the ORIGINAL run's seed (persisted in state) rather than
+            // generating a new one — this is a revive, not a fresh run, so
+            // the zone DNA sequence must stay continuous, not reshuffle.
+            val runSeed = currentState.runSeed
             val prof = gameDao.getProfileDirect() ?: GameProfile()
+            // Same meta-difficulty scalar as loop 1 — a revive continues the
+            // same run, so its calibration shouldn't reset or diverge.
+            val metaDifficultyMultiplier = 1f + 0.4f * (1f - kotlin.math.exp(-prof.totalRuns / 250f))
             var tick = currentTick
             while (_simState.value.isStarted && !_simState.value.isCompleted) {
                 delay(120)
@@ -1450,16 +1576,38 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (hasHyperdrive) {
                     speedInPx *= 2.0f
                 }
+                speedInPx *= metaDifficultyMultiplier
                 val tickDistanceOffset = speedInPx * 3.6f
                 val nextDistance = state.distanceMeters + tickDistanceOffset
                 val zoneM = (-776.25 + kotlin.math.sqrt(602564.0625 + 405.0 * nextDistance)) / 202.5
                 val nextZoneNumber = (kotlin.math.floor(zoneM).toInt() + 1).coerceAtLeast(1)
-                var activeDna = ZoneGenerator.generateZone(nextZoneNumber, random.nextLong())
+                var activeDna = ZoneGenerator.generateZone(nextZoneNumber, runSeed)
                 if (state.specialWorldId != null) activeDna = overrideEnvironment(activeDna, state.specialWorldId)
                 var updatedMsg = state.feedbackMessage
+                var sectorBannerText = state.sectorBannerText
+                var sectorBannerUntilTick = state.sectorBannerUntilTick
+                var sectorBonusPending = state.sectorBonusPending
+                var sectorBonusExpiresAtTick = state.sectorBonusExpiresAtTick
+                var nextSectorNumber = state.currentSectorNumber
                 if (nextZoneNumber != state.currentZoneNumber) {
                     soundEngine.playTone(660f, 300, "sawtooth")
                     updatedMsg = "ENTERING: ${activeDna.environmentName} ${activeDna.environmentEmoji}"
+
+                    // Sector transition: same as loop 1 — every 2 zones is a
+                    // "sector" with a guaranteed-different obstacle
+                    // set/mechanics/environment. Announce it with a banner +
+                    // sound + small gem bonus, plus a brief ad-double window.
+                    val computedSectorNumber = (nextZoneNumber - 1) / 2
+                    if (computedSectorNumber != state.currentSectorNumber) {
+                        nextSectorNumber = computedSectorNumber
+                        val sectorBonusGems = 8 + (computedSectorNumber / 10).coerceAtMost(12)
+                        gameDao.updateProfile { current -> current.copy(gems = current.gems + sectorBonusGems) }
+                        soundEngine.playTone(880f, 200, "triangle")
+                        sectorBannerText = "SECTOR ${computedSectorNumber + 1}: ${activeDna.environmentName} ${activeDna.environmentEmoji}  +$sectorBonusGems💎"
+                        sectorBannerUntilTick = tick + 30
+                        sectorBonusPending = sectorBonusGems
+                        sectorBonusExpiresAtTick = tick + 45
+                    }
 
                     val isCheckpointZone = nextZoneNumber % 50 == 0
                     if (isCheckpointZone) {
@@ -1512,6 +1660,15 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         val diffY = userY - actualY
                         actualY += (diffY * 0.25f).toInt()
                     }
+                    if (elem.subType == "DRONE" && nextX > 0.05f && nextX < 0.9f) {
+                        // Homing: the drone gradually drifts toward the
+                        // player's current lane instead of holding a fixed
+                        // Y, giving it a genuine sense of pursuit. Gentle
+                        // rate (6%/tick) keeps it fair/dodgeable rather than
+                        // an inescapable lock-on.
+                        val diffY = userY - actualY
+                        actualY += (diffY * 0.06f).toInt()
+                    }
                     updatedElements.add(elem.copy(xOffsetFraction = nextX, yMatchPos = actualY))
                 }
                 if (tick % 10 == 0 && !activeDna.mechanicIds.contains(19)) {
@@ -1523,7 +1680,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         updatedElements.add(VisualTrackElement("fuel_${tick}", gridX, routeTargetY + random.nextInt(-5, 5), "fuel"))
                     }
                 }
-                val spacingVal = (activeDna.obstacleSpacingAndDensity / 12f).coerceAtLeast(4f).toInt()
+                val spacingVal = (activeDna.obstacleSpacingAndDensity / (12f * metaDifficultyMultiplier)).coerceAtLeast(4f).toInt()
                 if (tick % spacingVal == 0) {
                     val targetGhostY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     val obstacles = spawnObstacleForSet(activeDna.obstacleSetId, tick, random, targetGhostY, nextZoneNumber)
@@ -1598,9 +1755,11 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 val hasGhostMode = nextDurationsMap.containsKey("PU4") || activeDna.mechanicIds.contains(3)
                 var hasShield = nextDurationsMap.containsKey("PU1")
                 var hitThisTick = false
+                var boomClearTriggered = false
                 for (elem in updatedElements) {
                     if (!isBlinkHazardVisible(elem, tick)) continue
-                    val isAligned = elem.xOffsetFraction >= 0.16f && elem.xOffsetFraction <= 0.26f
+                    val prevX = elem.xOffsetFraction + (speedInPx * 0.018f)
+                    val isAligned = prevX >= 0.16f && elem.xOffsetFraction <= 0.26f
                     if (isAligned) {
                         val verticalDist = Math.abs(userY - elem.yMatchPos)
                         val collisionRadius = if (state.activePowerupDurations.containsKey("PU9")) 8 else 15
@@ -1659,7 +1818,24 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                             )
                                         )
                                     }
-                                    if (puId == "PU10") {
+                                    if (puId == "PU8") {
+                                        boomClearTriggered = true
+                                        updatedMsg = "BOOM CLEAR! PATH AHEAD WIPED!"
+                                        repeat(14) { i ->
+                                            activeParticles.add(
+                                                Particle(
+                                                    id = "boom_${tick}_$i",
+                                                    x = elem.xOffsetFraction,
+                                                    y = elem.yMatchPos.toFloat(),
+                                                    vx = random.nextFloat() * 0.05f - 0.025f,
+                                                    vy = random.nextFloat() * 14f - 7f,
+                                                    maxAge = 18,
+                                                    colorArgb = 0xFFFF8800L,
+                                                    kind = "explosion"
+                                                )
+                                            )
+                                        }
+                                    } else if (puId == "PU10") {
                                         val perfectY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                                         _simState.value = _simState.value.copy(userYPos = perfectY)
                                     } else if (puId == "PU11") {
@@ -1707,6 +1883,14 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         }
                     }
                     finalElements.add(elem)
+                }
+                if (boomClearTriggered) {
+                    // Clear obstacles/bullets in the path immediately ahead
+                    // of the player — a real "boom clear" effect, not just
+                    // a themed name with nothing behind it.
+                    finalElements.removeAll {
+                        (it.type == "obstacle" || it.type == "bullet") && it.xOffsetFraction in 0.05f..0.6f
+                    }
                 }
                 val agedParticles = activeParticles.mapNotNull { p ->
                     val newAge = p.age + 1
@@ -1762,6 +1946,12 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     score = nextScore,
                     comboStreak = nextComboStreak,
                     peakComboStreak = nextPeakComboStreak,
+                    runSeed = runSeed,
+                    currentSectorNumber = nextSectorNumber,
+                    sectorBannerText = sectorBannerText,
+                    sectorBannerUntilTick = sectorBannerUntilTick,
+                    sectorBonusPending = sectorBonusPending,
+                    sectorBonusExpiresAtTick = sectorBonusExpiresAtTick,
                     currentZoneName = activeDna.name,
                     speedKmh = (speedInPx * 40).toInt(),
                     distanceMeters = nextDistance,
