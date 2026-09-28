@@ -119,7 +119,17 @@ private val worldBackgroundLayers: Map<Int, List<BgLayer>> = mapOf(
     // Worlds 4-5 keep their original single static background until they get
     // the same layered treatment — speedFactor 0f means "don't scroll".
     4 to listOf(BgLayer(R.drawable.bg_world4_green_hell, 0f)),
-    5 to listOf(BgLayer(R.drawable.bg_world5_red_protocol, 0f))
+    // World 5 (Red Protocol): full 5-layer parallax, same treatment as
+    // Worlds 2-3 — non-seamless "hero scene" art (content centered,
+    // transparent margins), so it pans-then-crossfades rather than tiling.
+    // l1 sky shows the hunter-drones from the boss intro lore directly.
+    5 to listOf(
+        BgLayer(R.drawable.bg_world5_l1_sky, 0.02f, seamless = false),
+        BgLayer(R.drawable.bg_world5_l2_skyline, 0.15f, seamless = false),
+        BgLayer(R.drawable.bg_world5_l3_street_walls, 0.35f, seamless = false),
+        BgLayer(R.drawable.bg_world5_l4_road, 0.55f, seamless = false),
+        BgLayer(R.drawable.bg_world5_l5_foreground, 0.85f, seamless = false)
+    )
     // Special-mode worlds 6 (Signal Fracture), 7 (Frozen Veil), and 8 (Apex
     // Signal) have no entry yet — ParallaxWorldBackground falls back to a
     // themed color gradient for any world id missing here. Add a 6/7/8 entry
@@ -2606,7 +2616,8 @@ val bossImagesByWorld = mapOf(
             }
 
             androidx.compose.animation.AnimatedVisibility(
-                visible = simState.tickIndex < simState.sectorBannerUntilTick,
+                visible = simState.tickIndex < simState.sectorBannerUntilTick ||
+                    (simState.sectorBonusPending > 0 && simState.tickIndex < simState.sectorBonusExpiresAtTick),
                 enter = androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(200)),
                 exit = androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(500)),
                 modifier = Modifier.fillMaxWidth()
@@ -2615,11 +2626,24 @@ val bossImagesByWorld = mapOf(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    val canDoubleBonus = simState.sectorBonusPending > 0 &&
+                        simState.tickIndex < simState.sectorBonusExpiresAtTick && !isPro
                     Box(
                         modifier = Modifier
                             .padding(top = 6.dp)
                             .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
                             .border(1.dp, Color(0xFFFFD700).copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                            .then(
+                                if (canDoubleBonus) Modifier.clickable {
+                                    // Tapping the banner itself works too — players
+                                    // naturally tap the thing they're looking at.
+                                    activity?.let {
+                                        AdMobManager.showRewardedIfReady(it) {
+                                            viewModel.claimSectorAdBonus()
+                                        }
+                                    }
+                                } else Modifier
+                            )
                             .padding(vertical = 6.dp, horizontal = 14.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -3074,12 +3098,28 @@ val bossImagesByWorld = mapOf(
         drawCircle(color = boltColor.copy(alpha = 0.9f), radius = ch * 0.014f, center = Offset(x, y))
         drawCircle(color = Color.White.copy(alpha = 0.8f), radius = ch * 0.006f, center = Offset(x, y))
     } else {
-        val baseSize = ch * 0.05f
+        val baseSize = ch * 0.07f
         val w = baseSize * (bulletImg.width.toFloat() / bulletImg.height.toFloat())
+        val bulletFlicker = 0.8f + 0.2f * sin(simState.tickIndex * 0.6f)
+        // Glow halo behind the sprite, plus a short motion trail streaking
+        // back toward where it came from — a static image alone read as
+        // flat and easy to miss against busy backgrounds.
+        drawCircle(
+            color = Color(0xFFFF4433).copy(alpha = 0.35f * bulletFlicker),
+            radius = baseSize * 0.75f,
+            center = Offset(x, y)
+        )
+        drawLine(
+            color = Color(0xFFFF4433).copy(alpha = 0.3f * bulletFlicker),
+            start = Offset(x + w * 1.1f, y),
+            end = Offset(x + w * 0.4f, y),
+            strokeWidth = baseSize * 0.15f
+        )
         drawImage(
             image = bulletImg,
             dstOffset = IntOffset((x - w / 2f).roundToInt(), (y - baseSize / 2f).roundToInt()),
-            dstSize = IntSize(w.roundToInt(), baseSize.roundToInt())
+            dstSize = IntSize(w.roundToInt(), baseSize.roundToInt()),
+            alpha = bulletFlicker
         )
     }
 } 
@@ -3106,7 +3146,19 @@ val bossImagesByWorld = mapOf(
                             val ghostY = ch * (simState.ghostYPos / 100f)
                             val ghostX = cw * 0.2f
 
-                            val markerSize = ch * 0.05f
+                            val markerSize = ch * 0.065f
+    val markerPulse = 0.5f + 0.5f * sin(simState.tickIndex * 0.2f)
+    drawCircle(
+        color = Color(0xFF00E5FF).copy(alpha = 0.25f + 0.15f * markerPulse),
+        radius = markerSize * (0.75f + 0.15f * markerPulse),
+        center = Offset(ghostX, ghostY)
+    )
+    drawCircle(
+        color = Color(0xFF00E5FF).copy(alpha = 0.5f),
+        radius = markerSize * 0.55f,
+        center = Offset(ghostX, ghostY),
+        style = Stroke(1.5.dp.toPx())
+    )
     drawImage(
         image = ghostMarkerImg,
         dstOffset = IntOffset((ghostX - markerSize / 2f).roundToInt(), (ghostY - markerSize / 2f).roundToInt()),
@@ -3775,38 +3827,150 @@ fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
 }
 
 @Composable
-private fun TutorialSection(icon: String, title: String, points: List<String>) {
+private fun TutorialCard(
+    icon: String,
+    title: String,
+    accent: Color = CyberPrimary,
+    content: @Composable ColumnScope.() -> Unit
+) {
     Card(
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = CyberSurface),
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, CyberPrimary.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+            .border(1.dp, accent.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "$icon $title",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                color = CyberPrimary,
-                fontFamily = FontFamily.Monospace,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(bottom = 10.dp)
+            ) {
+                Text(text = icon, fontSize = 18.sp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = title,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = accent,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+            content()
+        }
+    }
+}
+
+@Composable
+private fun TutorialBullet(text: String) {
+    Row(modifier = Modifier.padding(bottom = 6.dp)) {
+        Text(
+            text = "• ",
+            color = CyberPrimary,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 12.sp
+        )
+        Text(
+            text = text,
+            color = CyberOnSurface,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 12.sp,
+            lineHeight = 17.sp
+        )
+    }
+}
+
+// One row = a real in-game picture + name + what it does, so players learn
+// to recognise the actual sprites instead of guessing from emoji.
+@Composable
+private fun TutorialIconRow(
+    image: ImageBitmap,
+    name: String,
+    description: String,
+    accent: Color = CyberPrimary
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(50.dp)
+                .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                .border(1.dp, accent.copy(alpha = 0.4f), RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                bitmap = image,
+                contentDescription = name,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.size(40.dp)
             )
-            points.forEach { point ->
-                Row(modifier = Modifier.padding(bottom = 8.dp)) {
-                    Text(
-                        text = "• ",
-                        color = CyberPrimary,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp
-                    )
-                    Text(
-                        text = point,
-                        color = CyberOnSurface,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
-                        lineHeight = 17.sp
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = name,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp
+            )
+            Text(
+                text = description,
+                color = CyberOnSurface.copy(alpha = 0.85f),
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp,
+                lineHeight = 15.sp
+            )
+        }
+    }
+}
+
+// Horizontal strip of labelled thumbnails (Blink Strike creatures, bosses).
+@Composable
+private fun TutorialThumbStrip(
+    items: List<Pair<ImageBitmap, String>>,
+    accent: Color = CyberPrimary
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        items.forEach { (img, label) ->
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.width(78.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(76.dp)
+                        .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                        .border(1.dp, accent.copy(alpha = 0.4f), RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        bitmap = img,
+                        contentDescription = label,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(4.dp)
                     )
                 }
+                Text(
+                    text = label,
+                    fontSize = 9.sp,
+                    color = CyberOnSurface,
+                    fontFamily = FontFamily.Monospace,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 11.sp,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
             }
         }
     }
@@ -3814,6 +3978,52 @@ private fun TutorialSection(icon: String, title: String, points: List<String>) {
 
 @Composable
 fun TutorialScreen(onBack: () -> Unit) {
+    // Real in-game sprites, so what players see here matches what they'll see mid-run.
+    val pilotImg = ImageBitmap.imageResource(id = R.drawable.pilot_run_1)
+    val ghostImg = ImageBitmap.imageResource(id = R.drawable.marker_ghost_rival)
+    val gemPic = ImageBitmap.imageResource(id = R.drawable.gem)
+    val coinPic = ImageBitmap.imageResource(id = R.drawable.coin)
+
+    val puShield = ImageBitmap.imageResource(id = R.drawable.powerup_shield)
+    val puMagnet = ImageBitmap.imageResource(id = R.drawable.powerup_magnet)
+    val puSlow = ImageBitmap.imageResource(id = R.drawable.powerup_time_slow)
+    val puGhost = ImageBitmap.imageResource(id = R.drawable.powerup_ghost)
+    val puX2 = ImageBitmap.imageResource(id = R.drawable.powerup_score_x2)
+    val puX5 = ImageBitmap.imageResource(id = R.drawable.powerup_score_x5)
+    val puInvinc = ImageBitmap.imageResource(id = R.drawable.powerup_invincibility)
+    val puBoom = ImageBitmap.imageResource(id = R.drawable.powerup_boom_clear)
+    val puShrink = ImageBitmap.imageResource(id = R.drawable.powerup_shrink)
+    val puWarp = ImageBitmap.imageResource(id = R.drawable.powerup_lane_warp)
+    val puSkip = ImageBitmap.imageResource(id = R.drawable.powerup_zone_skip)
+    val puAura = ImageBitmap.imageResource(id = R.drawable.powerup_legendary_aura)
+
+    val spikes = ImageBitmap.imageResource(id = R.drawable.spikes)
+    val laser = ImageBitmap.imageResource(id = R.drawable.laser1)
+    val saw = ImageBitmap.imageResource(id = R.drawable.sawblade)
+    val barrier = ImageBitmap.imageResource(id = R.drawable.obstacle_barrier)
+    val zap = ImageBitmap.imageResource(id = R.drawable.obstacle_zap_field)
+    val phantom = ImageBitmap.imageResource(id = R.drawable.obstacle_phantom)
+    val splitter = ImageBitmap.imageResource(id = R.drawable.obstacle_splitter_v2)
+    val tunnel = ImageBitmap.imageResource(id = R.drawable.obstacle_tunnel_top)
+    val standard = ImageBitmap.imageResource(id = R.drawable.obstacle_standard)
+    val drone = ImageBitmap.imageResource(id = R.drawable.drone)
+    val bossBullet = ImageBitmap.imageResource(id = R.drawable.hazard_bullet_boss)
+
+    val blinkWolf = ImageBitmap.imageResource(id = R.drawable.hazard_blink_wolf)
+    val blinkRaptor = ImageBitmap.imageResource(id = R.drawable.hazard_blink_raptor)
+    val blinkHornet = ImageBitmap.imageResource(id = R.drawable.hazard_blink_hornet)
+    val blinkArachnid = ImageBitmap.imageResource(id = R.drawable.hazard_blink_arachnid)
+    val blinkWraith = ImageBitmap.imageResource(id = R.drawable.hazard_blink_wraith)
+
+    val boss1 = ImageBitmap.imageResource(id = R.drawable.boss_blackout_front)
+    val boss2 = ImageBitmap.imageResource(id = R.drawable.boss_derelict_signal)
+    val boss3 = ImageBitmap.imageResource(id = R.drawable.boss_cell_block_zero)
+    val boss4 = ImageBitmap.imageResource(id = R.drawable.boss_green_hell)
+    val boss5 = ImageBitmap.imageResource(id = R.drawable.boss_red_protocol)
+    val boss6 = ImageBitmap.imageResource(id = R.drawable.boss_signal_fracture)
+    val boss7 = ImageBitmap.imageResource(id = R.drawable.boss_frozen_veil)
+    val boss8 = ImageBitmap.imageResource(id = R.drawable.boss_apex_signal)
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -3830,89 +4040,231 @@ fun TutorialScreen(onBack: () -> Unit) {
                 IconButton(onClick = onBack) {
                     Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = CyberPrimary)
                 }
-                Text(
-                    text = "HOW TO PLAY",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = CyberPrimary,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.weight(1f)
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "HOW TO PLAY",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberPrimary,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                        text = "Everything you need to fly like a pro",
+                        fontSize = 10.sp,
+                        color = CyberOnSurface.copy(alpha = 0.6f),
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
             }
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                TutorialSection("🎮", "THE BASICS", listOf(
-                    "Drag up or down anywhere on screen to move — your pilot always flies forward on its own.",
-                    "Survive as long as you can. Distance, zones cleared, and score all add up the further you fly.",
-                    "The closer you stay to the glowing guide line, the more points you earn each moment — precision pays."
-                ))
-                TutorialSection("⛽", "FUEL", listOf(
-                    "Your fuel bar drains as you fly. Run out and you'll need to refuel or revive to keep going.",
-                    "Refuel with gems mid-run — the cost rises each time you refuel in the same life, up to 6 refuels per life.",
-                    "Fly through floating fuel canisters to top up for free."
-                ))
-                TutorialSection("💔", "REVIVES", listOf(
-                    "When you're hit with no fuel left, revive with gems or by watching a short ad to keep your run going.",
-                    "You get up to 3 revives per run — after that, it's game over and your run is banked to your profile."
-                ))
-                TutorialSection("💎", "GEMS", listOf(
-                    "Gems are the main currency — collect them mid-run, and earn more from sector bonuses, missions, and daily rewards.",
-                    "Spend gems on refuels, revives, and pilot skins in the Skins shop."
-                ))
-                TutorialSection("⚡", "POWER-UPS", listOf(
-                    "🛡️ Shield — blocks one hit, then breaks.",
-                    "🧲 Magnet — pulls nearby gems, fuel, and power-ups toward you.",
-                    "🐌 Time Slow — slows the whole track down for a few seconds.",
-                    "👻 Ghost Mode — fly straight through obstacles for a short time.",
-                    "2️⃣ Score x2 / 5️⃣ Score x5 — temporary score multipliers.",
-                    "✨ Invincibility — nothing can hurt you, except a Blink Strike creature while it's visible.",
-                    "💥 Boom Clear — instantly wipes out obstacles in the path directly ahead of you.",
-                    "🔻 Shrink — shrinks your hitbox, making you harder to hit.",
-                    "↔️ Lane Warp — instantly snaps you onto the safest line.",
-                    "⏩ Zone Skip — instantly jumps you ahead to the next zone.",
-                    "👑 Legendary Aura — grants every other power-up at once for a short time."
-                ))
-                TutorialSection("🚧", "OBSTACLES & HAZARDS", listOf(
-                    "Pillars, lasers, blades, stalactites, barriers, zap fields and more — each zone mixes different hazard types together.",
-                    "⚡ Blink Strike creatures (wolf, raptor, hornet, arachnid, wraith) flicker between visible and invisible. They can only hurt you while VISIBLE — while invisible they're harmless, so time your pass through the invisible phase.",
-                    "Blink Strike creatures ignore shields and invincibility — while visible, dodging is the only way past.",
-                    "🛸 Drones hover and slowly home in on your lane, and sometimes fire a quick energy shot — a red targeting ring means one's locked onto you."
-                ))
-                TutorialSection("👹", "BOSSES", listOf(
-                    "A boss appears roughly every 5th zone, with its health bar shown at the top of the screen while active.",
-                    "Each world has its own unique boss. Defeating it grants bonus rewards and counts toward that world's completion."
-                ))
-                TutorialSection("🔥", "COMBO & MASTERY", listOf(
-                    "Fly precisely along the guide line and your combo streak builds, boosting your score multiplier the longer you hold it.",
-                    "Any hit resets your combo streak to zero — clean, precise flying is what really drives your score.",
-                    "Your best-ever streak is saved to your profile as a permanent skill record, separate from gems."
-                ))
-                TutorialSection("🚀", "SECTORS", listOf(
-                    "Every 2 zones is a new \"sector\" — obstacles, mechanics, and the environment are guaranteed to shift into something different.",
-                    "Crossing into a new sector gives you a small gem bonus, with the option to watch an ad to double it."
-                ))
-                TutorialSection("📅", "SPECIAL DAYS", listOf(
-                    "Wednesdays — precision scoring day: tight, accurate flying pays out noticeably more points than usual.",
-                    "Fridays — Golden Day: your entire score is multiplied x3 for the whole run.",
-                    "Saturdays — Boss Day: bosses can show up far more often than usual, on top of the normal every-5th-zone pattern."
-                ))
-                TutorialSection("🌍", "WORLDS & PROGRESSION", listOf(
-                    "5 main worlds carry the core story, each one returning in escalating phases the further you fly.",
-                    "Special Mission worlds unlock as you complete Daily, Weekly, and Monthly missions.",
-                    "New Game+ worlds unlock after you've beaten the final main-story boss — the true endgame for players who've mastered the run."
-                ))
-                TutorialSection("🎯", "MISSIONS", listOf(
-                    "Check the Special tab for Daily, Weekly, and Monthly missions — completing them earns gems and unlocks Special World access."
-                ))
-                TutorialSection("👑", "PRO", listOf(
-                    "Pro unlocks Worlds 4 and 5, every world's later phases, ad-free play, and more.",
-                    "Everything you've earned stays yours either way — Pro just opens up more of the map."
-                ))
+                // Hero banner
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(CyberPrimary.copy(alpha = 0.28f), CyberSecondary.copy(alpha = 0.18f))
+                            ),
+                            RoundedCornerShape(14.dp)
+                        )
+                        .border(1.dp, CyberPrimary.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Image(
+                        bitmap = pilotImg,
+                        contentDescription = "Pilot",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.size(64.dp)
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column {
+                        Text(
+                            text = "FLY. DODGE. MASTER THE LINE.",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            text = "Quick start: 1) Drag to steer  2) Stay on the ghost marker  3) Tap the fuel bar when it runs low",
+                            color = CyberOnSurface.copy(alpha = 0.85f),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            lineHeight = 14.sp,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                }
+
+                TutorialCard("🎮", "THE BASICS") {
+                    TutorialBullet("Drag up or down anywhere on the screen to steer. Your pilot flies forward on its own.")
+                    TutorialBullet("Survive as long as you can — distance, zones cleared and score all grow the further you fly.")
+                    TutorialIconRow(
+                        ghostImg, "Ghost marker",
+                        "This glowing marker is your guide line. The closer you stay to it, the more points you earn every moment."
+                    )
+                    TutorialIconRow(
+                        gemPic, "Gems",
+                        "Fly through gems to collect them. Gems are your main currency."
+                    )
+                    TutorialIconRow(
+                        coinPic, "Fuel canister",
+                        "Spinning fuel canisters top your tank up for free — grab them whenever you can."
+                    )
+                }
+
+                TutorialCard("⛽", "FUEL & REFUELING", accent = Color(0xFFFF9800)) {
+                    TutorialBullet("The fuel bar at the bottom of the screen shows your tank. It drains as you fly.")
+                    TutorialBullet("TAP THE FUEL BAR to refuel. It is a button: each tap spends gems and refills your tank.")
+                    TutorialBullet("The bar text shows your fuel %, the gem cost (TAP: 20💎) and how many refuels you have left.")
+                    TutorialBullet("The cost goes up with each refuel in the same life. Free players get 6 refuels per life — every revive gives you a fresh set of 6.")
+                    TutorialBullet("Bar color = urgency: cyan is fine, orange is getting low, flashing red means refuel now!")
+                    TutorialBullet("If your fuel hits 0, your run ends and you're offered a revive.")
+                }
+
+                TutorialCard("🛢️", "FUEL TANK UPGRADES", accent = Color(0xFFFFC107)) {
+                    TutorialBullet("Permanent upgrades that make every tank last longer — for every run, forever.")
+                    TutorialBullet("There are 5 tiers. Each tier adds +20% fuel longevity, up to +100% at tier 5.")
+                    TutorialBullet("Tiers are bought in order: you need tier 1 before tier 2, and so on.")
+                    TutorialBullet("Find them in the Skins tab, under \"FUEL TANK UPGRADES\".")
+                    TutorialBullet("Once you own one, every run starts with a \"CURRENT LONGEVITY\" reminder.")
+                }
+
+                TutorialCard("💔", "REVIVES", accent = Color(0xFFFF5252)) {
+                    TutorialBullet("When your run ends you can revive with gems or by watching a short ad and keep flying from where you fell.")
+                    TutorialBullet("Free players get up to 3 revives per run. After that it's game over and your run is saved to your profile.")
+                }
+
+                TutorialCard("⚡", "POWER-UPS", accent = Color(0xFF69F0AE)) {
+                    TutorialBullet("Fly through a power-up icon to activate it. Most last a few seconds.")
+                    TutorialIconRow(puShield, "Shield", "Blocks one hit, then breaks.", Color(0xFF69F0AE))
+                    TutorialIconRow(puMagnet, "Magnet", "Pulls nearby gems, fuel and power-ups toward you.", Color(0xFF69F0AE))
+                    TutorialIconRow(puSlow, "Time Slow", "Slows the track down so you have more time to react.", Color(0xFF69F0AE))
+                    TutorialIconRow(puGhost, "Ghost Mode", "Fly straight through obstacles for a short time.", Color(0xFF69F0AE))
+                    TutorialIconRow(puX2, "Score x2", "Doubles the points you earn for a while.", Color(0xFF69F0AE))
+                    TutorialIconRow(puX5, "Score x5", "Five times the points — chain it with a combo!", Color(0xFF69F0AE))
+                    TutorialIconRow(puInvinc, "Invincibility", "Nothing can hurt you... except a Blink Strike creature while it is visible.", Color(0xFF69F0AE))
+                    TutorialIconRow(puBoom, "Boom Clear", "Instantly wipes out the obstacles and shots directly ahead of you.", Color(0xFF69F0AE))
+                    TutorialIconRow(puShrink, "Shrink", "Shrinks your hitbox so you can slip through tighter gaps.", Color(0xFF69F0AE))
+                    TutorialIconRow(puWarp, "Lane Warp", "Instantly snaps you onto the ghost marker's safe line.", Color(0xFF69F0AE))
+                    TutorialIconRow(puSkip, "Zone Skip", "Leaps you forward to the next zone.", Color(0xFF69F0AE))
+                    TutorialIconRow(puAura, "Legendary Aura", "Rare! Grants a whole bundle of power-ups at the same time.", Color(0xFF69F0AE))
+                }
+
+                TutorialCard("🚧", "OBSTACLES", accent = Color(0xFFFF7043)) {
+                    TutorialBullet("Every zone mixes different obstacles. Any contact costs you fuel, so learn to recognise them:")
+                    TutorialIconRow(spikes, "Spikes", "Jut out of the ceiling or floor — slip through the gap.", Color(0xFFFF7043))
+                    TutorialIconRow(laser, "Laser", "A beam that cuts across your lane.", Color(0xFFFF7043))
+                    TutorialIconRow(saw, "Sawblade", "Spinning blade — keep your distance.", Color(0xFFFF7043))
+                    TutorialIconRow(barrier, "Barrier", "Comes in pairs — thread the gap between them.", Color(0xFFFF7043))
+                    TutorialIconRow(zap, "Zap Field", "An electric field that shocks on contact.", Color(0xFFFF7043))
+                    TutorialIconRow(phantom, "Phantom", "A shadowy obstacle that hovers close to your guide line.", Color(0xFFFF7043))
+                    TutorialIconRow(splitter, "Splitter", "Splits the lane in two — pick a side.", Color(0xFFFF7043))
+                    TutorialIconRow(tunnel, "Tunnel", "Ceiling and floor close in, leaving one narrow corridor.", Color(0xFFFF7043))
+                    TutorialIconRow(standard, "Block", "A basic obstacle straight in your path.", Color(0xFFFF7043))
+                }
+
+                TutorialCard("☠️", "SPECIAL THREATS", accent = Color(0xFFFF1744)) {
+                    Text(
+                        text = "BLINK STRIKE CREATURES",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(bottom = 2.dp)
+                    )
+                    TutorialThumbStrip(
+                        listOf(
+                            blinkWolf to "Wolf",
+                            blinkRaptor to "Raptor",
+                            blinkHornet to "Hornet",
+                            blinkArachnid to "Arachnid",
+                            blinkWraith to "Wraith"
+                        ),
+                        accent = Color(0xFFFF1744)
+                    )
+                    TutorialBullet("They flicker: visible for about 1 second, then a faint ghost for about 2 seconds.")
+                    TutorialBullet("They only hurt you while VISIBLE. While faded they are harmless — time your pass!")
+                    TutorialBullet("Shields, Ghost Mode and Invincibility do NOT stop a visible Blink Strike creature. Dodge it.")
+                    Spacer(modifier = Modifier.height(6.dp))
+                    TutorialIconRow(
+                        drone, "Drone",
+                        "Hovers and slowly homes in on your lane, and sometimes fires a fast energy shot. A red ring around it means it's locked on.",
+                        Color(0xFFFF1744)
+                    )
+                    TutorialIconRow(
+                        bossBullet, "Boss shot",
+                        "Bosses fire these at you — they glow red and leave a trail. Keep moving.",
+                        Color(0xFFFF1744)
+                    )
+                }
+
+                TutorialCard("👹", "BOSSES", accent = Color(0xFFE040FB)) {
+                    TutorialBullet("A boss appears around every 5th zone, with its health bar across the top of the screen.")
+                    TutorialBullet("Every world has its own boss. Beat it for bonus rewards — and it counts toward finishing that world.")
+                    TutorialThumbStrip(
+                        listOf(
+                            boss1 to "Blackout Front",
+                            boss2 to "Derelict Signal",
+                            boss3 to "Cell Block Zero",
+                            boss4 to "Green Hell",
+                            boss5 to "Red Protocol",
+                            boss6 to "Signal Fracture",
+                            boss7 to "Frozen Veil",
+                            boss8 to "Apex Signal"
+                        ),
+                        accent = Color(0xFFE040FB)
+                    )
+                }
+
+                TutorialCard("🔥", "COMBO & MASTERY") {
+                    TutorialBullet("Stay tight on the ghost marker and your combo streak grows. Every streak point adds +0.5% to your score multiplier, up to +100%.")
+                    TutorialBullet("Any hit resets your combo to zero — clean flying is what really drives big scores.")
+                    TutorialBullet("Your best-ever streak is saved on your profile as a permanent skill record.")
+                }
+
+                TutorialCard("🚀", "SECTORS", accent = Color(0xFFFFD700)) {
+                    TutorialBullet("Every 2 zones is a new sector: the obstacle mix, mechanics and environment all change, and a banner announces it.")
+                    TutorialBullet("Every 4 zones the banner also pays out +2💎, and a WATCH AD button appears for a few seconds — tap it to double the bonus.")
+                    TutorialBullet("Pro players still get the bonus, without the ad prompt.")
+                }
+
+                TutorialCard("📅", "SPECIAL DAYS") {
+                    TutorialBullet("Wednesday — Precision Day: tight, accurate flying pays out extra points.")
+                    TutorialBullet("Friday — Golden Day: your whole score is multiplied x3.")
+                    TutorialBullet("Saturday — Boss Day: bosses can show up much more often.")
+                }
+
+                TutorialCard("🌍", "WORLDS & PROGRESSION") {
+                    TutorialBullet("5 main worlds carry the story. Each one comes back later in tougher phases, with new story beats.")
+                    TutorialBullet("Special Mission worlds unlock as you complete Daily, Weekly and Monthly missions.")
+                    TutorialBullet("New Game+ worlds unlock after you beat the Apex Signal boss — the true endgame.")
+                    TutorialBullet("The game also gets sharper the more you play: your experience raises the baseline speed and density a little every run.")
+                }
+
+                TutorialCard("🎯", "MISSIONS") {
+                    TutorialBullet("Daily, Weekly and Monthly missions give gems and unlock Special Mission worlds. Check the Special tab.")
+                }
+
+                TutorialCard("👑", "PRO", accent = Color(0xFFFFD700)) {
+                    TutorialBullet("Unlocks Worlds 4 and 5 and every world's later phases.")
+                    TutorialBullet("No revive limit, no refuel limit, and no ad prompts.")
+                    TutorialBullet("Everything you've earned stays yours either way.")
+                }
+
+                TutorialCard("💡", "PRO TIPS", accent = Color(0xFF69F0AE)) {
+                    TutorialBullet("Look ahead, not at your pilot — react to what's coming.")
+                    TutorialBullet("Refuel early in a calm stretch, not in the middle of a boss fight.")
+                    TutorialBullet("Save Shield and Boom Clear for boss zones and dense sectors.")
+                    TutorialBullet("Blink Strike creatures: wait for the fade, then go.")
+                }
                 Spacer(modifier = Modifier.height(24.dp))
             }
         }
