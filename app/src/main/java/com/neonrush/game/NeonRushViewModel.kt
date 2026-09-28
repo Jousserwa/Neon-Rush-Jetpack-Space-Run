@@ -1011,13 +1011,21 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     val computedSectorNumber = (nextZoneNumber - 1) / 2
                     if (computedSectorNumber != state.currentSectorNumber) {
                         nextSectorNumber = computedSectorNumber
-                        val sectorBonusGems = 8 + (computedSectorNumber / 10).coerceAtMost(12)
-                        gameDao.updateProfile { current -> current.copy(gems = current.gems + sectorBonusGems) }
                         soundEngine.playTone(880f, 200, "triangle")
-                        sectorBannerText = "SECTOR ${computedSectorNumber + 1}: ${activeDna.environmentName} ${activeDna.environmentEmoji}  +$sectorBonusGems💎"
+                        sectorBannerText = "SECTOR ${computedSectorNumber + 1}: ${activeDna.environmentName} ${activeDna.environmentEmoji}"
                         sectorBannerUntilTick = tick + 30
-                        sectorBonusPending = sectorBonusGems
-                        sectorBonusExpiresAtTick = tick + 45
+                        // Gem bonus only every OTHER sector (every 4 zones,
+                        // not every 2) — the banner still announces every
+                        // sector for the "always something changing" feel,
+                        // but the reward itself is a periodic bonus, not a
+                        // constant drip.
+                        if (computedSectorNumber % 2 == 1) {
+                            val sectorBonusGems = 2
+                            gameDao.updateProfile { current -> current.copy(gems = current.gems + sectorBonusGems) }
+                            sectorBannerText = "SECTOR ${computedSectorNumber + 1}: ${activeDna.environmentName} ${activeDna.environmentEmoji}  +$sectorBonusGems💎"
+                            sectorBonusPending = sectorBonusGems
+                            sectorBonusExpiresAtTick = tick + 45
+                        }
                     }
 
                     val isCheckpointZone = nextZoneNumber % 50 == 0
@@ -1600,13 +1608,21 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     val computedSectorNumber = (nextZoneNumber - 1) / 2
                     if (computedSectorNumber != state.currentSectorNumber) {
                         nextSectorNumber = computedSectorNumber
-                        val sectorBonusGems = 8 + (computedSectorNumber / 10).coerceAtMost(12)
-                        gameDao.updateProfile { current -> current.copy(gems = current.gems + sectorBonusGems) }
                         soundEngine.playTone(880f, 200, "triangle")
-                        sectorBannerText = "SECTOR ${computedSectorNumber + 1}: ${activeDna.environmentName} ${activeDna.environmentEmoji}  +$sectorBonusGems💎"
+                        sectorBannerText = "SECTOR ${computedSectorNumber + 1}: ${activeDna.environmentName} ${activeDna.environmentEmoji}"
                         sectorBannerUntilTick = tick + 30
-                        sectorBonusPending = sectorBonusGems
-                        sectorBonusExpiresAtTick = tick + 45
+                        // Gem bonus only every OTHER sector (every 4 zones,
+                        // not every 2) — the banner still announces every
+                        // sector for the "always something changing" feel,
+                        // but the reward itself is a periodic bonus, not a
+                        // constant drip.
+                        if (computedSectorNumber % 2 == 1) {
+                            val sectorBonusGems = 2
+                            gameDao.updateProfile { current -> current.copy(gems = current.gems + sectorBonusGems) }
+                            sectorBannerText = "SECTOR ${computedSectorNumber + 1}: ${activeDna.environmentName} ${activeDna.environmentEmoji}  +$sectorBonusGems💎"
+                            sectorBonusPending = sectorBonusGems
+                            sectorBonusExpiresAtTick = tick + 45
+                        }
                     }
 
                     val isCheckpointZone = nextZoneNumber % 50 == 0
