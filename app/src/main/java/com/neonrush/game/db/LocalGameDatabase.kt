@@ -36,6 +36,12 @@ data class GameProfile(
     // Lifetime best combo streak achieved — a skill-progression stat
     // independent of gems/score, the "mastery" track.
     val bestComboStreak: Int = 0,
+    // Gates the mandatory first-run tutorial — false until the player has
+    // seen it once, then permanently true.
+    val hasSeenTutorial: Boolean = false,
+    // Epoch millis of the last "check for updates" reminder shown, so it
+    // can be throttled to roughly once every 2 weeks.
+    val lastUpdateReminderShownAt: Long = 0L,
     val currentStreak: Int = 0,
     val lastStreakLoginDate: String = "",
     val totalRuns: Int = 0,
@@ -98,6 +104,8 @@ class GameDao(context: Context) {
             val unlockedPilotSkinsIdx = cursor.getColumnIndex("unlockedPilotSkinsCsv")
             val completedWorldsIdx = cursor.getColumnIndex("completedWorldsCsv")
             val bestComboStreakIdx = cursor.getColumnIndex("bestComboStreak")
+            val hasSeenTutorialIdx = cursor.getColumnIndex("hasSeenTutorial")
+            val lastUpdateReminderShownAtIdx = cursor.getColumnIndex("lastUpdateReminderShownAt")
             val currentStreakIdx = cursor.getColumnIndex("currentStreak")
             val lastStreakLoginIdx = cursor.getColumnIndex("lastStreakLoginDate")
             val totalRunsIdx = cursor.getColumnIndex("totalRuns")
@@ -140,6 +148,8 @@ class GameDao(context: Context) {
                 unlockedPilotSkinsCsv = if (unlockedPilotSkinsIdx != -1) cursor.getString(unlockedPilotSkinsIdx) else "default",
                 completedWorldsCsv = if (completedWorldsIdx != -1) cursor.getString(completedWorldsIdx) else "",
                 bestComboStreak = if (bestComboStreakIdx != -1) cursor.getInt(bestComboStreakIdx) else 0,
+                hasSeenTutorial = if (hasSeenTutorialIdx != -1) cursor.getInt(hasSeenTutorialIdx) != 0 else false,
+                lastUpdateReminderShownAt = if (lastUpdateReminderShownAtIdx != -1) cursor.getLong(lastUpdateReminderShownAtIdx) else 0L,
                 currentStreak = if (currentStreakIdx != -1) cursor.getInt(currentStreakIdx) else 0,
                 lastStreakLoginDate = if (lastStreakLoginIdx != -1) cursor.getString(lastStreakLoginIdx) else "",
                 totalRuns = if (totalRunsIdx != -1) cursor.getInt(totalRunsIdx) else 0,
@@ -214,6 +224,8 @@ class GameDao(context: Context) {
             put("unlockedPilotSkinsCsv", profile.unlockedPilotSkinsCsv)
             put("completedWorldsCsv", profile.completedWorldsCsv)
             put("bestComboStreak", profile.bestComboStreak)
+            put("hasSeenTutorial", if (profile.hasSeenTutorial) 1 else 0)
+            put("lastUpdateReminderShownAt", profile.lastUpdateReminderShownAt)
             put("currentStreak", profile.currentStreak)
             put("lastStreakLoginDate", profile.lastStreakLoginDate)
             put("totalRuns", profile.totalRuns)
@@ -283,7 +295,7 @@ class GameDao(context: Context) {
     }
 }
 
-class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_companion.db", null, 15) {
+class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_companion.db", null, 16) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE game_profile (
@@ -327,7 +339,9 @@ class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_comp
                checkpointsActivatedCsv TEXT,
                 fuelTiersOwned INTEGER,
                 completedWorldsCsv TEXT,
-                bestComboStreak INTEGER
+                bestComboStreak INTEGER,
+                hasSeenTutorial INTEGER,
+                lastUpdateReminderShownAt INTEGER
             )
         """) 
         db.execSQL("""
@@ -400,6 +414,10 @@ class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_comp
     }
     if (oldVersion < 15) {
         db.execSQL("ALTER TABLE game_profile ADD COLUMN bestComboStreak INTEGER DEFAULT 0")
+    }
+    if (oldVersion < 16) {
+        db.execSQL("ALTER TABLE game_profile ADD COLUMN hasSeenTutorial INTEGER DEFAULT 0")
+        db.execSQL("ALTER TABLE game_profile ADD COLUMN lastUpdateReminderShownAt INTEGER DEFAULT 0")
     }
 }
 }
