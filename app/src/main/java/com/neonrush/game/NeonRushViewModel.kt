@@ -113,7 +113,14 @@ data class SimulationState(
     // Stable per-run seed for zone DNA generation (obstacle set,
     // environment, mechanics) — must persist across revives so the
     // sequence doesn't shift/reshuffle at the exact moment a player revives.
-    val runSeed: Long = 0L
+    val runSeed: Long = 0L,
+    // Pro-content gate: fires when endless progression drifts into a
+    // requiresPro world/phase range and the player isn't Pro. Gives a
+    // 4-second grace/preview, then forces a choice — subscribe, or get
+    // redirected back into free-tier zones. Can't just play through it.
+    val proGateActive: Boolean = false,
+    val proGateGraceUntilTick: Int = 0,
+    val proGateTriggered: Boolean = false
 )
 class NeonRushViewModel(
     private val gameDao: GameDao,
@@ -221,6 +228,52 @@ class NeonRushViewModel(
         gameDao.updateProfile { prof -> MissionManager.recordAdWatched(prof) }
     }
 }
+    // Marks the mandatory first-run tutorial as seen — permanent, one-time.
+    fun markTutorialSeen() {
+        viewModelScope.launch {
+            gameDao.updateProfile { prof -> prof.copy(hasSeenTutorial = true) }
+        }
+    }
+    // Timestamps the "check for updates" reminder so it's throttled to
+    // roughly once every 2 weeks rather than showing on every launch.
+    fun recordUpdateReminderShown() {
+        viewModelScope.launch {
+            gameDao.updateProfile { prof -> prof.copy(lastUpdateReminderShownAt = System.currentTimeMillis()) }
+        }
+    }
+    // Called when a free player declines to subscribe at a Pro-content gate.
+    // Jumps them past the blocked world's zone range into whatever comes
+    // next (either the next free world, or open endless territory) rather
+    // than ending the run — the gate blocks the Pro content, not the game.
+    fun redirectToFreeZone() {
+        val current = _simState.value
+        // Walk forward past every consecutive requiresPro range — Worlds 4
+        // and 5 (and every world's later phases) are all Pro, so skipping
+        // just the one immediately blocking world could land the player
+        // directly inside the next one and re-trigger the gate right away.
+        var targetZone = (Worlds.worldForZone(current.currentZoneNumber).endZone + 1).coerceAtLeast(1)
+        var guard = 0
+        while (guard < 20) {
+            val w = Worlds.worldForZone(targetZone)
+            val stillBlocked = w.requiresPro && targetZone in w.startZone..w.endZone
+            if (!stillBlocked) break
+            targetZone = w.endZone + 1
+            guard++
+        }
+        // Inverse of the zone<->distance formula used in the tick loop
+        // (zoneM = (-776.25 + sqrt(602564.0625 + 405*distance)) / 202.5),
+        // solved for the distance at the start of targetZone.
+        val zoneMTarget = (targetZone - 1).toDouble()
+        val targetDistanceRaw = ((202.5 * zoneMTarget + 776.25).let { it * it } - 602564.0625) / 405.0
+        val targetDistance = targetDistanceRaw.toFloat().coerceAtLeast(current.distanceMeters)
+        _simState.value = current.copy(
+            distanceMeters = targetDistance,
+            currentZoneNumber = targetZone,
+            proGateActive = false,
+            proGateTriggered = false,
+            proGateGraceUntilTick = 0
+        )
+    }
     // Doubles the sector gem bonus after a rewarded ad. The base amount was
     // already credited the instant the sector transition fired; this adds
     // the same amount again, then clears the offer so the button disappears.
@@ -988,9 +1041,40 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 }
                 speedInPx *= liveDifficultyMultiplier * selectedDifficulty.speedMultiplier * metaDifficultyMultiplier
                 val tickDistanceOffset = speedInPx * 3.6f
-                val nextDistance = state.distanceMeters + tickDistanceOffset
-                val zoneM = (-776.25 + kotlin.math.sqrt(602564.0625 + 405.0 * nextDistance)) / 202.5
-                val nextZoneNumber = (kotlin.math.floor(zoneM).toInt() + 1).coerceAtLeast(1)
+                var nextDistance = state.distanceMeters + tickDistanceOffset
+                var zoneM = (-776.25 + kotlin.math.sqrt(602564.0625 + 405.0 * nextDistance)) / 202.5
+                var nextZoneNumber = (kotlin.math.floor(zoneM).toInt() + 1).coerceAtLeast(1)
+
+                // Pro-content gate: only the normal endless path (special
+                // mode has its own tier/mission gating). Entering a
+                // requiresPro world/phase range without Pro starts a
+                // 4-second grace period; once it expires the player must
+                // subscribe or be redirected back to free-tier zones — they
+                // cannot simply keep flying through it.
+                var proGateActive = state.proGateActive
+                var proGateGraceUntilTick = state.proGateGraceUntilTick
+                var proGateTriggered = state.proGateTriggered
+                if (state.specialWorldId == null) {
+                    val zoneWorld = Worlds.worldForZone(nextZoneNumber)
+                    val inProZone = zoneWorld.requiresPro && nextZoneNumber in zoneWorld.startZone..zoneWorld.endZone
+                    val isProNow = RevenueCatManager.isPro.value
+                    if (inProZone && !isProNow) {
+                        if (!proGateActive) {
+                            proGateActive = true
+                            proGateGraceUntilTick = tick + 33
+                            proGateTriggered = false
+                        } else if (tick >= proGateGraceUntilTick) {
+                            proGateTriggered = true
+                        }
+                        if (proGateTriggered) {
+                            nextDistance = state.distanceMeters
+                            nextZoneNumber = state.currentZoneNumber
+                        }
+                    } else {
+                        proGateActive = false
+                        proGateTriggered = false
+                    }
+                }
                 var activeDna = ZoneGenerator.generateZone(nextZoneNumber, runSeed)
                 if (state.specialWorldId != null) activeDna = overrideEnvironment(activeDna, state.specialWorldId)
                 var updatedMsg = state.feedbackMessage
@@ -1409,6 +1493,9 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     sectorBannerUntilTick = sectorBannerUntilTick,
                     sectorBonusPending = sectorBonusPending,
                     sectorBonusExpiresAtTick = sectorBonusExpiresAtTick,
+                    proGateActive = proGateActive,
+                    proGateGraceUntilTick = proGateGraceUntilTick,
+                    proGateTriggered = proGateTriggered,
                     currentZoneName = activeDna.name,
                     speedKmh = (speedInPx * 40).toInt(),
                     distanceMeters = nextDistance,
@@ -1586,9 +1673,36 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 }
                 speedInPx *= metaDifficultyMultiplier
                 val tickDistanceOffset = speedInPx * 3.6f
-                val nextDistance = state.distanceMeters + tickDistanceOffset
-                val zoneM = (-776.25 + kotlin.math.sqrt(602564.0625 + 405.0 * nextDistance)) / 202.5
-                val nextZoneNumber = (kotlin.math.floor(zoneM).toInt() + 1).coerceAtLeast(1)
+                var nextDistance = state.distanceMeters + tickDistanceOffset
+                var zoneM = (-776.25 + kotlin.math.sqrt(602564.0625 + 405.0 * nextDistance)) / 202.5
+                var nextZoneNumber = (kotlin.math.floor(zoneM).toInt() + 1).coerceAtLeast(1)
+
+                // Same Pro-zone gate as loop 1 — a revive continues the same
+                // run, so the gate must carry over rather than reset.
+                var proGateActive = state.proGateActive
+                var proGateGraceUntilTick = state.proGateGraceUntilTick
+                var proGateTriggered = state.proGateTriggered
+                if (state.specialWorldId == null) {
+                    val zoneWorld = Worlds.worldForZone(nextZoneNumber)
+                    val inProZone = zoneWorld.requiresPro && nextZoneNumber in zoneWorld.startZone..zoneWorld.endZone
+                    val isProNow = RevenueCatManager.isPro.value
+                    if (inProZone && !isProNow) {
+                        if (!proGateActive) {
+                            proGateActive = true
+                            proGateGraceUntilTick = tick + 33
+                            proGateTriggered = false
+                        } else if (tick >= proGateGraceUntilTick) {
+                            proGateTriggered = true
+                        }
+                        if (proGateTriggered) {
+                            nextDistance = state.distanceMeters
+                            nextZoneNumber = state.currentZoneNumber
+                        }
+                    } else {
+                        proGateActive = false
+                        proGateTriggered = false
+                    }
+                }
                 var activeDna = ZoneGenerator.generateZone(nextZoneNumber, runSeed)
                 if (state.specialWorldId != null) activeDna = overrideEnvironment(activeDna, state.specialWorldId)
                 var updatedMsg = state.feedbackMessage
@@ -1968,6 +2082,9 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     sectorBannerUntilTick = sectorBannerUntilTick,
                     sectorBonusPending = sectorBonusPending,
                     sectorBonusExpiresAtTick = sectorBonusExpiresAtTick,
+                    proGateActive = proGateActive,
+                    proGateGraceUntilTick = proGateGraceUntilTick,
+                    proGateTriggered = proGateTriggered,
                     currentZoneName = activeDna.name,
                     speedKmh = (speedInPx * 40).toInt(),
                     distanceMeters = nextDistance,
