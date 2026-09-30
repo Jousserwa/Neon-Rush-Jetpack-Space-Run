@@ -1,6 +1,12 @@
 package com.neonrush.game.ui
 
 import android.app.Activity
+import android.graphics.Bitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
@@ -31,6 +37,7 @@ import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.Dp
 import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.ContentScale
@@ -283,6 +290,23 @@ fun NeonRushApp(viewModel: NeonRushViewModel) {
     var paywallReason by remember { mutableStateOf("generic") }
     
     var showStreakFreezeOffer by remember { mutableStateOf(false) }
+    // Mandatory first-run tutorial: intercepts the first "start" press ever,
+    // shows the tutorial, then resumes whatever the player actually pressed.
+    var showMandatoryTutorial by remember { mutableStateOf(false) }
+    var pendingStartAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    // Polite "check for updates" nudge, throttled to roughly once every 2
+    // weeks. Keyed off activeProfile (not currentProfile's fallback
+    // default) so it only evaluates once real profile data has loaded.
+    var showUpdateReminder by remember { mutableStateOf(false) }
+    LaunchedEffect(activeProfile) {
+        activeProfile?.let { prof ->
+            val twoWeeksMillis = 14L * 24 * 60 * 60 * 1000
+            if (System.currentTimeMillis() - prof.lastUpdateReminderShownAt >= twoWeeksMillis) {
+                showUpdateReminder = true
+                viewModel.recordUpdateReminderShown()
+            }
+        }
+    }
 LaunchedEffect(Unit) {
     if (viewModel.isStreakFreezeEligible()) {
         showStreakFreezeOffer = true
@@ -472,7 +496,18 @@ if (showStreakFreezeOffer) {
                         when (tab) {
                             "arcade" -> {
                                 if (showGhostSelection) {
-                                    GhostRacerTab(viewModel = viewModel, onBack = { showGhostSelection = false })
+                                    GhostRacerTab(
+                                        viewModel = viewModel,
+                                        onBack = { showGhostSelection = false },
+                                        onRequireTutorial = { action ->
+                                            if (!currentProfile.hasSeenTutorial) {
+                                                pendingStartAction = action
+                                                showMandatoryTutorial = true
+                                            } else {
+                                                action()
+                                            }
+                                        }
+                                    )
                                 } else {
                                     ArcadeHomeView(
                                         profile = currentProfile,
@@ -485,7 +520,13 @@ if (showStreakFreezeOffer) {
                                                 4, 
                                                 ZoneGenerator.generateTelemetryCsv(850, 111)
                                             )
-                                            viewModel.startRacingSimulation(defaultGhost)
+                                            val action = { viewModel.startRacingSimulation(defaultGhost) }
+                                            if (!currentProfile.hasSeenTutorial) {
+                                                pendingStartAction = action
+                                                showMandatoryTutorial = true
+                                            } else {
+                                                action()
+                                            }
                                         },
                                         onShowGhostSelection = { showGhostSelection = true },
                                         onNavigateToGlobal = { activeTab = "rankings" },
@@ -499,7 +540,13 @@ if (showStreakFreezeOffer) {
                                                 4,
                                                 ZoneGenerator.generateTelemetryCsv(850, 111)
                                             )
-                                            viewModel.startSpecialModeRun(specialGhost)
+                                            val action = { viewModel.startSpecialModeRun(specialGhost) }
+                                            if (!currentProfile.hasSeenTutorial) {
+                                                pendingStartAction = action
+                                                showMandatoryTutorial = true
+                                            } else {
+                                                action()
+                                            }
                                         },
                                         isPro = isPro
                                     
@@ -563,6 +610,92 @@ if (showStreakFreezeOffer) {
 
     if (showPaywall) {
         PaywallDialog(onDismiss = { showPaywall = false }, reason = paywallReason)
+    }
+
+    if (showMandatoryTutorial) {
+        Dialog(
+            onDismissRequest = {
+                // Back-press finishes the same way tapping the back arrow
+                // does — mark it seen and resume whatever the player
+                // actually pressed. No point trapping them in a dialog they
+                // can't otherwise close.
+                showMandatoryTutorial = false
+                viewModel.markTutorialSeen()
+                pendingStartAction?.invoke()
+                pendingStartAction = null
+            },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            TutorialScreen(onBack = {
+                showMandatoryTutorial = false
+                viewModel.markTutorialSeen()
+                pendingStartAction?.invoke()
+                pendingStartAction = null
+            })
+        }
+    }
+
+    if (showUpdateReminder) {
+        val context = LocalContext.current
+        Dialog(
+            onDismissRequest = { showUpdateReminder = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 48.dp, start = 16.dp, end = 16.dp),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(CyberSurface, RoundedCornerShape(14.dp))
+                        .border(1.dp, CyberPrimary.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "📲", fontSize = 22.sp)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "A newer version may be available.",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            text = "Kindly check for updates for the best experience. Thanks!",
+                            color = CyberOnSurface.copy(alpha = 0.8f),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                            modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
+                        )
+                        Row {
+                            Button(
+                                onClick = {
+                                    showUpdateReminder = false
+                                    try {
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PLAY_STORE_URL)))
+                                    } catch (e: Exception) { }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Text("CHECK FOR UPDATES", color = CyberBackground, fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            TextButton(onClick = { showUpdateReminder = false }, modifier = Modifier.height(34.dp)) {
+                                Text("Maybe later", color = CyberOnSurface.copy(alpha = 0.7f), fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -783,7 +916,7 @@ fun LeaderboardsTab(viewModel: NeonRushViewModel, playerProfile: GameProfile) {
 }
 
 @Composable
-fun GhostRacerTab(viewModel: NeonRushViewModel, onBack: () -> Unit) {
+fun GhostRacerTab(viewModel: NeonRushViewModel, onBack: () -> Unit, onRequireTutorial: (() -> Unit) -> Unit = { it() }) {
     var selectedPlayerId by remember { mutableStateOf("ghost_cyberrunner") }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -880,14 +1013,14 @@ fun GhostRacerTab(viewModel: NeonRushViewModel, onBack: () -> Unit) {
                     "ghost_zeroglitch" -> com.neonrush.game.db.GhostChallengeEntity("ghost_zeroglitch", "ZeroGlitch", 480, 3, ZoneGenerator.generateTelemetryCsv(480, 84))
                     else -> com.neonrush.game.db.GhostChallengeEntity("ghost_cyberrunner", "CyberRunner", 850, 4, ZoneGenerator.generateTelemetryCsv(850, 111))
                 }
-                viewModel.startRacingSimulation(selectedGhost)
-            },
-            colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
-            shape = RoundedCornerShape(8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .testTag("sync_ghosts_button")
+                onRequireTutorial { viewModel.startRacingSimulation(selectedGhost) }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("sync_ghosts_button")
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.PlayArrow, contentDescription = "Launch", tint = CyberBackground)
@@ -1758,6 +1891,32 @@ private const val DISCORD_INVITE_URL = "https://discord.gg/GmBWCp2WuN"
 private const val REDDIT_URL = "https://reddit.com/r/NeonRushGame"
 private const val PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.neonrushinfinite.game"
 
+// Generates a QR code on-device from ZXing — no network call, no static
+// image asset. Requires the ZXing core library: add
+//   implementation("com.google.zxing:core:3.5.3")
+// to the app module's build.gradle if it isn't already there.
+@Composable
+private fun QrCodeImage(content: String, sizeDp: Dp, modifier: Modifier = Modifier) {
+    val density = LocalDensity.current
+    val sizePx = with(density) { sizeDp.roundToPx() }
+    val qrBitmap = remember(content, sizePx) {
+        val writer = QRCodeWriter()
+        val matrix = writer.encode(content, BarcodeFormat.QR_CODE, sizePx, sizePx)
+        val bmp = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+        for (x in 0 until sizePx) {
+            for (y in 0 until sizePx) {
+                bmp.setPixel(x, y, if (matrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+            }
+        }
+        bmp.asImageBitmap()
+    }
+    Image(
+        bitmap = qrBitmap,
+        contentDescription = "QR code",
+        modifier = modifier.size(sizeDp)
+    )
+}
+
 @Composable
 fun CommunityAndShareCard(profile: GameProfile) {
     val context = LocalContext.current
@@ -1869,6 +2028,30 @@ fun CommunityAndShareCard(profile: GameProfile) {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("SHARE MY CODE", color = Color.White, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "OR SCAN TO INSTALL",
+                    fontSize = 10.sp,
+                    color = CyberOnSurface.copy(alpha = 0.6f),
+                    fontFamily = FontFamily.Monospace
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .background(Color.White, RoundedCornerShape(8.dp))
+                        .padding(10.dp)
+                ) {
+                    QrCodeImage(
+                        content = "$PLAY_STORE_URL&referrer=$referralCode",
+                        sizeDp = 140.dp
+                    )
+                }
             }
         }
     }
@@ -2438,6 +2621,98 @@ fun RacingSimulatorScreen(
     val tiltAngle = (simState.userYPos - previousUserYPos).toFloat().coerceIn(-10f, 10f) * 1.8f
     SideEffect { previousUserYPos = simState.userYPos }
     val activity = LocalContext.current as? Activity
+
+    if (simState.proGateActive && !simState.proGateTriggered) {
+        val ticksLeft = (simState.proGateGraceUntilTick - simState.tickIndex).coerceAtLeast(0)
+        val secondsLeft = ((ticksLeft * 120) / 1000f).coerceAtLeast(0f)
+        Dialog(
+            onDismissRequest = { },
+            properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = false, dismissOnClickOutside = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 48.dp, start = 16.dp, end = 16.dp),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                Row(
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(10.dp))
+                        .border(1.dp, Color(0xFFFFD700).copy(alpha = 0.7f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "👑", fontSize = 16.sp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "PRO ZONE AHEAD — %.1fs".format(secondsLeft),
+                        color = Color(0xFFFFD700),
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
+    }
+
+    if (simState.proGateTriggered) {
+        Dialog(
+            onDismissRequest = { },
+            properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = false, dismissOnClickOutside = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.9f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .padding(24.dp)
+                        .background(CyberSurface, RoundedCornerShape(16.dp))
+                        .border(1.dp, Color(0xFFFFD700).copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+                        .padding(24.dp)
+                ) {
+                    Text(text = "👑", fontSize = 36.sp)
+                    Text(
+                        text = "PRO WORLD",
+                        color = Color(0xFFFFD700),
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 18.sp,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                    Text(
+                        text = "This world is part of Neon Rush Pro. Subscribe to fly through it, or head back to free-tier zones and keep flying.",
+                        color = CyberOnSurface,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 17.sp,
+                        modifier = Modifier.padding(top = 10.dp, bottom = 18.dp)
+                    )
+                    Button(
+                        onClick = onShowPaywall,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFD700)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("SUBSCRIBE TO PRO", color = CyberBackground, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = { viewModel.redirectToFreeZone() },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("BACK TO FREE ZONES", color = CyberPrimary, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
 
     // Default running frames (used when the equipped skin has no custom frames yet)
     val pf1 = ImageBitmap.imageResource(id = R.drawable.pilot_run_1)
@@ -3100,26 +3375,20 @@ val bossImagesByWorld = mapOf(
     } else {
         val baseSize = ch * 0.07f
         val w = baseSize * (bulletImg.width.toFloat() / bulletImg.height.toFloat())
-        val bulletFlicker = 0.8f + 0.2f * sin(simState.tickIndex * 0.6f)
-        // Glow halo behind the sprite, plus a short motion trail streaking
-        // back toward where it came from — a static image alone read as
-        // flat and easy to miss against busy backgrounds.
-        drawCircle(
-            color = Color(0xFFFF4433).copy(alpha = 0.35f * bulletFlicker),
-            radius = baseSize * 0.75f,
-            center = Offset(x, y)
-        )
-        drawLine(
-            color = Color(0xFFFF4433).copy(alpha = 0.3f * bulletFlicker),
-            start = Offset(x + w * 1.1f, y),
-            end = Offset(x + w * 0.4f, y),
-            strokeWidth = baseSize * 0.15f
-        )
+        // Tapered tracer trail — thicker near the bullet, fading to a point
+        // behind it. No soft glow halo: it should read as a sharp, fast
+        // projectile, not a glowing blob.
+        val trailPath = Path().apply {
+            moveTo(x + w * 0.3f, y - baseSize * 0.16f)
+            lineTo(x + w * 0.3f, y + baseSize * 0.16f)
+            lineTo(x + w * 1.5f, y)
+            close()
+        }
+        drawPath(path = trailPath, color = Color(0xFFFF4433).copy(alpha = 0.55f))
         drawImage(
             image = bulletImg,
             dstOffset = IntOffset((x - w / 2f).roundToInt(), (y - baseSize / 2f).roundToInt()),
-            dstSize = IntSize(w.roundToInt(), baseSize.roundToInt()),
-            alpha = bulletFlicker
+            dstSize = IntSize(w.roundToInt(), baseSize.roundToInt())
         )
     }
 } 
