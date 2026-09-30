@@ -125,7 +125,19 @@ private val worldBackgroundLayers: Map<Int, List<BgLayer>> = mapOf(
     ),
     // Worlds 4-5 keep their original single static background until they get
     // the same layered treatment — speedFactor 0f means "don't scroll".
-    4 to listOf(BgLayer(R.drawable.bg_world4_green_hell, 0f)),
+    // World 4 (Green Hell): 6-layer parallax — one extra layer beyond the
+    // usual 5, since the matched art set had 6 genuinely distinct depths.
+    // Non-seamless "hero scene" art like Worlds 2/3/5, so it pans-then-
+    // crossfades rather than tiling. l6 foreground is the crashed,
+    // jungle-reclaimed helicopter — a nice "wild escape" story beat.
+    4 to listOf(
+        BgLayer(R.drawable.bg_world4_l1_sky, 0.02f, seamless = false),
+        BgLayer(R.drawable.bg_world4_l2_far_ridge, 0.15f, seamless = false),
+        BgLayer(R.drawable.bg_world4_l3_mid_valley, 0.35f, seamless = false),
+        BgLayer(R.drawable.bg_world4_l4_framing_far, 0.55f, seamless = false),
+        BgLayer(R.drawable.bg_world4_l5_framing_near, 0.75f, seamless = false),
+        BgLayer(R.drawable.bg_world4_l6_foreground, 0.9f, seamless = false)
+    ),
     // World 5 (Red Protocol): full 5-layer parallax, same treatment as
     // Worlds 2-3 — non-seamless "hero scene" art (content centered,
     // transparent margins), so it pans-then-crossfades rather than tiling.
