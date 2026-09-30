@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.neonrush.game"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.neonrushinfinite.game"
