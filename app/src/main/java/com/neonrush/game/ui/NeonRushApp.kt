@@ -123,8 +123,6 @@ private val worldBackgroundLayers: Map<Int, List<BgLayer>> = mapOf(
         BgLayer(R.drawable.bg_world3_l2_cell_block, 0.35f, seamless = false),
         BgLayer(R.drawable.bg_world3_l3_road_debris, 0.85f, seamless = false)
     ),
-    // Worlds 4-5 keep their original single static background until they get
-    // the same layered treatment — speedFactor 0f means "don't scroll".
     // World 4 (Green Hell): 6-layer parallax — one extra layer beyond the
     // usual 5, since the matched art set had 6 genuinely distinct depths.
     // Non-seamless "hero scene" art like Worlds 2/3/5, so it pans-then-
@@ -148,11 +146,22 @@ private val worldBackgroundLayers: Map<Int, List<BgLayer>> = mapOf(
         BgLayer(R.drawable.bg_world5_l3_street_walls, 0.35f, seamless = false),
         BgLayer(R.drawable.bg_world5_l4_road, 0.55f, seamless = false),
         BgLayer(R.drawable.bg_world5_l5_foreground, 0.85f, seamless = false)
+    ),
+    // World 6 (Signal Fracture): full 5-layer parallax, cyberspace/data-heist
+    // theme matching its lore ("disappear into the wire"). Same non-seamless
+    // "hero scene" treatment as Worlds 2-5. l1 sky includes the rogue
+    // trace-daemon from the boss intro, flying through the data-void itself.
+    6 to listOf(
+        BgLayer(R.drawable.bg_world6_l1_sky, 0.02f, seamless = false),
+        BgLayer(R.drawable.bg_world6_l2_far_firewalls, 0.15f, seamless = false),
+        BgLayer(R.drawable.bg_world6_l3_mid_corridor, 0.35f, seamless = false),
+        BgLayer(R.drawable.bg_world6_l4_fragments, 0.55f, seamless = false),
+        BgLayer(R.drawable.bg_world6_l5_foreground, 0.85f, seamless = false)
     )
-    // Special-mode worlds 6 (Signal Fracture), 7 (Frozen Veil), and 8 (Apex
-    // Signal) have no entry yet — ParallaxWorldBackground falls back to a
-    // themed color gradient for any world id missing here. Add a 6/7/8 entry
-    // (single image or a 5-layer list, same as world 1) once their art exists.
+    // Special-mode worlds 7 (Frozen Veil) and 8 (Apex Signal) have no entry
+    // yet — ParallaxWorldBackground falls back to a themed color gradient
+    // for any world id missing here. Add a 7/8 entry (same pattern as
+    // world 6) once their art exists.
 )
 
 // Parses a "#RRGGBB" (or "#AARRGGBB") hex string, e.g. ZoneDNA.environmentColor,
