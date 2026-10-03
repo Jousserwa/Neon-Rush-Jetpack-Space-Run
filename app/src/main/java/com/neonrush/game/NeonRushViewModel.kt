@@ -13,6 +13,14 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
+// ============================================================
+// TESTING ONLY — set back to false (or delete this line and its
+// two usages below) when told. While true, Worlds 4-5 and every
+// Pro-flagged phase are freely reachable without the paywall gate,
+// so all 5 main worlds can be QA'd end-to-end in one run.
+// ============================================================
+const val TESTING_DISABLE_PRO_GATE = true
+
 data class LeaderboardPilot(
     val rank: Int,
     val name: String,
@@ -513,7 +521,8 @@ fun onFuelTierChanged(tier: String) {
 fun refuelWithGems(isPro: Boolean) {
     viewModelScope.launch {
         val current = _simState.value
-        if (!isPro && current.fuelRefillCount >= 6) return@launch
+        // TESTING ONLY — raised from 6 to 100 for QA. Revert to 6 when told.
+        if (!isPro && current.fuelRefillCount >= 100) return@launch
         val cost = fuelRefillCostForCurrentRun()
         var didRefuel = false
         gameDao.updateProfile { prof ->
@@ -1058,7 +1067,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     val zoneWorld = Worlds.worldForZone(nextZoneNumber)
                     val inProZone = zoneWorld.requiresPro && nextZoneNumber in zoneWorld.startZone..zoneWorld.endZone
                     val isProNow = RevenueCatManager.isPro.value
-                    if (inProZone && !isProNow) {
+                    if (inProZone && !isProNow && !TESTING_DISABLE_PRO_GATE) {
                         if (!proGateActive) {
                             proGateActive = true
                             proGateGraceUntilTick = tick + 33
@@ -1686,7 +1695,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     val zoneWorld = Worlds.worldForZone(nextZoneNumber)
                     val inProZone = zoneWorld.requiresPro && nextZoneNumber in zoneWorld.startZone..zoneWorld.endZone
                     val isProNow = RevenueCatManager.isPro.value
-                    if (inProZone && !isProNow) {
+                    if (inProZone && !isProNow && !TESTING_DISABLE_PRO_GATE) {
                         if (!proGateActive) {
                             proGateActive = true
                             proGateGraceUntilTick = tick + 33
