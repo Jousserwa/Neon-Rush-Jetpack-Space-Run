@@ -80,6 +80,7 @@ import com.neonrush.game.NeonRushViewModel
 import com.neonrush.game.RevenueCatManager
 import com.neonrush.game.SimulationState
 import com.neonrush.game.ZoneGenerator
+import com.neonrush.game.TESTING_DISABLE_PRO_GATE
 import com.neonrush.game.StoryBannerHost
 import com.neonrush.game.Skins
 import com.neonrush.game.db.GameProfile
@@ -2823,7 +2824,11 @@ val bossImagesByWorld = mapOf(
     Box(modifier = Modifier.fillMaxSize()) {
         val currentWorld by viewModel.currentWorld.collectAsState()
         LaunchedEffect(currentWorld.id) {
-            if (currentWorld.requiresPro && !isPro) {
+            // TESTING ONLY — gated by TESTING_DISABLE_PRO_GATE (see
+            // NeonRushViewModel.kt) so this older, separate paywall trigger
+            // doesn't fire during QA. Remove the "&& !TESTING_DISABLE_PRO_GATE"
+            // when told to restore normal behavior.
+            if (currentWorld.requiresPro && !isPro && !TESTING_DISABLE_PRO_GATE) {
                 viewModel.triggerPaywallTeaser(currentWorld)
                 delay(2500)
                 onShowPaywall()
