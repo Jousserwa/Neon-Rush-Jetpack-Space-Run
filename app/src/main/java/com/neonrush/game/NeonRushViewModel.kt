@@ -166,7 +166,14 @@ class NeonRushViewModel(
     val storyEvent: SharedFlow<StoryEvent> = _storyEvent.asSharedFlow()
 
     val currentWorld: StateFlow<World> = simState
-        .map { Worlds.worldForZone(it.currentZoneNumber) }
+        .map { st ->
+            // Special-mission worlds (6-8, NG+) run on zone numbers starting at 1, so
+            // worldForZone() would wrongly return World 1. Resolve them by environment.
+            val special = st.specialWorldId?.let { envId ->
+                (Worlds.SPECIAL_WORLDS + Worlds.NEW_GAME_PLUS).find { it.environmentIds.contains(envId) }
+            }
+            special ?: Worlds.worldForZone(st.currentZoneNumber)
+        }
         .stateIn(viewModelScope, SharingStarted.Eagerly, Worlds.ALL.first())
 
     private val firedStoryBeats = mutableSetOf<Pair<Int, StoryBeatType>>()
@@ -521,8 +528,8 @@ fun onFuelTierChanged(tier: String) {
 fun refuelWithGems(isPro: Boolean) {
     viewModelScope.launch {
         val current = _simState.value
-        // TESTING ONLY — raised from 6 to 100 for QA. Revert to 6 when told.
-        if (!isPro && current.fuelRefillCount >= 100) return@launch
+        // TESTING ONLY — raised from 6 to 90 for QA. Revert to 6 when told.
+        if (!isPro && current.fuelRefillCount >= 90) return@launch
         val cost = fuelRefillCostForCurrentRun()
         var didRefuel = false
         gameDao.updateProfile { prof ->
