@@ -221,6 +221,14 @@ private fun ParallaxWorldBackground(worldId: Int, distanceMeters: Float, fallbac
         val cw = size.width
         val ch = size.height
 
+        // Base fill so transparent gaps between hero-scene layers show the
+        // world's theme color instead of plain black.
+        drawRect(
+            brush = Brush.verticalGradient(
+                listOf(hexToColor(fallbackColorHex).copy(alpha = 0.35f), Color(0xFF030206))
+            )
+        )
+
         layers.forEachIndexed { idx, layer ->
             val bmp = bitmaps[idx]
             // Scale each layer to fill the canvas height, preserving aspect.
