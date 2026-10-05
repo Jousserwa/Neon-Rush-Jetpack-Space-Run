@@ -63,6 +63,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -192,9 +193,33 @@ private fun hexToColor(hex: String): Color {
 // no dimming, 1f = fully black. Tune to taste.
 private const val BACKGROUND_SCRIM_ALPHA = 0.32f
 
+// Base layers for a world, optionally remixed: the sky and the foreground are
+// swapped for ones borrowed from other main worlds (see WorldVariants).
+private fun layersFor(worldId: Int, variant: WorldVariant?): List<BgLayer>? {
+    val base = worldBackgroundLayers[worldId] ?: return null
+    if (variant == null || base.size < 2) return base
+    val sky = worldBackgroundLayers[variant.skyDonor]?.firstOrNull()
+    val front = worldBackgroundLayers[variant.frontDonor]?.lastOrNull()
+    return base.mapIndexed { i, l ->
+        when {
+            i == 0 && sky != null -> sky
+            i == base.lastIndex && front != null -> front
+            else -> l
+        }
+    }
+}
+
 @Composable
-private fun ParallaxWorldBackground(worldId: Int, distanceMeters: Float, fallbackColorHex: String) {
-    val layers = worldBackgroundLayers[worldId]
+private fun ParallaxWorldBackground(
+    worldId: Int,
+    distanceMeters: Float,
+    fallbackColorHex: String,
+    variant: WorldVariant? = null
+) {
+    val layers = layersFor(worldId, variant)
+    val cf = remember(variant?.key) {
+        variant?.let { ColorFilter.colorMatrix(it.colorMatrix()) }
+    }
     if (layers == null) {
         // No dedicated art for this world yet (currently: special-mode worlds
         // 6-8, and any future world before its layers are added to the map
@@ -238,6 +263,7 @@ private fun ParallaxWorldBackground(worldId: Int, distanceMeters: Float, fallbac
                 // Static layer: single centered/cropped draw, no scrolling.
                 drawImage(
                     image = bmp,
+                            colorFilter = cf,
                     dstOffset = IntOffset(((cw - displayWidth) / 2f).roundToInt(), 0),
                     dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt())
                 )
@@ -249,6 +275,7 @@ private fun ParallaxWorldBackground(worldId: Int, distanceMeters: Float, fallbac
                 while (x < cw) {
                     drawImage(
                         image = bmp,
+                            colorFilter = cf,
                         dstOffset = IntOffset(x.roundToInt(), 0),
                         dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt())
                     )
@@ -268,6 +295,7 @@ private fun ParallaxWorldBackground(worldId: Int, distanceMeters: Float, fallbac
                     // screen even at full-height scale) — just center it.
                     drawImage(
                         image = bmp,
+                            colorFilter = cf,
                         dstOffset = IntOffset(((cw - displayWidth) / 2f).roundToInt(), 0),
                         dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt())
                     )
@@ -288,6 +316,7 @@ private fun ParallaxWorldBackground(worldId: Int, distanceMeters: Float, fallbac
                     if (cyclePos <= panRange) {
                         drawImage(
                             image = bmp,
+                            colorFilter = cf,
                             dstOffset = IntOffset((-cyclePos).roundToInt(), 0),
                             dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt())
                         )
@@ -295,12 +324,14 @@ private fun ParallaxWorldBackground(worldId: Int, distanceMeters: Float, fallbac
                         val progress = (cyclePos - panRange) / wrapWindow
                         drawImage(
                             image = bmp,
+                            colorFilter = cf,
                             dstOffset = IntOffset((-panRange).roundToInt(), 0),
                             dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt()),
                             alpha = 1f - progress
                         )
                         drawImage(
                             image = bmp,
+                            colorFilter = cf,
                             dstOffset = IntOffset(0, 0),
                             dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt()),
                             alpha = progress
@@ -2841,22 +2872,59 @@ val bossImagesByWorld = mapOf(
     
     Box(modifier = Modifier.fillMaxSize()) {
         val currentWorld by viewModel.currentWorld.collectAsState()
-        LaunchedEffect(currentWorld.id) {
+        val zoneInsideWorld = simState.currentZoneNumber in currentWorld.startZone..currentWorld.endZone
+        LaunchedEffect(currentWorld.id, zoneInsideWorld) {
             // TESTING ONLY — gated by TESTING_DISABLE_PRO_GATE (see
             // NeonRushViewModel.kt) so this older, separate paywall trigger
             // doesn't fire during QA. Remove the "&& !TESTING_DISABLE_PRO_GATE"
             // when told to restore normal behavior.
-            if (currentWorld.requiresPro && !isPro && !TESTING_DISABLE_PRO_GATE) {
+            // zoneInsideWorld: free-tier zones past 40 fall back to a Pro world's
+            // data but are NOT Pro content, so they must not trigger the paywall.
+            if (currentWorld.requiresPro && zoneInsideWorld && !isPro && !TESTING_DISABLE_PRO_GATE) {
                 viewModel.triggerPaywallTeaser(currentWorld)
                 delay(2500)
                 onShowPaywall()
             }
         }
+        // Rift variants (re-color + layer remix + weather + entry card) apply past
+        // zone 40. Free players (the gate redirects them to those zones) get the
+        // lite set; Pro gets everything. TESTING_DISABLE_PRO_GATE counts as Pro
+        // here, so turning the gate back on also restores the free/Pro split.
+        val variant = remember(currentWorld.id, simState.currentZoneNumber, isPro) {
+            WorldVariants.variantFor(
+                currentWorld,
+                simState.currentZoneNumber,
+                isPro = isPro || TESTING_DISABLE_PRO_GATE
+            )
+        }
         ParallaxWorldBackground(
-            worldId = currentWorld.id,
+            // worldFamily groups Phase 2-4 worlds (ids 12-26) with their base
+            // world (1-5) so they reuse its art. For worlds 1-11 it equals id.
+            worldId = variant?.baseFamily ?: currentWorld.worldFamily,
             distanceMeters = simState.distanceMeters,
-            fallbackColorHex = simState.zoneDNA.environmentColor
+            fallbackColorHex = simState.zoneDNA.environmentColor,
+            variant = variant
         )
+        variant?.let { WorldWeatherOverlay(weather = it.weather, accent = it.accent) }
+        run {
+            val familyTitle = variant?.let { v -> Worlds.ALL.find { it.id == v.baseFamily }?.title }
+                ?: currentWorld.title
+            WorldEntryOverlay(
+                key = variant?.key ?: "world${currentWorld.id}",
+                title = if (variant?.isRift == true) "$familyTitle: ${variant.suffix}" else currentWorld.title,
+                subtitle = when {
+                    variant == null -> currentWorld.subtitle
+                    variant.isRift -> "RIFT SECTOR ${variant.riftNumber}"
+                    else -> "${currentWorld.subtitle} · ${variant.suffix}"
+                },
+                accent = variant?.accent ?: CyberPrimary,
+                // Free players only, and only on every other rift sector so it
+                // reads as a teaser rather than nagging. Uses the REAL isPro (not
+                // the testing bypass) so you can see it while testing.
+                proHint = if (!isPro && variant?.isRift == true && variant.riftNumber % 2 == 1)
+                    "⚡ PRO UNLOCKS: WEATHER • 5 WORLDS • 8 LOOKS" else null
+            )
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -3483,7 +3551,7 @@ val bossImagesByWorld = mapOf(
                         val userY = ch * (simState.userYPos / 100f)
 
                         if (simState.bossActive) {
-                            val bossImg = bossImagesByWorld[currentWorld.id] ?: bossImagesByWorld[1]!!
+                            val bossImg = bossImagesByWorld[variant?.baseFamily ?: currentWorld.worldFamily] ?: bossImagesByWorld[1]!!
                             val bossX = cw * 0.88f
                             val bossYPx = ch * (simState.bossY / 100f)
                             val bossDisplayHeight = ch * 0.32f
@@ -3969,6 +4037,26 @@ fun GameOverOverlayScreen(
                                 color = CyberOnSurface.copy(alpha = 0.8f),
                                 textAlign = TextAlign.Center
                             )
+                            // Free-tier teaser: name the rift world they just flew through
+                            // and what Pro would have added to it.
+                            val endedVariant = remember(simState.currentZoneNumber) {
+                                WorldVariants.variantFor(
+                                    viewModel.currentWorld.value,
+                                    simState.currentZoneNumber,
+                                    isPro = false
+                                )
+                            }
+                            if (endedVariant?.isRift == true) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "🌌 You flew through ${endedVariant.suffix}. Pro adds weather effects, all 5 worlds and 8 looks.",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFFFD23F),
+                                    fontFamily = FontFamily.Monospace,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
                             Spacer(modifier = Modifier.height(12.dp))
                             Button(
                                 onClick = onShowPaywall,
