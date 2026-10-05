@@ -158,11 +158,21 @@ private val worldBackgroundLayers: Map<Int, List<BgLayer>> = mapOf(
         BgLayer(R.drawable.bg_world6_l3_mid_corridor, 0.35f, seamless = false),
         BgLayer(R.drawable.bg_world6_l4_fragments, 0.55f, seamless = false),
         BgLayer(R.drawable.bg_world6_l5_foreground, 0.85f, seamless = false)
+    ),
+    // World 7 (Frozen Veil): 5-layer parallax, arctic infiltration theme.
+    // Same non-seamless "hero scene" treatment as Worlds 2-6. l1 aurora sky,
+    // l2 distant ice-citadel, l3 frozen cavern + facility, l4 ruined ice
+    // ground with radar dish, l5 hanging icicles framing the foreground.
+    7 to listOf(
+        BgLayer(R.drawable.bg_world7_l1_sky, 0.02f, seamless = false),
+        BgLayer(R.drawable.bg_world7_l2_far_citadel, 0.15f, seamless = false),
+        BgLayer(R.drawable.bg_world7_l3_ice_cavern, 0.35f, seamless = false),
+        BgLayer(R.drawable.bg_world7_l4_ruins_ground, 0.55f, seamless = false),
+        BgLayer(R.drawable.bg_world7_l5_icicles_foreground, 0.85f, seamless = false)
     )
-    // Special-mode worlds 7 (Frozen Veil) and 8 (Apex Signal) have no entry
-    // yet — ParallaxWorldBackground falls back to a themed color gradient
-    // for any world id missing here. Add a 7/8 entry (same pattern as
-    // world 6) once their art exists.
+    // Special-mode world 8 (Apex Signal) has no entry yet —
+    // ParallaxWorldBackground falls back to a themed color gradient for any
+    // world id missing here. Add an 8 entry (same pattern) once its art exists.
 )
 
 // Parses a "#RRGGBB" (or "#AARRGGBB") hex string, e.g. ZoneDNA.environmentColor,
