@@ -3882,6 +3882,38 @@ fun GameOverOverlayScreen(
                     )
                 }
 
+                // One-tap share card (image + watermark + QR). Highlighted on a new PB.
+                val shareContext = LocalContext.current
+                val isNewPB = simState.score > 0 && simState.score >= profile.bestScore
+                Button(
+                    onClick = {
+                        ShareCard.share(
+                            shareContext,
+                            ShareCardData(
+                                pilotName = profile.username,
+                                score = simState.score,
+                                distanceMeters = simState.distanceMeters.toInt(),
+                                zoneName = simState.currentZoneName,
+                                isNewPersonalBest = isNewPB,
+                                isPro = isPro,
+                                storeUrl = PLAY_STORE_URL
+                            )
+                        )
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isNewPB) Color(0xFFFFD23F) else CyberSecondary
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = if (isNewPB) "📸 SHARE NEW BEST" else "📸 SHARE SCORE",
+                        color = if (isNewPB) Color.Black else Color.White,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
                 if (!isPro) {
     Button(
         onClick = {
