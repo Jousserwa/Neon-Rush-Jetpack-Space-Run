@@ -23,7 +23,8 @@ data class ShareCardData(
     val zoneName: String,
     val isNewPersonalBest: Boolean,
     val isPro: Boolean,
-    val storeUrl: String
+    val storeUrl: String,
+    val masteryLevel: Int = 0
 )
 
 object ShareCard {
@@ -80,6 +81,7 @@ object ShareCard {
         text("ZONE  ${d.zoneName.take(24)}", cx, 870f, 46f, CYAN)
         text("PILOT  ${d.pilotName.take(18)}", cx, 950f, 46f, Color.WHITE)
         if (d.isPro) text("⚡ PRO PILOT", cx, 1020f, 40f, GOLD)
+        if (d.masteryLevel > 0) text("MASTERY LV ${d.masteryLevel}", cx, 1090f, 40f, CYAN)
 
         // QR to the store page (works as a scan target from a screenshot)
         val qr = qr(d.storeUrl, 230)
