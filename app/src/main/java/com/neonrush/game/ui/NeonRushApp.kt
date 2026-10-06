@@ -63,7 +63,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -84,6 +86,8 @@ import com.neonrush.game.ZoneGenerator
 import com.neonrush.game.TESTING_DISABLE_PRO_GATE
 import com.neonrush.game.StoryBannerHost
 import com.neonrush.game.Skins
+import com.neonrush.game.Upgrades
+import com.neonrush.game.DailyCrate
 import com.neonrush.game.db.GameProfile
 import com.neonrush.game.ui.theme.*
 import com.neonrush.game.MissionTier
@@ -192,6 +196,100 @@ private fun hexToColor(hex: String): Color {
 // obstacles, the pilot) stay readable against busier background art. 0f =
 // no dimming, 1f = fully black. Tune to taste.
 private const val BACKGROUND_SCRIM_ALPHA = 0.32f
+
+// Shield barrier look evolves with the Shield Core upgrade level (0-5).
+private fun DrawScope.drawShieldAura(level: Int, x: Float, y: Float, r: Float, tick: Int) {
+    val c = Offset(x, y)
+    val base = Color(0xFF3A86FF)
+    drawCircle(base, radius = r, center = c, style = Stroke(width = 2.dp.toPx() + level * 0.5f.dp.toPx()))
+    if (level >= 2) drawCircle(base.copy(alpha = 0.12f), radius = r * 0.95f, center = c)
+    if (level >= 3) { // rotating arcs
+        for (k in 0 until 3) {
+            drawArc(
+                color = Color(0xFF7FDBFF), startAngle = tick * 4f + k * 120f, sweepAngle = 40f, useCenter = false,
+                topLeft = Offset(x - r * 1.15f, y - r * 1.15f), size = Size(r * 2.3f, r * 2.3f),
+                style = Stroke(width = 3.dp.toPx())
+            )
+        }
+    }
+    if (level >= 4) { // counter-rotating outer arcs
+        for (k in 0 until 4) {
+            drawArc(
+                color = Color.White.copy(alpha = 0.7f), startAngle = -tick * 3f + k * 90f, sweepAngle = 28f, useCenter = false,
+                topLeft = Offset(x - r * 1.35f, y - r * 1.35f), size = Size(r * 2.7f, r * 2.7f),
+                style = Stroke(width = 2.dp.toPx())
+            )
+        }
+    }
+    if (level >= 5) { // pulsing glow + orbiting sparks
+        val pulse = 0.25f + 0.15f * sin(tick * 0.2f)
+        drawCircle(
+            brush = Brush.radialGradient(listOf(Color(0xFF7FDBFF).copy(alpha = pulse), Color.Transparent), center = c, radius = r * 1.8f),
+            radius = r * 1.8f, center = c
+        )
+        for (k in 0 until 6) {
+            val a = tick * 0.1f + k * (2f * kotlin.math.PI.toFloat() / 6f)
+            drawCircle(Color.White, radius = 2.dp.toPx(), center = Offset(x + cos(a) * r * 1.5f, y + sin(a) * r * 1.5f))
+        }
+    }
+}
+
+// Ship hulls are cosmetic: each one gives the pilot a different thruster trail
+// and aura, drawn in code (no image assets). The pilot suit is separate.
+private fun DrawScope.drawHullEffect(hullId: String, x: Float, y: Float, h: Float, tick: Int, speedLevel: Int = 0) {
+    val color: Color
+    val shape: Int // 0 diamond, 1 square, 2 triangle, 3 pulse, 4 gold, 5 grid
+    when (hullId) {
+        "purple_square" -> { color = Color(0xFFB266FF); shape = 1 }
+        "green_triangle" -> { color = Color(0xFF39FF14); shape = 2 }
+        "magenta_pulse" -> { color = Color(0xFFFF2BD6); shape = 3 }
+        "gold_transcendence" -> { color = Color(0xFFFFD23F); shape = 4 }
+        "matrix_grid" -> { color = Color(0xFF00FF9C); shape = 5 }
+        else -> { color = Color(0xFF00E5FF); shape = 0 }
+    }
+    val unit = h * 0.06f
+
+    // Premium auras
+    if (shape == 3) {
+        val r = h * 0.5f + sin(tick * 0.25f) * h * 0.04f
+        drawCircle(color.copy(alpha = 0.55f), radius = r, center = Offset(x, y), style = Stroke(width = 3f))
+        drawCircle(color.copy(alpha = 0.15f), radius = r * 0.85f, center = Offset(x, y))
+    }
+    if (shape == 4) {
+        drawCircle(
+            brush = Brush.radialGradient(
+                listOf(color.copy(alpha = 0.35f), Color.Transparent),
+                center = Offset(x, y), radius = h * 0.65f
+            ),
+            radius = h * 0.65f, center = Offset(x, y)
+        )
+        for (k in 0 until 5) { // orbiting sparkles
+            val a = tick * 0.08f + k * (2f * kotlin.math.PI.toFloat() / 5f)
+            drawCircle(Color.White.copy(alpha = 0.8f), radius = unit * 0.35f,
+                center = Offset(x + cos(a) * h * 0.45f, y + sin(a) * h * 0.45f))
+        }
+    }
+
+    // Trail streaming behind the pilot (to the left)
+    val n = 8 + speedLevel * 2 // Afterburner upgrade: longer trail per level
+    for (i in 1..n) {
+        val a = 0.6f * (1f - i / (n + 1f))
+        val s = unit * (1.3f - i * 0.1f)
+        val cx = x - h * 0.18f - i * unit * 1.6f
+        val cy = y + h * 0.05f + sin((tick + i * 3) * 0.3f) * unit * 0.6f
+        val c = color.copy(alpha = a)
+        when (shape) {
+            1 -> drawRect(c, Offset(cx - s, cy - s), Size(s * 2, s * 2))
+            5 -> drawRect(c, Offset(cx - s, cy - s), Size(s * 2, s * 2), style = Stroke(width = 2f))
+            2 -> drawPath(Path().apply {
+                moveTo(cx - s, cy); lineTo(cx + s, cy - s); lineTo(cx + s, cy + s); close()
+            }, c)
+            else -> drawPath(Path().apply {
+                moveTo(cx, cy - s); lineTo(cx + s, cy); lineTo(cx, cy + s); lineTo(cx - s, cy); close()
+            }, c)
+        }
+    }
+}
 
 // Base layers for a world, optionally remixed: the sky and the foreground are
 // swapped for ones borrowed from other main worlds (see WorldVariants).
@@ -456,7 +554,15 @@ if (showStreakFreezeOffer) {
                                 unselectedIconColor = CyberOnSurface.copy(alpha = 0.5f),
                                 indicatorColor = CyberPrimary.copy(alpha = 0.1f)
                             ),
-                            icon = { Icon(Icons.Filled.PlayArrow, contentDescription = "Arcade") },
+                            icon = {
+                                if (DailyCrate.isReady(currentProfile, isPro)) {
+                                    BadgedBox(badge = { Badge(containerColor = Color(0xFFFFD23F)) }) {
+                                        Icon(Icons.Filled.PlayArrow, contentDescription = "Arcade")
+                                    }
+                                } else {
+                                    Icon(Icons.Filled.PlayArrow, contentDescription = "Arcade")
+                                }
+                            },
                             label = { Text("Arcade", fontFamily = FontFamily.Monospace, fontSize = 11.sp) }
                         )
                         NavigationBarItem(
@@ -1231,6 +1337,10 @@ fun ArcadeHomeView(
     onStartSpecialMode: () -> Unit,
     isPro: Boolean
 ) {
+    var showCrate by remember { mutableStateOf(false) }
+    if (showCrate) {
+        DailyCrateDialog(profile = profile, isPro = isPro, viewModel = viewModel, onDismiss = { showCrate = false })
+    }
     Column(
     modifier = Modifier.fillMaxSize(),
     verticalArrangement = Arrangement.SpaceBetween
@@ -1254,6 +1364,23 @@ fun ArcadeHomeView(
                 fontSize = 13.sp,
                 fontFamily = FontFamily.Monospace
             )
+            val crateReady = DailyCrate.isReady(profile, isPro)
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (crateReady) Color(0xFFFFD23F) else CyberSurface)
+                    .border(1.dp, Color(0xFFFFD23F), RoundedCornerShape(12.dp))
+                    .clickable { showCrate = true }
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = if (crateReady) "🎁 READY" else "🎁",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = if (crateReady) Color.Black else Color(0xFFFFD23F)
+                )
+            }
             Text(
                 text = "💎 ${profile.gems} GEMS",
                 color = CyberPrimary,
@@ -2128,6 +2255,246 @@ fun CommunityAndShareCard(profile: GameProfile) {
     }
 }
 @Composable
+fun DailyCrateDialog(profile: GameProfile, isPro: Boolean, viewModel: NeonRushViewModel, onDismiss: () -> Unit) {
+    val result by viewModel.crateResult.collectAsState()
+    val activity = LocalContext.current as? Activity
+    val gold = Color(0xFFFFD23F)
+    val ready = DailyCrate.isReady(profile, isPro)
+    val noAd = isPro || profile.adsRemoved
+    val openedToday = DailyCrate.cratesOpenedToday(profile)
+    val bob by rememberInfiniteTransition(label = "crateBob").animateFloat(
+        initialValue = -6f, targetValue = 6f,
+        animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "bob"
+    )
+    val reveal = remember { Animatable(0.3f) }
+    LaunchedEffect(result) {
+        if (result != null) {
+            reveal.snapTo(0.3f)
+            reveal.animateTo(1f, spring(dampingRatio = 0.35f, stiffness = 200f))
+        }
+    }
+    fun hullName(id: String) = viewModel.shopSkins.find { it.first == id }?.second ?: id
+    fun close() { viewModel.dismissCrateResult(); onDismiss() }
+
+    Dialog(onDismissRequest = { close() }) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(CyberSurface, RoundedCornerShape(16.dp))
+                .border(1.dp, gold, RoundedCornerShape(16.dp))
+                .padding(20.dp)
+        ) {
+            val res = result
+            if (res == null) {
+                Text("🎁", fontSize = 64.sp, modifier = Modifier.offset(y = bob.dp))
+                Text("DAILY CRATE", color = gold, fontWeight = FontWeight.Black, fontSize = 20.sp, fontFamily = FontFamily.Monospace)
+                Text(
+                    "Gems, hull shards or a quote. Collect shards to unlock hulls for free.",
+                    color = CyberOnSurface.copy(alpha = 0.8f), fontSize = 12.sp, textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+                val streak = profile.crateStreak
+                Text(
+                    "🔥 Crate streak: $streak day${if (streak == 1) "" else "s"}  •  every 7th day is a bonus",
+                    color = CyberPrimary, fontSize = 11.sp, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(10.dp))
+                // Shard progress for hulls not yet owned
+                val owned = profile.unlockedSkinsCsv.split(",").toSet()
+                DailyCrate.HULL_SHARDS.forEach { (id, need) ->
+                    if (id !in owned) {
+                        val have = DailyCrate.shards(profile.crateShardsCsv, id)
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                            Text(hullName(id), color = Color.White, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                            Box(
+                                modifier = Modifier.width(80.dp).height(6.dp)
+                                    .background(CyberOnSurface.copy(alpha = 0.2f), RoundedCornerShape(3.dp))
+                            ) {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth((have.toFloat() / need).coerceIn(0f, 1f)).height(6.dp)
+                                        .background(gold, RoundedCornerShape(3.dp))
+                                )
+                            }
+                            Text("  $have/$need", color = gold, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                if (ready) {
+                    Button(
+                        onClick = {
+                            if (noAd) {
+                                viewModel.openDailyCrate(isPro)
+                            } else {
+                                activity?.let { act ->
+                                    AdMobManager.showRewardedIfReady(act) {
+                                        viewModel.openDailyCrate(isPro)
+                                        viewModel.recordAdWatched()
+                                    }
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = gold),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = when {
+                                !noAd -> "🎬 WATCH AD TO OPEN"
+                                openedToday == 0 -> "🎁 OPEN CRATE"
+                                else -> "🎁 OPEN BONUS CRATE ⚡PRO"
+                            },
+                            color = Color.Black, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace
+                        )
+                    }
+                } else {
+                    Text(
+                        "Next crate in ${DailyCrate.countdownText()}",
+                        color = CyberOnSurface.copy(alpha = 0.7f), fontFamily = FontFamily.Monospace, fontSize = 13.sp
+                    )
+                }
+                if (!isPro) {
+                    Text(
+                        "⚡ Pro opens crates with no ad and gets a 2nd crate every day.",
+                        color = gold.copy(alpha = 0.85f), fontSize = 10.sp, textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 10.dp)
+                    )
+                }
+            } else {
+                Text(
+                    "🎉", fontSize = 64.sp,
+                    modifier = Modifier.graphicsLayer(scaleX = reveal.value, scaleY = reveal.value)
+                )
+                if (res.isStreakBonus) {
+                    Text(res.message ?: "", color = gold, fontWeight = FontWeight.Black, fontSize = 14.sp, textAlign = TextAlign.Center)
+                }
+                if (res.gems > 0) {
+                    Text("+${res.gems} 💎", color = CyberPrimary, fontWeight = FontWeight.Black, fontSize = 26.sp, fontFamily = FontFamily.Monospace)
+                }
+                if (res.shardHullId != null && res.shardCount > 0) {
+                    Text(
+                        "+${res.shardCount} 🧩 ${hullName(res.shardHullId)} shards",
+                        color = gold, fontWeight = FontWeight.Bold, fontSize = 16.sp, textAlign = TextAlign.Center
+                    )
+                }
+                if (res.unlockedHullId != null) {
+                    Text(
+                        "🎊 ${hullName(res.unlockedHullId)} UNLOCKED!",
+                        color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp, textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
+                if (!res.isStreakBonus && res.message != null) {
+                    Text(
+                        "“${res.message}”",
+                        color = CyberOnSurface.copy(alpha = 0.9f), fontSize = 13.sp, textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                Button(
+                    onClick = { close() },
+                    colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("NICE!", color = Color.Black, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace) }
+            }
+        }
+    }
+}
+
+@Composable
+fun UpgradesPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
+    val isPro = profile.subscriptionPro || TESTING_DISABLE_PRO_GATE
+    val cap = Upgrades.maxLevelFor(isPro)
+    val pulse by rememberInfiniteTransition(label = "maxPulse").animateFloat(
+        initialValue = 0.4f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        label = "maxPulseA"
+    )
+
+    Text(
+        text = "⚙️ UPGRADES",
+        fontSize = 16.sp, fontWeight = FontWeight.Bold,
+        color = CyberPrimary, fontFamily = FontFamily.Monospace,
+        modifier = Modifier.padding(bottom = 6.dp)
+    )
+    Text(
+        text = "Permanent boosts bought with gems. Effects are small and prices double every level. " +
+            if (isPro) "Pro: all 5 levels unlocked." else "Free pilots reach Lv ${Upgrades.FREE_MAX_LEVEL}; Pro unlocks Lv 4-5.",
+        color = CyberOnSurface.copy(alpha = 0.7f), fontSize = 12.sp,
+        modifier = Modifier.padding(bottom = 12.dp)
+    )
+
+    Upgrades.ALL.forEach { def ->
+        val lvl = Upgrades.level(profile.upgradesCsv, def.id)
+        val maxed = lvl >= Upgrades.MAX_LEVEL
+        val proLocked = !maxed && lvl >= cap
+        val cost = Upgrades.nextCost(def, lvl)
+        val borderColor = if (maxed) CyberPrimary.copy(alpha = pulse) else Color.Transparent
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (maxed) CyberPrimary.copy(alpha = 0.12f) else CyberSurface)
+                .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+                .padding(14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Text(
+                    text = "${def.emoji} ${def.name}",
+                    fontWeight = FontWeight.Bold, color = Color.White
+                )
+                Text(def.desc, fontSize = 11.sp, color = CyberOnSurface.copy(alpha = 0.7f))
+                Row(modifier = Modifier.padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    for (i in 1..Upgrades.MAX_LEVEL) {
+                        Box(
+                            modifier = Modifier
+                                .size(width = 22.dp, height = 6.dp)
+                                .background(
+                                    when {
+                                        i <= lvl -> CyberPrimary
+                                        i > cap -> Color(0xFFFFD23F).copy(alpha = 0.25f)
+                                        else -> CyberOnSurface.copy(alpha = 0.2f)
+                                    },
+                                    RoundedCornerShape(2.dp)
+                                )
+                        )
+                    }
+                }
+                Text(
+                    text = if (lvl == 0) "Next: ${Upgrades.effectText(def.id, 1)}"
+                    else if (maxed) "MAX: ${Upgrades.effectText(def.id, lvl)}"
+                    else "Now: ${Upgrades.effectText(def.id, lvl)}  →  ${Upgrades.effectText(def.id, lvl + 1)}",
+                    fontSize = 11.sp, color = CyberPrimary, fontFamily = FontFamily.Monospace
+                )
+            }
+            when {
+                maxed -> Text("MAX", color = CyberPrimary, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+                proLocked -> Text(
+                    "⚡ PRO\nLv ${lvl + 1}", color = Color(0xFFFFD23F), fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center
+                )
+                else -> Button(
+                    onClick = { viewModel.purchaseUpgrade(def.id, isPro) },
+                    enabled = profile.gems >= cost,
+                    colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary),
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Text("💎$cost", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+    Spacer(modifier = Modifier.height(80.dp))
+}
+
+@Composable
 fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile) {
     val unlockedSkins = remember(profile.unlockedSkinsCsv) {
         profile.unlockedSkinsCsv.split(",").toSet()
@@ -2252,6 +2619,22 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile) {
                     .clickable { selectedTab = "ships" }
                     .padding(vertical = 10.dp)
             )
+            Text(
+                text = "UPGRADES",
+                color = if (selectedTab == "upgrades") CyberBackground else CyberPrimary,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .background(if (selectedTab == "upgrades") CyberPrimary else Color.Transparent)
+                    .clickable { selectedTab = "upgrades" }
+                    .padding(vertical = 10.dp)
+            )
+        }
+        if (selectedTab == "upgrades") {
+            UpgradesPanel(viewModel, profile)
         }
         if (selectedTab == "pilots") {
             val unlockedPilotSkins = remember(profile.unlockedPilotSkinsCsv) {
@@ -2454,6 +2837,14 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile) {
                         fontSize = 11.sp,
                         color = CyberPrimary.copy(alpha = 0.7f)
                     )
+                    val shardNeed = DailyCrate.HULL_SHARDS[id]
+                    if (!isUnlocked && shardNeed != null) {
+                        Text(
+                            text = "🧩 ${DailyCrate.shards(profile.crateShardsCsv, id)}/$shardNeed shards (Daily Crate)",
+                            fontSize = 10.sp,
+                            color = Color(0xFFFFD23F).copy(alpha = 0.85f)
+                        )
+                    }
                 }
 
                 if (isActive) {
@@ -2805,6 +3196,9 @@ fun RacingSimulatorScreen(
         defaultFrameIds
     }
         
+    val shieldLevel = remember(profile.upgradesCsv) { Upgrades.level(profile.upgradesCsv, "shield") }
+    val afterburnerLevel = remember(profile.upgradesCsv) { Upgrades.level(profile.upgradesCsv, "afterburner") }
+
     val gemImg = ImageBitmap.imageResource(id = R.drawable.gem)
     val coinImg = ImageBitmap.imageResource(id = R.drawable.coin)
     val spikesImg = ImageBitmap.imageResource(id = R.drawable.spikes)
@@ -3661,12 +4055,7 @@ val bossImagesByWorld = mapOf(
                         }
 
                         if (simState.activePowerupDurations.containsKey("PU1")) {
-                            drawCircle(
-                                color = Color(0xFF3A86FF),
-                                radius = 26.dp.toPx(),
-                                center = Offset(userX, userY),
-                                style = Stroke(width = 2.dp.toPx())
-                            )
+                            drawShieldAura(shieldLevel, userX, userY, 26.dp.toPx(), simState.tickIndex)
                         }
                         if (simState.activePowerupDurations.containsKey("PU7")) {
                             drawCircle(
@@ -3683,6 +4072,9 @@ val bossImagesByWorld = mapOf(
                         val displayHeight = ch * 0.23f
                         val aspect = currentFrameImg.width.toFloat() / currentFrameImg.height.toFloat()
                         val displayWidth = displayHeight * aspect
+
+                        // Equipped ship hull: thruster trail + aura behind the pilot.
+                        drawHullEffect(profile.activeSkinId, userX, userY, displayHeight, simState.tickIndex, afterburnerLevel)
 
                         rotate(degrees = tiltAngle, pivot = Offset(userX, userY)) {
                             drawImage(
