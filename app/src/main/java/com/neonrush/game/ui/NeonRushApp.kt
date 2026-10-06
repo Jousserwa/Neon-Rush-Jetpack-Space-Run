@@ -2573,7 +2573,7 @@ fun UpgradesPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
         modifier = Modifier.padding(bottom = 6.dp)
     )
     Text(
-        text = "Permanent boosts bought with gems. Effects are small and prices double every level. " +
+        text = "Permanent boosts bought with gems. Effects are small and prices climb steeply with every level. " +
             if (isPro) "Pro: all 5 levels unlocked." else "Free pilots reach Lv ${Upgrades.FREE_MAX_LEVEL}; Pro unlocks Lv 4-5.",
         color = CyberOnSurface.copy(alpha = 0.7f), fontSize = 12.sp,
         modifier = Modifier.padding(bottom = 12.dp)
