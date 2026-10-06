@@ -88,6 +88,7 @@ import com.neonrush.game.StoryBannerHost
 import com.neonrush.game.Skins
 import com.neonrush.game.Upgrades
 import com.neonrush.game.DailyCrate
+import com.neonrush.game.RunGoals
 import com.neonrush.game.db.GameProfile
 import com.neonrush.game.ui.theme.*
 import com.neonrush.game.MissionTier
@@ -1338,11 +1339,24 @@ fun ArcadeHomeView(
     isPro: Boolean
 ) {
     var showCrate by remember { mutableStateOf(false) }
+    var showCheckpoints by remember { mutableStateOf(false) }
     if (showCrate) {
         DailyCrateDialog(profile = profile, isPro = isPro, viewModel = viewModel, onDismiss = { showCrate = false })
     }
+    if (showCheckpoints) {
+        CheckpointsDialog(profile = profile, viewModel = viewModel, onDismiss = { showCheckpoints = false })
+    }
+    // Safety net: if the content is ever taller than the screen it scrolls instead of
+    // squeezing/hiding the buttons. On normal screens the layout is unchanged
+    // (min height = screen height, so SpaceBetween still spreads items out).
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+    val minContentHeight = maxHeight
     Column(
-    modifier = Modifier.fillMaxSize(),
+    modifier = Modifier
+        .fillMaxWidth()
+        .heightIn(min = minContentHeight)
+        .verticalScroll(rememberScrollState())
+        .padding(bottom = 12.dp),
     verticalArrangement = Arrangement.SpaceBetween
 ) {
     PromoPopup(onNavigate = { tab ->
@@ -1389,6 +1403,15 @@ fun ArcadeHomeView(
                 fontFamily = FontFamily.Monospace
             )
         }
+        Text(
+            text = "🎯 " + RunGoals.forRun(profile.totalRuns).joinToString("  ") { "${it.tier.emoji}${it.short}" } +
+                "  •  Mastery Lv ${RunGoals.level(profile.masteryPoints)}",
+            fontSize = 9.sp,
+            color = CyberOnSurface.copy(alpha = 0.75f),
+            fontFamily = FontFamily.Monospace,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
           val activeMutation = DailyMutations.getActiveMutation()
         Box(
             modifier = Modifier
@@ -1636,45 +1659,7 @@ fun ArcadeHomeView(
             }
         }
 
-        if (profile.checkpointsReachedCsv.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "🏁 CHECKPOINTS",
-                color = CyberSecondary,
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                val reachedZones = profile.checkpointsReachedCsv.split(",").filter { it.isNotEmpty() }.map { it.toInt() }.sorted()
-                val activatedZones = profile.checkpointsActivatedCsv.split(",").filter { it.isNotEmpty() }.map { it.toInt() }
-                for (cp in reachedZones) {
-                    val isActivated = cp in activatedZones
-                    val cost = cp * 3
-                    Button(
-                        onClick = { viewModel.startFromCheckpoint(cp) },
-                        colors = ButtonDefaults.buttonColors(containerColor = if (isActivated) CyberPrimary else CyberSurface),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.border(1.dp, CyberPrimary.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                    ) {
-                        Text(
-                            text = if (isActivated) "Zone $cp ✓" else "Zone $cp (${cost}💎)",
-                            color = if (isActivated) Color.Black else Color.White,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-        }
+        Spacer(modifier = Modifier.height(8.dp))
 
            Row(
             modifier = Modifier
@@ -1719,6 +1704,31 @@ fun ArcadeHomeView(
                     Icon(Icons.Filled.ShoppingCart, contentDescription = "Skins", tint = CyberSecondary, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("SKINS", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            // One compact entry point for every saved checkpoint (opens its own page).
+            if (profile.checkpointsReachedCsv.isNotEmpty()) {
+                val cpCount = profile.checkpointsReachedCsv.split(",").count { it.isNotEmpty() }
+                Button(
+                    onClick = { showCheckpoints = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                    contentPadding = PaddingValues(horizontal = 4.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .border(1.dp, Color(0xFFFFD23F).copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .testTag("quick_checkpoints_button")
+                ) {
+                    Text(
+                        "🏁 SAVES ($cpCount)",
+                        color = Color(0xFFFFD23F),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
                 }
             }
         }
@@ -1807,7 +1817,94 @@ fun ArcadeHomeView(
             )
         }
     }
+    }
 }
+@Composable
+fun CheckpointsDialog(profile: GameProfile, viewModel: NeonRushViewModel, onDismiss: () -> Unit) {
+    val gold = Color(0xFFFFD23F)
+    val reached = profile.checkpointsReachedCsv.split(",").mapNotNull { it.trim().toIntOrNull() }.sortedDescending()
+    val activated = profile.checkpointsActivatedCsv.split(",").mapNotNull { it.trim().toIntOrNull() }.toSet()
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(CyberBackground)
+                .padding(horizontal = 20.dp, vertical = 24.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("🏁 CHECKPOINTS", color = gold, fontWeight = FontWeight.Black, fontSize = 20.sp, fontFamily = FontFamily.Monospace)
+                Text(
+                    "✕", color = Color.White, fontSize = 22.sp,
+                    modifier = Modifier.clickable { onDismiss() }.padding(8.dp)
+                )
+            }
+            Text(
+                "Each checkpoint you reach is saved here. Unlock one once with gems, then restart from it any time.",
+                color = CyberOnSurface.copy(alpha = 0.75f), fontSize = 12.sp,
+                modifier = Modifier.padding(top = 6.dp, bottom = 12.dp)
+            )
+            Column(
+                modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                reached.forEach { cp ->
+                    val isActivated = cp in activated
+                    val cost = cp * 3
+                    val canAfford = profile.gems >= cost
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(CyberSurface, RoundedCornerShape(10.dp))
+                            .border(1.dp, if (isActivated) CyberPrimary.copy(alpha = 0.6f) else Color.Transparent, RoundedCornerShape(10.dp))
+                            .padding(14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text("Zone $cp", color = Color.White, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                            Text(
+                                text = when {
+                                    isActivated -> "✓ Unlocked — start here any time"
+                                    canAfford -> "Unlock once for $cost 💎"
+                                    else -> "Need ${cost - profile.gems} more 💎 to unlock"
+                                },
+                                color = if (isActivated) CyberPrimary else CyberOnSurface.copy(alpha = 0.7f),
+                                fontSize = 11.sp
+                            )
+                        }
+                        Button(
+                            onClick = { viewModel.startFromCheckpoint(cp); onDismiss() },
+                            enabled = isActivated || canAfford,
+                            colors = ButtonDefaults.buttonColors(containerColor = if (isActivated) CyberPrimary else gold),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                if (isActivated) "START" else "💎 $cost",
+                                color = Color.Black, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+                if (reached.isEmpty()) {
+                    Text("No checkpoints yet. Reach a checkpoint zone in a run to save it here.", color = CyberOnSurface.copy(alpha = 0.7f))
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth().border(1.dp, CyberPrimary.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+            ) { Text("BACK", color = Color.White, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
+        }
+    }
+}
+
 @Composable
 fun MissionsSection(viewModel: NeonRushViewModel, profile: GameProfile) {
     Column(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
@@ -2254,6 +2351,61 @@ fun CommunityAndShareCard(profile: GameProfile) {
         }
     }
 }
+@Composable
+fun RunGoalsHud(simState: SimulationState) {
+    val goals = remember(simState.runGoalIds) { RunGoals.parseIds(simState.runGoalIds) }
+    val shadow = Shadow(color = Color.Black, offset = Offset(1f, 1f), blurRadius = 6f)
+    goals.forEach { g ->
+        val p = RunGoals.progress(g, simState)
+        val done = p >= g.target
+        Text(
+            text = (if (done) "✓ " else "") + "${g.tier.emoji} ${g.text} ${minOf(p, g.target)}/${g.target}",
+            color = if (done) Color(0xFF39FF14) else Color.White.copy(alpha = 0.75f),
+            fontSize = 8.sp,
+            fontFamily = FontFamily.Monospace,
+            style = TextStyle(shadow = shadow)
+        )
+    }
+}
+
+@Composable
+fun RunGoalsSummary(simState: SimulationState, profile: GameProfile) {
+    val goals = remember(simState.runGoalIds) { RunGoals.parseIds(simState.runGoalIds) }
+    if (goals.isEmpty()) return
+    val done = goals.count { RunGoals.isComplete(it, simState) }
+    val level = RunGoals.level(profile.masteryPoints)
+    val stars = RunGoals.stars(profile.masteryPoints)
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            "🎯 RUN GOALS  $done/${goals.size}",
+            color = Color(0xFFFFD23F), fontWeight = FontWeight.Bold, fontSize = 14.sp, fontFamily = FontFamily.Monospace
+        )
+        goals.forEach { g ->
+            val p = RunGoals.progress(g, simState)
+            val ok = p >= g.target
+            Text(
+                "${if (ok) "✓" else "✗"} ${g.tier.emoji} ${g.text} (${minOf(p, g.target)}/${g.target})",
+                color = if (ok) Color(0xFF39FF14) else Color.White.copy(alpha = 0.6f),
+                fontSize = 12.sp, fontFamily = FontFamily.Monospace
+            )
+        }
+        if (simState.masteryEarnedLastRun > 0) {
+            Text(
+                "+${simState.masteryEarnedLastRun} MASTERY",
+                color = CyberPrimary, fontWeight = FontWeight.Black, fontSize = 14.sp, fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+        Text(
+            text = when {
+                stars > 0 -> "MASTERY ★$stars  •  +${RunGoals.MAX_LEVEL}% score (MAX)"
+                else -> "MASTERY LV $level  •  +$level% score  •  ${RunGoals.pointsIntoLevel(profile.masteryPoints)}/${RunGoals.POINTS_PER_LEVEL} to next"
+            },
+            color = CyberSecondary, fontSize = 11.sp, fontFamily = FontFamily.Monospace
+        )
+    }
+}
+
 @Composable
 fun DailyCrateDialog(profile: GameProfile, isPro: Boolean, viewModel: NeonRushViewModel, onDismiss: () -> Unit) {
     val result by viewModel.crateResult.collectAsState()
@@ -3350,6 +3502,7 @@ val bossImagesByWorld = mapOf(
                         fontFamily = FontFamily.Monospace,
                         style = TextStyle(shadow = hudShadow)
                     )
+                    RunGoalsHud(simState)
                 }
 
                 Column(horizontalAlignment = Alignment.End) {
@@ -4297,13 +4450,20 @@ fun GameOverOverlayScreen(
             }
         } else {
             // ---------- SCREEN 2: Final Summary ----------
+            // Scrollable: with the run goals, share button, ads and Pro card this
+            // screen is taller than a phone. The bottom padding keeps the last
+            // button (BACK TO MENU) clear of the bottom navigation bar.
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(top = 8.dp, bottom = 110.dp)
             ) {
                 Text(
                     text = "GAME OVER",
-                    fontSize = 32.sp,
+                    fontSize = 28.sp,
                     fontWeight = FontWeight.Black,
                     color = CyberPrimary,
                     fontFamily = FontFamily.Monospace
@@ -4330,6 +4490,7 @@ fun GameOverOverlayScreen(
                     color = CyberSecondary,
                     fontFamily = FontFamily.Monospace
                 )
+                RunGoalsSummary(simState, profile)
                 if (simState.dailyBonusLabel.isNotEmpty()) {
                     Text(
                         text = simState.dailyBonusLabel,
@@ -4364,7 +4525,8 @@ fun GameOverOverlayScreen(
                                 zoneName = simState.currentZoneName,
                                 isNewPersonalBest = isNewPB,
                                 isPro = isPro,
-                                storeUrl = PLAY_STORE_URL
+                                storeUrl = PLAY_STORE_URL,
+                                masteryLevel = RunGoals.level(profile.masteryPoints)
                             )
                         )
                     },
@@ -5134,8 +5296,11 @@ fun PaywallDialog(onDismiss: () -> Unit, reason: String) {
                 fontWeight = FontWeight.Bold
             )
         },
+        // All three buttons live inside the content as one vertical stack. Putting two
+        // buttons in confirmButton and one in dismissButton made the dialog's button
+        // row overlap (ANNUAL was drawn under MAYBE LATER).
         text = {
-            Column {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Text(
                     text = when (reason) {
                         "world4" -> "World 4: Green Hell requires Pro subscription. Unlock all Worlds, remove ads, and get Legendary difficulty!"
@@ -5158,10 +5323,8 @@ fun PaywallDialog(onDismiss: () -> Unit, reason: String) {
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
                 )
-            }
-        },
-        confirmButton = {
-            Column(horizontalAlignment = Alignment.End) {
+                Spacer(modifier = Modifier.height(16.dp))
+
                 Button(
                     onClick = {
                         activity?.let {
@@ -5170,11 +5333,13 @@ fun PaywallDialog(onDismiss: () -> Unit, reason: String) {
                             }
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary)
+                    colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
                 ) {
-                    Text("SUBSCRIBE MONTHLY", color = CyberBackground, fontFamily = FontFamily.Monospace)
+                    Text("SUBSCRIBE MONTHLY", color = CyberBackground, fontFamily = FontFamily.Monospace, fontSize = 13.sp, maxLines = 1)
                 }
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Button(
                     onClick = {
                         activity?.let {
@@ -5183,17 +5348,22 @@ fun PaywallDialog(onDismiss: () -> Unit, reason: String) {
                             }
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary)
+                    colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary),
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
                 ) {
-                    Text("SUBSCRIBE ANNUAL", color = CyberBackground, fontFamily = FontFamily.Monospace)
+                    Text("SUBSCRIBE ANNUAL", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 13.sp, maxLines = 1)
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth().height(44.dp)
+                ) {
+                    Text("MAYBE LATER", color = CyberOnSurface, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
                 }
             }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("MAYBE LATER", color = CyberOnSurface, fontFamily = FontFamily.Monospace)
-            }
-        },
+        confirmButton = {},
         containerColor = CyberSurface,
         shape = RoundedCornerShape(16.dp)
     )
