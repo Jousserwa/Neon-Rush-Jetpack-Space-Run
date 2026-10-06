@@ -22,7 +22,7 @@ data class GameProfile(
     val fuelTiersOwned: Int = 0,
     val transcendenceCount: Int = 0,
     val activeSkinId: String = "cyan_diamond",
-    val unlockedSkinsCsv: String = "cyan_diamond,purple_square,green_triangle",
+    val unlockedSkinsCsv: String = "cyan_diamond",
     val followedUsersCsv: String = "CyberRunner,ZeroGlitch,RetroWave",
     val subscriptionPro: Boolean = false,
     val dailyAttemptsToday: Int = 0,
@@ -61,7 +61,14 @@ data class GameProfile(
     val dailyRerollCount: Int = 0,
     val weeklyRerollCount: Int = 0,
     val monthlyRerollCount: Int = 0,
-    val specialWorldTier: Int = 0
+    val specialWorldTier: Int = 0,
+    // Permanent gem upgrades, e.g. "shield:2,gem:1" (see Upgrades.kt)
+    val upgradesCsv: String = "",
+    // Daily crate (see DailyCrate.kt)
+    val lastCrateDate: String = "",
+    val cratesToday: Int = 0,
+    val crateStreak: Int = 0,
+    val crateShardsCsv: String = ""
 )
 
 data class GhostChallengeEntity(
@@ -132,6 +139,11 @@ class GameDao(context: Context) {
             val checkpointsReachedCsvIdx = cursor.getColumnIndex("checkpointsReachedCsv")
             val checkpointsActivatedCsvIdx = cursor.getColumnIndex("checkpointsActivatedCsv")
             val fuelTiersOwnedIdx = cursor.getColumnIndex("fuelTiersOwned")
+            val upgradesCsvIdx = cursor.getColumnIndex("upgradesCsv")
+            val lastCrateDateIdx = cursor.getColumnIndex("lastCrateDate")
+            val cratesTodayIdx = cursor.getColumnIndex("cratesToday")
+            val crateStreakIdx = cursor.getColumnIndex("crateStreak")
+            val crateShardsCsvIdx = cursor.getColumnIndex("crateShardsCsv")
             val profile = GameProfile(
                 id = 1,
                 username = if (usernameIdx != -1) cursor.getString(usernameIdx) else "NeonPilot_99",
@@ -139,7 +151,7 @@ class GameDao(context: Context) {
                 gems = if (gemsIdx != -1) cursor.getInt(gemsIdx) else 240,
                 transcendenceCount = if (transIdx != -1) cursor.getInt(transIdx) else 0,
                 activeSkinId = if (activeSkinIdx != -1) cursor.getString(activeSkinIdx) else "cyan_diamond",
-                unlockedSkinsCsv = if (unlockedSkinsIdx != -1) cursor.getString(unlockedSkinsIdx) else "cyan_diamond,purple_square,green_triangle",
+                unlockedSkinsCsv = if (unlockedSkinsIdx != -1) cursor.getString(unlockedSkinsIdx) else "cyan_diamond",
                 followedUsersCsv = if (followedIdx != -1) cursor.getString(followedIdx) else "CyberRunner,ZeroGlitch,RetroWave",
                 subscriptionPro = if (subIdx != -1) cursor.getInt(subIdx) == 1 else false,
                 dailyAttemptsToday = if (dailyIdx != -1) cursor.getInt(dailyIdx) else 0,
@@ -175,7 +187,12 @@ class GameDao(context: Context) {
                 currentRunMilestonesRewarded = if (currentRunMilestonesRewardedIdx != -1) cursor.getString(currentRunMilestonesRewardedIdx) else "",
                 checkpointsReachedCsv = if (checkpointsReachedCsvIdx != -1) cursor.getString(checkpointsReachedCsvIdx) else "",
                 checkpointsActivatedCsv = if (checkpointsActivatedCsvIdx != -1) cursor.getString(checkpointsActivatedCsvIdx) else "",
-                fuelTiersOwned = if (fuelTiersOwnedIdx != -1) cursor.getInt(fuelTiersOwnedIdx) else 0
+                fuelTiersOwned = if (fuelTiersOwnedIdx != -1) cursor.getInt(fuelTiersOwnedIdx) else 0,
+                upgradesCsv = if (upgradesCsvIdx != -1) (cursor.getString(upgradesCsvIdx) ?: "") else "",
+                lastCrateDate = if (lastCrateDateIdx != -1) (cursor.getString(lastCrateDateIdx) ?: "") else "",
+                cratesToday = if (cratesTodayIdx != -1) cursor.getInt(cratesTodayIdx) else 0,
+                crateStreak = if (crateStreakIdx != -1) cursor.getInt(crateStreakIdx) else 0,
+                crateShardsCsv = if (crateShardsCsvIdx != -1) (cursor.getString(crateShardsCsvIdx) ?: "") else ""
             )
             
             _profileFlow.value = profile
@@ -252,6 +269,11 @@ class GameDao(context: Context) {
             put("checkpointsReachedCsv", profile.checkpointsReachedCsv)
             put("checkpointsActivatedCsv", profile.checkpointsActivatedCsv)
             put("fuelTiersOwned", profile.fuelTiersOwned)
+            put("upgradesCsv", profile.upgradesCsv)
+            put("lastCrateDate", profile.lastCrateDate)
+            put("cratesToday", profile.cratesToday)
+            put("crateStreak", profile.crateStreak)
+            put("crateShardsCsv", profile.crateShardsCsv)
         }
         db.insertWithOnConflict("game_profile", null, values, SQLiteDatabase.CONFLICT_REPLACE)
         _profileFlow.value = profile
@@ -295,7 +317,7 @@ class GameDao(context: Context) {
     }
 }
 
-class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_companion.db", null, 16) {
+class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_companion.db", null, 18) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE game_profile (
@@ -341,7 +363,12 @@ class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_comp
                 completedWorldsCsv TEXT,
                 bestComboStreak INTEGER,
                 hasSeenTutorial INTEGER,
-                lastUpdateReminderShownAt INTEGER
+                lastUpdateReminderShownAt INTEGER,
+                upgradesCsv TEXT,
+                lastCrateDate TEXT,
+                cratesToday INTEGER,
+                crateStreak INTEGER,
+                crateShardsCsv TEXT
             )
         """) 
         db.execSQL("""
@@ -414,6 +441,15 @@ class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_comp
     }
     if (oldVersion < 15) {
         db.execSQL("ALTER TABLE game_profile ADD COLUMN bestComboStreak INTEGER DEFAULT 0")
+    }
+    if (oldVersion < 18) {
+        db.execSQL("ALTER TABLE game_profile ADD COLUMN lastCrateDate TEXT DEFAULT ''")
+        db.execSQL("ALTER TABLE game_profile ADD COLUMN cratesToday INTEGER DEFAULT 0")
+        db.execSQL("ALTER TABLE game_profile ADD COLUMN crateStreak INTEGER DEFAULT 0")
+        db.execSQL("ALTER TABLE game_profile ADD COLUMN crateShardsCsv TEXT DEFAULT ''")
+    }
+    if (oldVersion < 17) {
+        db.execSQL("ALTER TABLE game_profile ADD COLUMN upgradesCsv TEXT DEFAULT ''")
     }
     if (oldVersion < 16) {
         db.execSQL("ALTER TABLE game_profile ADD COLUMN hasSeenTutorial INTEGER DEFAULT 0")
