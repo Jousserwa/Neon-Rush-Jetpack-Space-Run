@@ -68,7 +68,9 @@ data class GameProfile(
     val lastCrateDate: String = "",
     val cratesToday: Int = 0,
     val crateStreak: Int = 0,
-    val crateShardsCsv: String = ""
+    val crateShardsCsv: String = "",
+    // Mastery (see RunGoals.kt): permanent score bonus earned from run goals
+    val masteryPoints: Int = 0
 )
 
 data class GhostChallengeEntity(
@@ -144,6 +146,7 @@ class GameDao(context: Context) {
             val cratesTodayIdx = cursor.getColumnIndex("cratesToday")
             val crateStreakIdx = cursor.getColumnIndex("crateStreak")
             val crateShardsCsvIdx = cursor.getColumnIndex("crateShardsCsv")
+            val masteryPointsIdx = cursor.getColumnIndex("masteryPoints")
             val profile = GameProfile(
                 id = 1,
                 username = if (usernameIdx != -1) cursor.getString(usernameIdx) else "NeonPilot_99",
@@ -192,7 +195,8 @@ class GameDao(context: Context) {
                 lastCrateDate = if (lastCrateDateIdx != -1) (cursor.getString(lastCrateDateIdx) ?: "") else "",
                 cratesToday = if (cratesTodayIdx != -1) cursor.getInt(cratesTodayIdx) else 0,
                 crateStreak = if (crateStreakIdx != -1) cursor.getInt(crateStreakIdx) else 0,
-                crateShardsCsv = if (crateShardsCsvIdx != -1) (cursor.getString(crateShardsCsvIdx) ?: "") else ""
+                crateShardsCsv = if (crateShardsCsvIdx != -1) (cursor.getString(crateShardsCsvIdx) ?: "") else "",
+                masteryPoints = if (masteryPointsIdx != -1) cursor.getInt(masteryPointsIdx) else 0
             )
             
             _profileFlow.value = profile
@@ -274,6 +278,7 @@ class GameDao(context: Context) {
             put("cratesToday", profile.cratesToday)
             put("crateStreak", profile.crateStreak)
             put("crateShardsCsv", profile.crateShardsCsv)
+            put("masteryPoints", profile.masteryPoints)
         }
         db.insertWithOnConflict("game_profile", null, values, SQLiteDatabase.CONFLICT_REPLACE)
         _profileFlow.value = profile
@@ -317,7 +322,7 @@ class GameDao(context: Context) {
     }
 }
 
-class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_companion.db", null, 18) {
+class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_companion.db", null, 19) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE game_profile (
@@ -368,7 +373,8 @@ class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_comp
                 lastCrateDate TEXT,
                 cratesToday INTEGER,
                 crateStreak INTEGER,
-                crateShardsCsv TEXT
+                crateShardsCsv TEXT,
+                masteryPoints INTEGER
             )
         """) 
         db.execSQL("""
@@ -441,6 +447,9 @@ class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_comp
     }
     if (oldVersion < 15) {
         db.execSQL("ALTER TABLE game_profile ADD COLUMN bestComboStreak INTEGER DEFAULT 0")
+    }
+    if (oldVersion < 19) {
+        db.execSQL("ALTER TABLE game_profile ADD COLUMN masteryPoints INTEGER DEFAULT 0")
     }
     if (oldVersion < 18) {
         db.execSQL("ALTER TABLE game_profile ADD COLUMN lastCrateDate TEXT DEFAULT ''")
