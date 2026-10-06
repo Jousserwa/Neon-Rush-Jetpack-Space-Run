@@ -128,7 +128,12 @@ data class SimulationState(
     // redirected back into free-tier zones. Can't just play through it.
     val proGateActive: Boolean = false,
     val proGateGraceUntilTick: Int = 0,
-    val proGateTriggered: Boolean = false
+    val proGateTriggered: Boolean = false,
+    // Run goals / Mastery (see RunGoals.kt)
+    val runGoalIds: String = "",
+    val goalsAwardedCsv: String = "",
+    val powerupsCollected: Int = 0,
+    val masteryEarnedLastRun: Int = 0
 )
 class NeonRushViewModel(
     private val gameDao: GameDao,
@@ -141,6 +146,8 @@ class NeonRushViewModel(
 
     // Latest upgrade levels, read by the simulation loops every tick.
     @Volatile private var activeUpgradesCsv: String = ""
+    @Volatile private var activeMasteryPoints: Int = 0
+    @Volatile private var activeTotalRuns: Int = 0
 
     val shopSkins = listOf(
         Triple("cyan_diamond", "Cyan Diamond", 0),
@@ -648,7 +655,13 @@ fun freezeStreak() {
 }
 
     init {
-        viewModelScope.launch { profile.collect { p -> activeUpgradesCsv = p?.upgradesCsv ?: "" } }
+        viewModelScope.launch {
+            profile.collect { p ->
+                activeUpgradesCsv = p?.upgradesCsv ?: ""
+                activeMasteryPoints = p?.masteryPoints ?: 0
+                activeTotalRuns = p?.totalRuns ?: 0
+            }
+        }
         loadSocialComments()
         prepopulateSampleGhostChallenges()
         viewModelScope.launch {
@@ -1029,6 +1042,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
     _simState.value = SimulationState(
         activeGhost = ghost,
         isStarted = true,
+        runGoalIds = RunGoals.idsCsv(RunGoals.forRun(activeTotalRuns)),
         isCompleted = false,
         tickIndex = 0,
         distanceMeters = startingDistance,
@@ -1340,6 +1354,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 var hasShield = nextDurationsMap.containsKey("PU1")
                 var hitThisTick = false
                 var boomClearTriggered = false
+                var puPickedThisTick = 0
                 for (elem in updatedElements) {
                     if (!isBlinkHazardVisible(elem, tick)) continue
                     val prevX = elem.xOffsetFraction + (speedInPx * 0.018f)
@@ -1387,6 +1402,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 }
                                 "powerup" -> {
                                     soundEngine.playShieldPowerup()
+                                    puPickedThisTick++
                                     val puId = elem.subType
                                     if (puId == "PU8") {
                                         boomClearTriggered = true
@@ -1517,6 +1533,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 // 200, roughly 24 seconds of sustained precision at 120ms/tick).
                 multi *= (1f + (nextComboStreak.coerceAtMost(200) * 0.005f))
                 multi *= Upgrades.scoreMultiplier(activeUpgradesCsv)
+                multi *= RunGoals.multiplier(activeMasteryPoints)
                 if (nextDurationsMap.containsKey("PU6")) {
                     multi *= 5.0f
                 } else if (nextDurationsMap.containsKey("PU5")) {
@@ -1551,6 +1568,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     score = nextScore,
                     comboStreak = nextComboStreak,
                     peakComboStreak = nextPeakComboStreak,
+                    powerupsCollected = state.powerupsCollected + puPickedThisTick,
                     runSeed = runSeed,
                     currentSectorNumber = nextSectorNumber,
                     sectorBannerText = sectorBannerText,
@@ -1639,6 +1657,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             var activeSkinForLeaderboard = ""
             var adsRemovedResult = false
             var gemsThisSession = 0
+            var masteryEarned = 0
+            var goalsAwardedAfter = finalState.goalsAwardedCsv
 
             gameDao.updateProfile { prof ->
                 isNewPB = finalState.score > prof.bestScore
@@ -1649,7 +1669,15 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 val newAverageScore = ((prof.averageScore * prof.totalRuns) + finalState.score) / newTotalRuns
                 val bestZoneLifetime = maxOf(prof.bestZoneReached, finalState.currentZoneNumber)
                 val bestComboLifetime = maxOf(prof.bestComboStreak, finalState.peakComboStreak)
+                // Run goals -> Mastery points (once per goal per run; Pro earns 50% faster)
+                val goals = RunGoals.parseIds(finalState.runGoalIds)
+                val alreadyAwarded = finalState.goalsAwardedCsv.split(",").filter { it.isNotBlank() }.toSet()
+                val newlyDone = goals.filter { it.id !in alreadyAwarded && RunGoals.isComplete(it, finalState) }
+                val basePoints = newlyDone.sumOf { it.tier.points }
+                masteryEarned = if (RevenueCatManager.isPro.value) (basePoints * 1.5f + 0.5f).toInt() else basePoints
+                goalsAwardedAfter = (alreadyAwarded + newlyDone.map { it.id }).joinToString(",")
                 val updated = prof.copy(
+                    masteryPoints = prof.masteryPoints + masteryEarned,
                     bestScore = if (isNewPB) finalState.score else prof.bestScore,
                     totalRuns = newTotalRuns,
                     averageScore = newAverageScore,
@@ -1665,6 +1693,11 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     bestZoneLifetime = bestZoneLifetime
                 )
             }
+
+            _simState.value = _simState.value.copy(
+                masteryEarnedLastRun = _simState.value.masteryEarnedLastRun + masteryEarned,
+                goalsAwardedCsv = goalsAwardedAfter
+            )
 
             AnalyticsManager.logGameOver(
                 score = finalState.score,
@@ -1950,6 +1983,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 var hasShield = nextDurationsMap.containsKey("PU1")
                 var hitThisTick = false
                 var boomClearTriggered = false
+                var puPickedThisTick = 0
                 for (elem in updatedElements) {
                     if (!isBlinkHazardVisible(elem, tick)) continue
                     val prevX = elem.xOffsetFraction + (speedInPx * 0.018f)
@@ -1997,6 +2031,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 }
                                 "powerup" -> {
                                     soundEngine.playShieldPowerup()
+                                    puPickedThisTick++
                                     val puId = elem.subType
                                     repeat(8) { i ->
                                         activeParticles.add(
@@ -2106,6 +2141,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 multi += (prof.transcendenceCount * 0.05f)
                 multi *= (1f + (nextComboStreak.coerceAtMost(200) * 0.005f))
                 multi *= Upgrades.scoreMultiplier(activeUpgradesCsv)
+                multi *= RunGoals.multiplier(activeMasteryPoints)
                 if (nextDurationsMap.containsKey("PU6")) {
                     multi *= 5.0f
                 } else if (nextDurationsMap.containsKey("PU5")) {
@@ -2141,6 +2177,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     score = nextScore,
                     comboStreak = nextComboStreak,
                     peakComboStreak = nextPeakComboStreak,
+                    powerupsCollected = state.powerupsCollected + puPickedThisTick,
                     runSeed = runSeed,
                     currentSectorNumber = nextSectorNumber,
                     sectorBannerText = sectorBannerText,
