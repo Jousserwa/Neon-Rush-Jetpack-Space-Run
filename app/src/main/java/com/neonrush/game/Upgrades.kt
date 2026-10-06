@@ -4,7 +4,7 @@ package com.neonrush.game
  * Permanent gem-bought upgrades.
  *
  * Design rules:
- *  - Gems stay scarce: prices double every level, effects are deliberately small.
+ *  - Gems stay scarce: prices climb steeply every level (see COST_CURVE), effects are deliberately small.
  *  - Nothing here touches fuel size/consumption (that is a real-money purchase)
  *    and nothing changes distance travelled per tick (which would be fuel
  *    efficiency in disguise).
@@ -26,7 +26,7 @@ object Upgrades {
 
     val ALL = listOf(
         Def("shield", "Shield Core", "🛡️", "Your shield power-up lasts longer. Higher levels animate the barrier.", 120),
-        Def("magnet", "Magnet Field", "🧲", "Your magnet power-up lasts longer.", 120),
+        Def("magnet", "Magnet Field", "🧲", "Your magnet pulls gems and power-ups in from farther away.", 120),
         Def("slowtime", "Time Warp", "⏳", "Your slow-time power-up lasts longer.", 120),
         Def("phase", "Phase Core", "👻", "Ghost mode and invincibility last longer.", 150),
         Def("afterburner", "Afterburner", "🔥", "Score builds faster. Your thruster trail grows with each level.", 200),
@@ -52,19 +52,34 @@ object Upgrades {
 
     fun maxLevelFor(isPro: Boolean) = if (isPro) MAX_LEVEL else FREE_MAX_LEVEL
 
-    /** Price to go from [level] to level+1: base x 1, 2, 4, 8, 16. */
-    fun nextCost(def: Def, level: Int): Int = def.baseCost * (1 shl level.coerceIn(0, MAX_LEVEL - 1))
+    /**
+     * Price multipliers for going from level 0->1, 1->2, ... 4->5.
+     * Roughly 3x the original doubling curve (1, 2, 4, 8, 16), but gentler on the
+     * first two levels (2x and 2.5x) so a new player can still afford a first
+     * upgrade within a few runs. Tune the whole economy by editing this one array.
+     */
+    private val COST_CURVE = intArrayOf(2, 5, 12, 24, 48)
+
+    /** Price to go from [level] to level+1: baseCost x COST_CURVE[level]. */
+    fun nextCost(def: Def, level: Int): Int = def.baseCost * COST_CURVE[level.coerceIn(0, MAX_LEVEL - 1)]
 
     // ---- Effects (all small on purpose) ----------------------------------
 
     /** Power-up duration multiplier for a picked-up power-up id ("PU1".."PU12"). */
     fun powerupDurationMultiplier(csv: String, puId: String): Float = when (puId) {
         "PU1" -> 1f + 0.10f * level(csv, "shield")
-        "PU2" -> 1f + 0.10f * level(csv, "magnet")
         "PU3" -> 1f + 0.10f * level(csv, "slowtime")
         "PU4", "PU7" -> 1f + 0.08f * level(csv, "phase")
         else -> 1f
     }
+
+    /**
+     * Magnet pull radius. The magnet pulls items that are between 0.15 and 0.65 of
+     * the track width ahead of the pilot; each level pushes the far edge out by 0.05
+     * (level 5 = 0.90, almost the whole screen). Fuel cells are NOT affected, so this
+     * never adds extra fuel.
+     */
+    fun magnetReachBonus(csv: String): Float = 0.05f * level(csv, "magnet")
 
     /** +3% score per level (max +15%). Does not change speed, distance or fuel use. */
     fun scoreMultiplier(csv: String): Float = 1f + 0.03f * level(csv, "afterburner")
@@ -81,7 +96,7 @@ object Upgrades {
     /** Short text describing the effect at a given level, for the shop UI. */
     fun effectText(id: String, level: Int): String = when (id) {
         "shield" -> "+${10 * level}% shield time"
-        "magnet" -> "+${10 * level}% magnet time"
+        "magnet" -> "+${10 * level}% pull radius"
         "slowtime" -> "+${10 * level}% slow-time"
         "phase" -> "+${8 * level}% ghost / invincible time"
         "afterburner" -> "+${3 * level}% score"
