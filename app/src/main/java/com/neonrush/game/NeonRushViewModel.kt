@@ -139,13 +139,16 @@ class NeonRushViewModel(
 
     val profile = gameDao.getProfileFlow()
 
+    // Latest upgrade levels, read by the simulation loops every tick.
+    @Volatile private var activeUpgradesCsv: String = ""
+
     val shopSkins = listOf(
         Triple("cyan_diamond", "Cyan Diamond", 0),
-        Triple("purple_square", "Purple Square", 30),
-        Triple("green_triangle", "Green Triangle", 50),
-        Triple("magenta_pulse", "Magenta Pulse Racer", 90),
-        Triple("gold_transcendence", "Gold Transcendence Vessel", 250),
-        Triple("matrix_grid", "Hex Grid Cyber-Fighter", 400)
+        Triple("purple_square", "Purple Square", 150),
+        Triple("green_triangle", "Green Triangle", 350),
+        Triple("magenta_pulse", "Magenta Pulse Racer", 750),
+        Triple("gold_transcendence", "Gold Transcendence Vessel", 1800),
+        Triple("matrix_grid", "Hex Grid Cyber-Fighter", 3000)
     )
 
     val leaderboard: StateFlow<List<LeaderboardPilot>> = FirebaseLeaderboardManager.globalRankings
@@ -645,6 +648,7 @@ fun freezeStreak() {
 }
 
     init {
+        viewModelScope.launch { profile.collect { p -> activeUpgradesCsv = p?.upgradesCsv ?: "" } }
         loadSocialComments()
         prepopulateSampleGhostChallenges()
         viewModelScope.launch {
@@ -712,6 +716,49 @@ fun freezeStreak() {
                 prof.copy(followedUsersCsv = followedList.joinToString(","))
             }
             loadDefaultLeaderboard()
+        }
+    }
+
+    private val _crateResult = MutableStateFlow<CrateResult?>(null)
+    val crateResult: StateFlow<CrateResult?> = _crateResult.asStateFlow()
+
+    /** Opens today's crate (the UI shows the ad first for free players). */
+    fun openDailyCrate(isPro: Boolean) {
+        viewModelScope.launch {
+            var result: CrateResult? = null
+            gameDao.updateProfile { prof ->
+                if (!DailyCrate.isReady(prof, isPro)) prof
+                else {
+                    val (updated, res) = DailyCrate.roll(prof, isPro)
+                    result = res
+                    updated
+                }
+            }
+            result?.let {
+                _crateResult.value = it
+                soundEngine.playUnlockSkin()
+            }
+        }
+    }
+
+    fun dismissCrateResult() { _crateResult.value = null }
+
+    fun purchaseUpgrade(upgradeId: String, isPro: Boolean) {
+        viewModelScope.launch {
+            val def = Upgrades.ALL.find { it.id == upgradeId } ?: return@launch
+            var bought = false
+            gameDao.updateProfile { prof ->
+                val lvl = Upgrades.level(prof.upgradesCsv, upgradeId)
+                val cost = Upgrades.nextCost(def, lvl)
+                if (lvl < Upgrades.maxLevelFor(isPro) && prof.gems >= cost) {
+                    bought = true
+                    prof.copy(
+                        gems = prof.gems - cost,
+                        upgradesCsv = Upgrades.setLevel(prof.upgradesCsv, upgradeId, lvl + 1)
+                    )
+                } else prof
+            }
+            if (bought) soundEngine.playUnlockSkin()
         }
     }
 
@@ -1218,10 +1265,10 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                     val trackingYBias = userY - bossYState
                     bossYState += (trackingYBias * 0.05f).toInt()
-                    if (tick % 9 == 0) {
+                    if (tick % Upgrades.bossBulletInterval(activeUpgradesCsv, 9) == 0) {
                         updatedElements.add(VisualTrackElement("bullet_${tick}", 1.15f, bossYState + random.nextInt(-18, 18), "bullet"))
                     }
-                    bossHealthState -= 0.04f
+                    bossHealthState -= 0.04f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
                     if (bossHealthState <= 0f) {
                         var wasNewlyRewarded = false
                         var bossReward = 0
@@ -1372,7 +1419,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         }
                                         updatedMsg = "LEGENDARY PRESTIGE MATRIX SYNC ACTIVE!"
                                     } else {
-                                        nextDurationsMap[puId] = 80
+                                        nextDurationsMap[puId] = (80 * Upgrades.powerupDurationMultiplier(activeUpgradesCsv, puId)).toInt()
                                     }
                                     repeat(8) { i ->
                                         activeParticles.add(
@@ -1469,6 +1516,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 // Combo bonus: +0.5% per streak tick, capped at +100% (streak
                 // 200, roughly 24 seconds of sustained precision at 120ms/tick).
                 multi *= (1f + (nextComboStreak.coerceAtMost(200) * 0.005f))
+                multi *= Upgrades.scoreMultiplier(activeUpgradesCsv)
                 if (nextDurationsMap.containsKey("PU6")) {
                     multi *= 5.0f
                 } else if (nextDurationsMap.containsKey("PU5")) {
@@ -1564,7 +1612,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             bonusGems = 55
         }
         val GEM_ECONOMY_RATE = (1f / 3f)
-        val gemsEarnedTotalSoFar = (((finalState.collectedGemsCount + bonusGems + FridayBonus) * valMultiplier) * GEM_ECONOMY_RATE).toInt()
+        val gemsEarnedTotalSoFar = (((finalState.collectedGemsCount + bonusGems + FridayBonus) * valMultiplier) * GEM_ECONOMY_RATE * Upgrades.gemMultiplier(activeUpgradesCsv)).toInt()
         var gemsToCreditNow = 0
 
         gameDao.updateProfile { prof ->
@@ -1847,10 +1895,10 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                     val trackingYBias = userY - bossYState
                     bossYState += (trackingYBias * 0.12f).toInt()
-                    if (tick % 6 == 0) {
+                    if (tick % Upgrades.bossBulletInterval(activeUpgradesCsv, 6) == 0) {
                         updatedElements.add(VisualTrackElement("bullet_${tick}", 1.15f, bossYState + random.nextInt(-5, 5), "bullet"))
                     }
-                    bossHealthState -= 0.04f
+                    bossHealthState -= 0.04f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
                     if (bossHealthState <= 0f) {
                         soundEngine.playTone(990f, 400, "sine")
                         updatedMsg = "BOSS DEFEATED!"
@@ -1992,7 +2040,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                             nextDurationsMap["PU$i"] = 40
                                         }
                                     } else {
-                                        nextDurationsMap[puId] = 80
+                                        nextDurationsMap[puId] = (80 * Upgrades.powerupDurationMultiplier(activeUpgradesCsv, puId)).toInt()
                                     }
                                 }
                                 "obstacle", "bullet" -> {
@@ -2057,6 +2105,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (isFridayGolden) multi *= 3.0f
                 multi += (prof.transcendenceCount * 0.05f)
                 multi *= (1f + (nextComboStreak.coerceAtMost(200) * 0.005f))
+                multi *= Upgrades.scoreMultiplier(activeUpgradesCsv)
                 if (nextDurationsMap.containsKey("PU6")) {
                     multi *= 5.0f
                 } else if (nextDurationsMap.containsKey("PU5")) {
