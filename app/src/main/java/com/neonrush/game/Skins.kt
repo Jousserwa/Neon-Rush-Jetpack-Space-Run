@@ -167,7 +167,17 @@ Skin(
     requiresPro = false,
     unlockWorldId = null,
     purchasable = false
-)
+),
+        Skin(
+            id = "eternal_flame",
+            name = "Eternal Flame",
+            description = "Kept burning by pilots who showed up 30 days in a row. Not for sale.",
+            previewImageRes = R.drawable.pilot_run_1,
+            priceUsd = "🔥 30-Day Streak Reward",
+            requiresPro = false,
+            unlockWorldId = null,
+            purchasable = false
+        )
     )
 
     fun isUnlocked(skin: Skin, isPro: Boolean, worldsCompleted: Set<Int>): Boolean {
