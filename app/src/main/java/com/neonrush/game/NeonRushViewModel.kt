@@ -133,7 +133,9 @@ data class SimulationState(
     val runGoalIds: String = "",
     val goalsAwardedCsv: String = "",
     val powerupsCollected: Int = 0,
-    val masteryEarnedLastRun: Int = 0
+    val masteryEarnedLastRun: Int = 0,
+    // Invisible onboarding (see Hints.kt)
+    val hint: HintState = HintState()
 )
 class NeonRushViewModel(
     private val gameDao: GameDao,
@@ -536,6 +538,7 @@ fun onFuelTierChanged(tier: String) {
 }
 
 fun refuelWithGems(isPro: Boolean) {
+    hintRefuelTapped = true
     viewModelScope.launch {
         val current = _simState.value
         // TESTING ONLY — raised from 6 to 90 for QA. Revert to 6 when told.
@@ -984,6 +987,42 @@ fun freezeStreak() {
     return dna.copy(environmentId = envId, environmentName = name, environmentEmoji = emoji, environmentColor = color)
 }
 
+// ============================================================
+// Invisible onboarding (see Hints.kt): contextual prompts, no manual.
+// ============================================================
+private var hintStatus: MutableMap<String, Int> = mutableMapOf()
+private val hintShownThisRun = mutableSetOf<String>()
+@Volatile private var hintRefuelTapped = false
+
+private fun beginHintsForNewRun(csv: String) {
+    hintStatus = HintEngine.parse(csv)
+    hintShownThisRun.clear()
+    hintRefuelTapped = false
+}
+
+private fun persistHints() {
+    val snapshot = HintEngine.serialize(hintStatus)
+    viewModelScope.launch { gameDao.updateProfile { p -> p.copy(hintsCsv = snapshot) } }
+}
+
+private fun stepHints(prev: HintState, input: HintInput): HintState {
+    val r = HintEngine.step(prev, input, hintStatus, hintShownThisRun)
+    r.shown?.let {
+        hintShownThisRun.add(it.id)
+        hintStatus[it.id] = (hintStatus[it.id] ?: 0) + 1
+        persistHints()
+    }
+    r.completed?.let {
+        hintStatus[it.id] = HintEngine.DONE
+        persistHints()
+        if (!r.quiet) soundEngine.playTone(880f, 110, "triangle")
+    }
+    return r.state
+}
+
+private fun hintTickDelayMs(): Long =
+    if (android.os.SystemClock.elapsedRealtime() < _simState.value.hint.slowMoUntilMs) 240L else 120L
+
 fun startSpecialModeRun(ghost: GhostChallengeEntity) {
     viewModelScope.launch {
         val prof = gameDao.getProfileDirect() ?: GameProfile()
@@ -1064,6 +1103,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             val milestonesTriggered = mutableSetOf<Int>()
             val prof = gameDao.getProfileDirect() ?: GameProfile()
             _simState.value = _simState.value.copy(gemsAtRunStart = prof.gems)
+            beginHintsForNewRun(prof.hintsCsv)
             gameDao.updateProfile { p -> p.copy(currentRunGemsCredited = 0, currentRunBossZonesRewarded = "", currentRunMilestonesRewarded = "") }
             var tick = 0
             val random = kotlin.random.Random(System.currentTimeMillis())
@@ -1091,7 +1131,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             var liveDifficultyMultiplier = 1.0f
             var ticksSinceLastHit = 0
             while (_simState.value.isStarted && !_simState.value.isCompleted) {
-                delay(120)
+                delay(hintTickDelayMs())
                 val state = _simState.value
                 val userY = state.userYPos
                 val activeMutation = DailyMutations.getActiveMutation()
@@ -1561,8 +1601,30 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     shakeX = (random.nextFloat() * 8f - 4f)
                     shakeY = (random.nextFloat() * 8f - 4f)
                 }
+                val hintPicked = updatedElements.filter {
+                    (it.type == "gem" || it.type == "fuel" || it.type == "powerup") &&
+                        finalElements.none { f -> f.id == it.id }
+                }
+                val nextHint = stepHints(
+                    state.hint,
+                    HintInput(
+                        nowMs = android.os.SystemClock.elapsedRealtime(),
+                        tick = tick,
+                        userY = userY,
+                        fuelPercent = fuelLevelState,
+                        bossActive = hasBossZone && bossHealthState > 0f,
+                        hitThisTick = hitThisTick,
+                        pickedGem = hintPicked.any { it.type == "gem" },
+                        pickedFuel = hintPicked.any { it.type == "fuel" },
+                        pickedPowerupId = hintPicked.firstOrNull { it.type == "powerup" }?.subType,
+                        refuelTapped = hintRefuelTapped,
+                        elements = finalElements
+                    )
+                )
+                hintRefuelTapped = false
                 tick++
                 _simState.value = state.copy(
+                    hint = nextHint,
                     tickIndex = tick,
                     ghostYPos = processedGhostY,
                     score = nextScore,
@@ -1723,7 +1785,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
         feedbackMessage = "Revive code accepted! Launching drone boosters...",
         reviveCount = currentState.reviveCount + 1,
         shieldUntilTick = currentTick + 25, // ~3 seconds of invulnerability at 120ms/tick
-        fuelRefillCount = 0 // fresh life = fresh set of 6 refuels
+        fuelRefillCount = 0, // fresh life = fresh set of 6 refuels
+        hint = HintState(cooldownUntilMs = android.os.SystemClock.elapsedRealtime() + 2000L)
     )
     simJob?.cancel()
     soundEngine.playRevive()
@@ -1743,7 +1806,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             val metaDifficultyMultiplier = 1f + 0.4f * (1f - kotlin.math.exp(-prof.totalRuns / 250f))
             var tick = currentTick
             while (_simState.value.isStarted && !_simState.value.isCompleted) {
-                delay(120)
+                delay(hintTickDelayMs())
                 val state = _simState.value
                 val userY = state.userYPos
                 val activeMutation = DailyMutations.getActiveMutation()
@@ -2170,8 +2233,30 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     shakeX = (random.nextFloat() * 8f - 4f)
                     shakeY = (random.nextFloat() * 8f - 4f)
                 }
+                val hintPicked = updatedElements.filter {
+                    (it.type == "gem" || it.type == "fuel" || it.type == "powerup") &&
+                        finalElements.none { f -> f.id == it.id }
+                }
+                val nextHint = stepHints(
+                    state.hint,
+                    HintInput(
+                        nowMs = android.os.SystemClock.elapsedRealtime(),
+                        tick = tick,
+                        userY = userY,
+                        fuelPercent = fuelLevelState,
+                        bossActive = hasBossZone && bossHealthState > 0f,
+                        hitThisTick = hitThisTick,
+                        pickedGem = hintPicked.any { it.type == "gem" },
+                        pickedFuel = hintPicked.any { it.type == "fuel" },
+                        pickedPowerupId = hintPicked.firstOrNull { it.type == "powerup" }?.subType,
+                        refuelTapped = hintRefuelTapped,
+                        elements = finalElements
+                    )
+                )
+                hintRefuelTapped = false
                 tick++
                 _simState.value = state.copy(
+                    hint = nextHint,
                     tickIndex = tick,
                     ghostYPos = processedGhostY,
                     score = nextScore,
