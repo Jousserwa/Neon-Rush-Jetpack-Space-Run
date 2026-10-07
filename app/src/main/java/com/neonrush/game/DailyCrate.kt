@@ -31,14 +31,21 @@ object DailyCrate {
     val HULL_SHARDS = linkedMapOf(
         "purple_square" to 10,
         "green_triangle" to 15,
+        "solar_comet" to 18,
+        "ice_shard" to 22,
         "magenta_pulse" to 25,
+        "static_storm" to 35,
+        "vaporwave_wave" to 45,
         "gold_transcendence" to 60,
+        "phantom_echo" to 70,
         "matrix_grid" to 80
     )
 
     // Cheaper hulls drop more often.
     private val HULL_WEIGHT = mapOf(
         "purple_square" to 40, "green_triangle" to 30, "magenta_pulse" to 20,
+        "solar_comet" to 28, "ice_shard" to 24, "static_storm" to 14,
+        "vaporwave_wave" to 10, "phantom_echo" to 5,
         "gold_transcendence" to 7, "matrix_grid" to 3
     )
 
@@ -111,6 +118,27 @@ object DailyCrate {
             if (roll < 0) return id
         }
         return locked.first()
+    }
+
+    /**
+     * Login-streak bonus: [count] shards for a random locked hull.
+     * Returns (updated profile, hull that got the shards or null if every hull is owned,
+     * hull id if these shards completed it). If everything is owned, shards become gems.
+     */
+    fun grantShards(prof: GameProfile, count: Int, r: Random = Random.Default): Triple<GameProfile, String?, String?> {
+        val hullId = pickLockedHull(prof, r)
+        if (hullId == null) {
+            val g = count * 2
+            return Triple(prof.copy(gems = prof.gems + g, totalGemsEarned = prof.totalGemsEarned + g), null, null)
+        }
+        val total = shards(prof.crateShardsCsv, hullId) + count
+        val need = HULL_SHARDS.getValue(hullId)
+        return if (total >= need) {
+            val skins = (prof.unlockedSkinsCsv.split(",").filter { it.isNotEmpty() } + hullId).joinToString(",")
+            Triple(prof.copy(crateShardsCsv = withShards(prof.crateShardsCsv, hullId, 0), unlockedSkinsCsv = skins), hullId, hullId)
+        } else {
+            Triple(prof.copy(crateShardsCsv = withShards(prof.crateShardsCsv, hullId, total)), hullId, null)
+        }
     }
 
     /** Rolls the prize and returns the updated profile + what to show. Call inside updateProfile. */
