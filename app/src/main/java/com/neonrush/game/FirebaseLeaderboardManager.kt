@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 
 // NOTE: LeaderboardPilot and SocialComment are defined in NeonRushViewModel.kt
 // Do NOT redefine them here to avoid duplicate class errors
@@ -61,7 +62,11 @@ class FirebaseLeaderboardManager(context: Context) {
                 "activeSkinId" to activeSkinId,
                 "timestamp" to System.currentTimeMillis()
             )
-            db.collection("leaderboard").document(username).set(data).await()
+            // Firestore queues this write on the device and sends it when the connection
+            // returns, but await() would hang offline until the server confirms. Don't wait.
+            withTimeoutOrNull(5_000L) {
+                db.collection("leaderboard").document(username).set(data).await()
+            }
         } catch (e: Exception) {
             // Silently fail — leaderboard is non-critical
         }
