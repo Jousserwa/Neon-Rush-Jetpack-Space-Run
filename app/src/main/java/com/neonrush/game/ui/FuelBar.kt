@@ -39,6 +39,8 @@ fun FuelBar(
     cost: Int,
     onRefuel: () -> Unit,
     onFuelTierChanged: (String) -> Unit = {},
+    // Onboarding: pulses a bright outline around the bar (low-fuel lesson).
+    highlight: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val capReached = !isPro && refillCount >= 90 /* TESTING ONLY: restore to 6 */
@@ -82,6 +84,16 @@ fun FuelBar(
         label = "fuelPulseAlpha"
     )
 
+    val highlightAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "fuelHighlightAlpha"
+    )
+
     val refuelsLeftLabel = if (!isPro) {
         val left = (90 - refillCount) /* TESTING ONLY: restore to 6 */.coerceAtLeast(0)
         "  •  $left LEFT"
@@ -94,6 +106,10 @@ fun FuelBar(
             .clip(RoundedCornerShape(12.dp))
             .background(Color(0xFF14141C).copy(alpha = 0.15f))
             .border(1.dp, baseColor.copy(alpha = pulseAlpha * 0.5f), RoundedCornerShape(12.dp))
+            .then(
+                if (highlight) Modifier.border(3.dp, Color(0xFFFFEB3B).copy(alpha = highlightAlpha), RoundedCornerShape(12.dp))
+                else Modifier
+            )
             .clickable(enabled = !capReached) {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 onRefuel()
