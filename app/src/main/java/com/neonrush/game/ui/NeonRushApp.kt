@@ -460,10 +460,6 @@ fun NeonRushApp(viewModel: NeonRushViewModel) {
     var paywallReason by remember { mutableStateOf("generic") }
     
     var showStreakFreezeOffer by remember { mutableStateOf(false) }
-    // Mandatory first-run tutorial: intercepts the first "start" press ever,
-    // shows the tutorial, then resumes whatever the player actually pressed.
-    var showMandatoryTutorial by remember { mutableStateOf(false) }
-    var pendingStartAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     // Polite "check for updates" nudge, throttled to roughly once every 2
     // weeks. Keyed off activeProfile (not currentProfile's fallback
     // default) so it only evaluates once real profile data has loaded.
@@ -677,14 +673,7 @@ if (showStreakFreezeOffer) {
                                     GhostRacerTab(
                                         viewModel = viewModel,
                                         onBack = { showGhostSelection = false },
-                                        onRequireTutorial = { action ->
-                                            if (!currentProfile.hasSeenTutorial) {
-                                                pendingStartAction = action
-                                                showMandatoryTutorial = true
-                                            } else {
-                                                action()
-                                            }
-                                        }
+                                        onRequireTutorial = { action -> action() }
                                     )
                                 } else {
                                     ArcadeHomeView(
@@ -698,13 +687,7 @@ if (showStreakFreezeOffer) {
                                                 4, 
                                                 ZoneGenerator.generateTelemetryCsv(850, 111)
                                             )
-                                            val action = { viewModel.startRacingSimulation(defaultGhost) }
-                                            if (!currentProfile.hasSeenTutorial) {
-                                                pendingStartAction = action
-                                                showMandatoryTutorial = true
-                                            } else {
-                                                action()
-                                            }
+                                            viewModel.startRacingSimulation(defaultGhost)
                                         },
                                         onShowGhostSelection = { showGhostSelection = true },
                                         onNavigateToGlobal = { activeTab = "rankings" },
@@ -718,13 +701,7 @@ if (showStreakFreezeOffer) {
                                                 4,
                                                 ZoneGenerator.generateTelemetryCsv(850, 111)
                                             )
-                                            val action = { viewModel.startSpecialModeRun(specialGhost) }
-                                            if (!currentProfile.hasSeenTutorial) {
-                                                pendingStartAction = action
-                                                showMandatoryTutorial = true
-                                            } else {
-                                                action()
-                                            }
+                                            viewModel.startSpecialModeRun(specialGhost)
                                         },
                                         isPro = isPro
                                     
@@ -790,28 +767,6 @@ if (showStreakFreezeOffer) {
         PaywallDialog(onDismiss = { showPaywall = false }, reason = paywallReason)
     }
 
-    if (showMandatoryTutorial) {
-        Dialog(
-            onDismissRequest = {
-                // Back-press finishes the same way tapping the back arrow
-                // does — mark it seen and resume whatever the player
-                // actually pressed. No point trapping them in a dialog they
-                // can't otherwise close.
-                showMandatoryTutorial = false
-                viewModel.markTutorialSeen()
-                pendingStartAction?.invoke()
-                pendingStartAction = null
-            },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            TutorialScreen(onBack = {
-                showMandatoryTutorial = false
-                viewModel.markTutorialSeen()
-                pendingStartAction?.invoke()
-                pendingStartAction = null
-            })
-        }
-    }
 
     if (showUpdateReminder) {
         val context = LocalContext.current
@@ -4263,6 +4218,8 @@ val bossImagesByWorld = mapOf(
                         }
                     }
                 }
+                // Invisible onboarding: non-blocking contextual prompts.
+                HintOverlay(hint = simState.hint, userYPos = simState.userYPos)
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -4308,6 +4265,7 @@ val bossImagesByWorld = mapOf(
     cost = viewModel.fuelRefillCostForCurrentRun(),
     onRefuel = { viewModel.refuelWithGems(isPro) },
     onFuelTierChanged = { tier -> viewModel.onFuelTierChanged(tier) },
+    highlight = simState.hint.lesson == "LOWFUEL",
     modifier = Modifier
         .weight(0.7f)
         .fillMaxHeight()
