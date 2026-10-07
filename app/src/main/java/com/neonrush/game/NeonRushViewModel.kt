@@ -135,7 +135,9 @@ data class SimulationState(
     val powerupsCollected: Int = 0,
     val masteryEarnedLastRun: Int = 0,
     // Invisible onboarding (see Hints.kt)
-    val hint: HintState = HintState()
+    val hint: HintState = HintState(),
+    // True on the game-over screen of the very first run (shows the First Flight reward).
+    val firstFlightReward: Boolean = false
 )
 class NeonRushViewModel(
     private val gameDao: GameDao,
@@ -155,8 +157,13 @@ class NeonRushViewModel(
         Triple("cyan_diamond", "Cyan Diamond", 0),
         Triple("purple_square", "Purple Square", 150),
         Triple("green_triangle", "Green Triangle", 350),
+        Triple("solar_comet", "Solar Comet", 450),
+        Triple("ice_shard", "Ice Shard", 600),
         Triple("magenta_pulse", "Magenta Pulse Racer", 750),
+        Triple("static_storm", "Static Storm", 1100),
+        Triple("vaporwave_wave", "Vaporwave Wave", 1400),
         Triple("gold_transcendence", "Gold Transcendence Vessel", 1800),
+        Triple("phantom_echo", "Phantom Echo", 2400),
         Triple("matrix_grid", "Hex Grid Cyber-Fighter", 3000)
     )
 
@@ -604,13 +611,38 @@ fun buyExtraAttempt() {
                     val diffDays = ((todayDate.time - lastDate.time) / (1000 * 60 * 60 * 24)).toInt()
                     if (diffDays == 1) prof.currentStreak + 1 else 1
                 }
-                val reward = StreakRewards.rewardForDay(newStreak)
-                rewardResult = reward
-                prof.copy(
+                var reward = StreakRewards.rewardForDay(newStreak)
+                var updated = prof.copy(
                     currentStreak = newStreak,
                     lastStreakLoginDate = today,
                     gems = prof.gems + reward.gems
                 )
+                val bonuses = mutableListOf<String>()
+                // Every 7th login day: hull shards toward a locked hull.
+                if (newStreak % 7 == 0) {
+                    val (afterShards, hullId, unlockedId) = DailyCrate.grantShards(updated, 5)
+                    updated = afterShards
+                    fun hullName(id: String) = shopSkins.firstOrNull { it.first == id }?.second ?: id
+                    when {
+                        unlockedId != null -> bonuses += "🔓 ${hullName(unlockedId)} hull unlocked!"
+                        hullId != null -> bonuses += "+5 🧩 ${hullName(hullId)} shards"
+                        else -> bonuses += "+10 💎 (all hulls owned)"
+                    }
+                }
+                // Every 30th login day: the exclusive Eternal Flame suit (gems if already owned).
+                if (newStreak % 30 == 0) {
+                    val suits = updated.unlockedPilotSkinsCsv.split(",").filter { it.isNotEmpty() }
+                    if ("eternal_flame" !in suits) {
+                        updated = updated.copy(unlockedPilotSkinsCsv = (suits + "eternal_flame").joinToString(","))
+                        bonuses += "🔥 ETERNAL FLAME suit unlocked!"
+                    } else {
+                        updated = updated.copy(gems = updated.gems + 50)
+                        bonuses += "+50 💎 (Eternal Flame owned)"
+                    }
+                }
+                if (bonuses.isNotEmpty()) reward = reward.copy(bonusText = bonuses.joinToString("  ·  "))
+                rewardResult = reward
+                updated
             }
         }
         rewardResult?.let { reward ->
@@ -1020,6 +1052,19 @@ private fun stepHints(prev: HintState, input: HintInput): HintState {
     return r.state
 }
 
+// ============================================================
+// First-run "guaranteed high": a gentle first run + close-call feedback.
+// ============================================================
+private var firstRunAssist = false
+private val grazedIds = mutableSetOf<String>()
+private var assistGemsGiven = 0
+private val FIRST_FLIGHT_GEMS = 60
+
+// 1.0 for the first ~18 s of the very first run, fading to 0 by ~54 s so the
+// difficulty ramps up naturally instead of falling off a cliff.
+private fun assistStrength(tick: Int): Float =
+    if (!firstRunAssist) 0f else (1f - (tick - 150) / 300f).coerceIn(0f, 1f)
+
 private fun hintTickDelayMs(): Long =
     if (android.os.SystemClock.elapsedRealtime() < _simState.value.hint.slowMoUntilMs) 240L else 120L
 
@@ -1104,6 +1149,9 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             val prof = gameDao.getProfileDirect() ?: GameProfile()
             _simState.value = _simState.value.copy(gemsAtRunStart = prof.gems)
             beginHintsForNewRun(prof.hintsCsv)
+            firstRunAssist = prof.totalRuns == 0
+            grazedIds.clear()
+            assistGemsGiven = 0
             gameDao.updateProfile { p -> p.copy(currentRunGemsCredited = 0, currentRunBossZonesRewarded = "", currentRunMilestonesRewarded = "") }
             var tick = 0
             val random = kotlin.random.Random(System.currentTimeMillis())
@@ -1133,6 +1181,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             while (_simState.value.isStarted && !_simState.value.isCompleted) {
                 delay(hintTickDelayMs())
                 val state = _simState.value
+                val assist = assistStrength(tick)
                 val userY = state.userYPos
                 val activeMutation = DailyMutations.getActiveMutation()
                 val isMondayGems = activeMutation == MutationDay.MONDAY
@@ -1292,13 +1341,13 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (tick % (10 / spacingBias).coerceIn(4f, 25f).toInt() == 0 && !activeDna.mechanicIds.contains(19)) {
                     val gridX = 1.2f
                     val routeTargetY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
-                    if (random.nextInt(100) < 9) {
+                    if (random.nextInt(100) < (9 + (16 * assist).toInt())) {
                         updatedElements.add(VisualTrackElement("gem_${tick}", gridX, routeTargetY + random.nextInt(-8, 8), "gem"))
-                    } else if (random.nextInt(100) < 15) {
+                    } else if (random.nextInt(100) < (15 + (30 * assist).toInt())) {
                         updatedElements.add(VisualTrackElement("fuel_${tick}", gridX, routeTargetY + random.nextInt(-5, 5), "fuel"))
                     }
                 }
-                val spacingVal = (activeDna.obstacleSpacingAndDensity / (12f * spacingBias * liveDifficultyMultiplier * selectedDifficulty.spacingMultiplier)).coerceAtLeast(4f).toInt()
+                val spacingVal = ((activeDna.obstacleSpacingAndDensity / (12f * spacingBias * liveDifficultyMultiplier * selectedDifficulty.spacingMultiplier)) * (1f + 0.4f * assist)).coerceAtLeast(4f).toInt()
                 if (tick % spacingVal == 0) {
                     val targetGhostY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     val obstacles = spawnObstacleForSet(activeDna.obstacleSetId, tick, random, targetGhostY, nextZoneNumber)
@@ -1401,7 +1450,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     val isAligned = prevX >= 0.16f && elem.xOffsetFraction <= 0.26f
                     if (isAligned) {
                         val verticalDist = Math.abs(userY - elem.yMatchPos)
-                        val collisionRadius = if (state.activePowerupDurations.containsKey("PU9")) 8 else 15
+                        val collisionRadius = if (state.activePowerupDurations.containsKey("PU9")) 8 else 15 - (4 * assist).toInt()
                         if (verticalDist < collisionRadius) {
                             when (elem.type) {
                                 "gem" -> {
@@ -1504,7 +1553,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         updatedMsg = "DRIFT DEFLECTED: SHIELD BARRIER OVERLOADED"
                                     } else {
                                         soundEngine.playCollision()
-                                        fuelLevelState = (fuelLevelState - 20).coerceAtLeast(0)
+                                        fuelLevelState = (fuelLevelState - (20 - (10 * assist).toInt())).coerceAtLeast(0)
                                         updatedMsg = if (isUnstoppableHazard) "BLINK STRIKE HIT: NO SHIELD CAN STOP IT" else "WARNING: IMPACT DETECTED! HULL INTEGRITY LOST"
                                         hitObstaclesHistory.add(elem.subType)
                                         hitThisTick = true
@@ -1526,6 +1575,30 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 }
                             }
                             continue
+                        }
+                        // CLOSE CALL: an obstacle slipped past within ~10 units of the hull.
+                        if (elem.type == "obstacle" && elem.subType != "BLINK_HAZARD" &&
+                            verticalDist < collisionRadius + 10 && grazedIds.add(elem.id)) {
+                            soundEngine.playNearMiss()
+                            updatedMsg = "CLOSE CALL!"
+                            if (assist > 0f && assistGemsGiven < 8) { // first run only: small gem reward
+                                assistGemsGiven++
+                                gemsGathered += 1
+                            }
+                            repeat(5) { i ->
+                                activeParticles.add(
+                                    Particle(
+                                        id = "nm_${tick}_${elem.id}_$i",
+                                        x = 0.2f,
+                                        y = userY.toFloat(),
+                                        vx = random.nextFloat() * 0.03f - 0.015f,
+                                        vy = random.nextFloat() * 8f - 4f,
+                                        maxAge = 12,
+                                        colorArgb = 0xFF00E5FFL,
+                                        kind = "sparkle"
+                                    )
+                                )
+                            }
                         }
                     }
                     finalElements.add(elem)
@@ -1588,7 +1661,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         soundEngine.playSpeedMilestone(ms)
                     }
                 }
-                if ((tick * 10) % (10 + prof.fuelTiersOwned * 2) < 10) {
+                if ((tick * 10) % (10 + prof.fuelTiersOwned * 2) < 10 &&
+                    !((assist > 0.5f && tick % 2 == 1) || (assist > 0f && assist <= 0.5f && tick % 4 == 1))) {
                     fuelLevelState = (fuelLevelState - 1)
                 }
                 if (fuelLevelState <= 0) {
@@ -1714,6 +1788,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
     fun finalizeRunStats() {
         viewModelScope.launch {
             val finalState = _simState.value
+            val wasAssisted = firstRunAssist
+            var firstFlight = false
             var isNewPB = false
             var usernameForLeaderboard = ""
             var activeSkinForLeaderboard = ""
@@ -1727,6 +1803,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 usernameForLeaderboard = prof.username
                 activeSkinForLeaderboard = prof.activeSkinId
                 gemsThisSession = prof.currentRunGemsCredited
+                firstFlight = prof.totalRuns == 0
                 val newTotalRuns = prof.totalRuns + 1
                 val newAverageScore = ((prof.averageScore * prof.totalRuns) + finalState.score) / newTotalRuns
                 val bestZoneLifetime = maxOf(prof.bestZoneReached, finalState.currentZoneNumber)
@@ -1746,9 +1823,19 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     bestZoneReached = bestZoneLifetime,
                     bestComboStreak = bestComboLifetime
                 )
-                adsRemovedResult = updated.adsRemoved
+                // First Flight reward: bonus gems + the Purple Square hull, unlocked and equipped.
+                val withReward = if (firstFlight) {
+                    val owned = updated.unlockedSkinsCsv.split(",").filter { it.isNotEmpty() }
+                    updated.copy(
+                        gems = updated.gems + FIRST_FLIGHT_GEMS,
+                        totalGemsEarned = updated.totalGemsEarned + FIRST_FLIGHT_GEMS,
+                        unlockedSkinsCsv = (if ("purple_square" in owned) owned else owned + "purple_square").joinToString(","),
+                        activeSkinId = "purple_square"
+                    )
+                } else updated
+                adsRemovedResult = withReward.adsRemoved
                 MissionManager.recordRunResult(
-                    updated,
+                    withReward,
                     zoneReached = finalState.currentZoneNumber,
                     score = finalState.score,
                     gemsThisRun = gemsThisSession,
@@ -1758,8 +1845,13 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
 
             _simState.value = _simState.value.copy(
                 masteryEarnedLastRun = _simState.value.masteryEarnedLastRun + masteryEarned,
-                goalsAwardedCsv = goalsAwardedAfter
+                goalsAwardedCsv = goalsAwardedAfter,
+                firstFlightReward = firstFlight || _simState.value.firstFlightReward
             )
+            if (firstFlight) {
+                soundEngine.playUnlockSkin()
+                AnalyticsManager.logFirstFlightReward()
+            }
 
             AnalyticsManager.logGameOver(
                 score = finalState.score,
@@ -1771,7 +1863,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             }
             if (isNewPB) {
                 soundEngine.playPersonalBestBroken()
-                FirebaseLeaderboardManager.submitScore(usernameForLeaderboard, finalState.score, activeSkinForLeaderboard)
+                // The assisted first run stays off the global board.
+                if (!wasAssisted) FirebaseLeaderboardManager.submitScore(usernameForLeaderboard, finalState.score, activeSkinForLeaderboard)
             }
         }
     }
@@ -1808,6 +1901,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             while (_simState.value.isStarted && !_simState.value.isCompleted) {
                 delay(hintTickDelayMs())
                 val state = _simState.value
+                val assist = assistStrength(tick)
                 val userY = state.userYPos
                 val activeMutation = DailyMutations.getActiveMutation()
                 val isMondayGems = activeMutation == MutationDay.MONDAY
@@ -1966,7 +2060,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     val routeTargetY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     if (random.nextInt(100) < 40) {
                         updatedElements.add(VisualTrackElement("gem_${tick}", gridX, routeTargetY + random.nextInt(-8, 8), "gem"))
-                    } else if (random.nextInt(100) < 15) {
+                    } else if (random.nextInt(100) < (15 + (30 * assist).toInt())) {
                         updatedElements.add(VisualTrackElement("fuel_${tick}", gridX, routeTargetY + random.nextInt(-5, 5), "fuel"))
                     }
                 }
@@ -2053,7 +2147,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     val isAligned = prevX >= 0.16f && elem.xOffsetFraction <= 0.26f
                     if (isAligned) {
                         val verticalDist = Math.abs(userY - elem.yMatchPos)
-                        val collisionRadius = if (state.activePowerupDurations.containsKey("PU9")) 8 else 15
+                        val collisionRadius = if (state.activePowerupDurations.containsKey("PU9")) 8 else 15 - (4 * assist).toInt()
                         if (verticalDist < collisionRadius) {
                             when (elem.type) {
                                 "gem" -> {
@@ -2151,7 +2245,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         updatedMsg = "SHIELD BROKEN!"
                                     } else {
                                         soundEngine.playCollision()
-                                        fuelLevelState = (fuelLevelState - 20).coerceAtLeast(0)
+                                        fuelLevelState = (fuelLevelState - (20 - (10 * assist).toInt())).coerceAtLeast(0)
                                         updatedMsg = if (isUnstoppableHazard) "BLINK STRIKE HIT: NO SHIELD CAN STOP IT" else "IMPACT IMPACT!"
                                         hitThisTick = true
                                         repeat(10) { i ->
@@ -2172,6 +2266,30 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 }
                             }
                             continue
+                        }
+                        // CLOSE CALL: an obstacle slipped past within ~10 units of the hull.
+                        if (elem.type == "obstacle" && elem.subType != "BLINK_HAZARD" &&
+                            verticalDist < collisionRadius + 10 && grazedIds.add(elem.id)) {
+                            soundEngine.playNearMiss()
+                            updatedMsg = "CLOSE CALL!"
+                            if (assist > 0f && assistGemsGiven < 8) { // first run only: small gem reward
+                                assistGemsGiven++
+                                gemsGathered += 1
+                            }
+                            repeat(5) { i ->
+                                activeParticles.add(
+                                    Particle(
+                                        id = "nm_${tick}_${elem.id}_$i",
+                                        x = 0.2f,
+                                        y = userY.toFloat(),
+                                        vx = random.nextFloat() * 0.03f - 0.015f,
+                                        vy = random.nextFloat() * 8f - 4f,
+                                        maxAge = 12,
+                                        colorArgb = 0xFF00E5FFL,
+                                        kind = "sparkle"
+                                    )
+                                )
+                            }
                         }
                     }
                     finalElements.add(elem)
@@ -2220,7 +2338,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         AnalyticsManager.logScoreMilestone(ms)
                     }
                 }
-                if ((tick * 10) % (10 + prof.fuelTiersOwned * 2) < 10) {
+                if ((tick * 10) % (10 + prof.fuelTiersOwned * 2) < 10 &&
+                    !((assist > 0.5f && tick % 2 == 1) || (assist > 0f && assist <= 0.5f && tick % 4 == 1))) {
                     fuelLevelState = (fuelLevelState - 1)
                 }
                 if (fuelLevelState <= 0) {
