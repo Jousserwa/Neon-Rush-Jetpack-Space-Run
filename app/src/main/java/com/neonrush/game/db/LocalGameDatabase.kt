@@ -70,7 +70,10 @@ data class GameProfile(
     val crateStreak: Int = 0,
     val crateShardsCsv: String = "",
     // Mastery (see RunGoals.kt): permanent score bonus earned from run goals
-    val masteryPoints: Int = 0
+    val masteryPoints: Int = 0,
+    // Invisible onboarding (see Hints.kt): per-lesson progress, e.g.
+    // "STEER=D,GEM=1". "ALL" = every hint done (existing players).
+    val hintsCsv: String = ""
 )
 
 data class GhostChallengeEntity(
@@ -147,6 +150,7 @@ class GameDao(context: Context) {
             val crateStreakIdx = cursor.getColumnIndex("crateStreak")
             val crateShardsCsvIdx = cursor.getColumnIndex("crateShardsCsv")
             val masteryPointsIdx = cursor.getColumnIndex("masteryPoints")
+            val hintsCsvIdx = cursor.getColumnIndex("hintsCsv")
             val profile = GameProfile(
                 id = 1,
                 username = if (usernameIdx != -1) cursor.getString(usernameIdx) else "NeonPilot_99",
@@ -196,7 +200,8 @@ class GameDao(context: Context) {
                 cratesToday = if (cratesTodayIdx != -1) cursor.getInt(cratesTodayIdx) else 0,
                 crateStreak = if (crateStreakIdx != -1) cursor.getInt(crateStreakIdx) else 0,
                 crateShardsCsv = if (crateShardsCsvIdx != -1) (cursor.getString(crateShardsCsvIdx) ?: "") else "",
-                masteryPoints = if (masteryPointsIdx != -1) cursor.getInt(masteryPointsIdx) else 0
+                masteryPoints = if (masteryPointsIdx != -1) cursor.getInt(masteryPointsIdx) else 0,
+                hintsCsv = if (hintsCsvIdx != -1) (cursor.getString(hintsCsvIdx) ?: "") else ""
             )
             
             _profileFlow.value = profile
@@ -279,6 +284,7 @@ class GameDao(context: Context) {
             put("crateStreak", profile.crateStreak)
             put("crateShardsCsv", profile.crateShardsCsv)
             put("masteryPoints", profile.masteryPoints)
+            put("hintsCsv", profile.hintsCsv)
         }
         db.insertWithOnConflict("game_profile", null, values, SQLiteDatabase.CONFLICT_REPLACE)
         _profileFlow.value = profile
@@ -322,7 +328,7 @@ class GameDao(context: Context) {
     }
 }
 
-class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_companion.db", null, 19) {
+class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_companion.db", null, 20) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE game_profile (
@@ -374,7 +380,8 @@ class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_comp
                 cratesToday INTEGER,
                 crateStreak INTEGER,
                 crateShardsCsv TEXT,
-                masteryPoints INTEGER
+                masteryPoints INTEGER,
+                hintsCsv TEXT
             )
         """) 
         db.execSQL("""
@@ -463,6 +470,11 @@ class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_comp
     if (oldVersion < 16) {
         db.execSQL("ALTER TABLE game_profile ADD COLUMN hasSeenTutorial INTEGER DEFAULT 0")
         db.execSQL("ALTER TABLE game_profile ADD COLUMN lastUpdateReminderShownAt INTEGER DEFAULT 0")
+    }
+    if (oldVersion < 20) {
+        db.execSQL("ALTER TABLE game_profile ADD COLUMN hintsCsv TEXT DEFAULT ''")
+        // Existing players have already learned the game: no hints for them.
+        db.execSQL("UPDATE game_profile SET hintsCsv = 'ALL' WHERE hasSeenTutorial = 1 OR totalRuns > 0")
     }
 }
 }
