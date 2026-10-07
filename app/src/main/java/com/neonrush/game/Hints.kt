@@ -9,10 +9,14 @@ import kotlin.math.abs
  * Rules (all timing is REAL time via SystemClock, because slow-mo stretches
  * ticks and tick counts would drift):
  *  - One prompt at a time, with a short cooldown between prompts.
- *  - A prompt stays until the player does the thing, or its timeout passes.
+ *  - A prompt is always readable for at least 3 s (even if the player is hit
+ *    or the thing passes), and fades at 4 s if the player hasn't acted.
+ *    The refuel prompt is the exception: 8 s minimum, fades at 9 s.
+ *  - Acting ends it immediately with a quick "✓ Nice!" (or the power-up's
+ *    effect) + a sound.
  *  - Slow-mo is half speed (tick delay x2), capped at 2 s, ends on success.
- *  - Success shows a quick "✓ Nice!" (or the power-up's effect) + a sound.
- *  - A lesson is shown at most twice ever unless completed. Never nags.
+ *  - A lesson shows at most once per run and for at most 3 runs in total
+ *    unless completed. Then it never shows again.
  *
  * Persistence: GameProfile.hintsCsv, e.g. "STEER=D,GEM=1,DODGE=2"
  * (D = done, number = times shown). "ALL" = everything done (existing players).
@@ -21,14 +25,17 @@ enum class Lesson(
     val id: String,
     val prompt: String,
     val timeoutMs: Long,
-    val slowMoMs: Long
+    val slowMoMs: Long,
+    // Prompt is always readable at least this long, even if the thing passes.
+    val minShowMs: Long = 3000L
 ) {
     STEER("STEER", "Drag up / down to steer", 4000L, 0L),
-    GEM("GEM", "Fly through gems 💎", 3000L, 0L),
-    FUEL_CELL("FUELCELL", "⛽ Fuel cells refill your tank", 3000L, 0L),
-    DODGE("DODGE", "Dodge it!", 3000L, 1500L),
-    POWERUP("POWERUP", "Grab it!", 3000L, 1000L),
-    LOW_FUEL("LOWFUEL", "Tap the fuel button to refuel", 6000L, 0L),
+    GEM("GEM", "Fly through gems 💎", 4000L, 0L),
+    FUEL_CELL("FUELCELL", "⛽ Fuel cells refill your tank", 4000L, 0L),
+    DODGE("DODGE", "Dodge it!", 4000L, 1500L),
+    POWERUP("POWERUP", "Grab it!", 4000L, 1000L),
+    // Refuel is the key lesson (and the revenue moment): 8 s minimum, fades at 9 s.
+    LOW_FUEL("LOWFUEL", "Tap the fuel button to refuel", 9000L, 0L, 8000L),
     BOSS("BOSS", "Survive until the bar empties", 4000L, 0L);
 
     companion object {
@@ -46,6 +53,11 @@ data class HintState(
     val targetId: String = "",
     // DODGE only: -1 = move up, +1 = move down, 0 = no arrow
     val arrow: Int = 0,
+    // DODGE only: the player got hit; keep the prompt up for its minimum time, no success possible.
+    val lost: Boolean = false,
+    // Thing the prompt is about (for the highlight ring). targetX < 0 = none.
+    val targetX: Float = -1f,
+    val targetY: Int = 0,
     val successText: String = "",
     val successUntilMs: Long = 0L,
     val cooldownUntilMs: Long = 0L
@@ -74,7 +86,7 @@ data class HintResult(
 
 object HintEngine {
     const val DONE = 99
-    private const val MAX_SHOWS = 2
+    private const val MAX_SHOWS = 3          // runs a lesson may be shown in, unless completed
     private const val SUCCESS_MS = 900L
     private const val EFFECT_MS = 2200L
     private const val COOLDOWN_MS = 1500L
@@ -114,7 +126,7 @@ object HintEngine {
 
     // ---------- per-tick state machine ----------
 
-    private enum class Outcome { CONTINUE, SUCCESS, FAIL }
+    private enum class Outcome { CONTINUE, SUCCESS, FAIL, LOST }
 
     fun step(
         prev: HintState,
@@ -140,9 +152,8 @@ object HintEngine {
                     )
                 }
                 Outcome.FAIL -> HintResult(end(now, "", 0L))
-                Outcome.CONTINUE -> HintResult(
-                    if (active == Lesson.DODGE) s.copy(arrow = dodgeArrow(s.targetId, inp)) else s
-                )
+                Outcome.LOST -> HintResult(s.copy(lost = true, arrow = 0, slowMoUntilMs = 0L, targetX = -1f))
+                Outcome.CONTINUE -> HintResult(track(s, active, inp))
             }
         }
 
@@ -176,19 +187,17 @@ object HintEngine {
 
     private fun start(s: HintState, l: Lesson, inp: HintInput, targetId: String = ""): HintResult {
         val slow = l.slowMoMs.coerceAtMost(SLOWMO_CAP_MS)
-        return HintResult(
-            s.copy(
-                lesson = l.id,
-                promptText = l.prompt,
-                startedAtMs = inp.nowMs,
-                timeoutMs = l.timeoutMs,
-                slowMoUntilMs = if (slow > 0L) inp.nowMs + slow else 0L,
-                anchorY = inp.userY,
-                targetId = targetId,
-                arrow = if (l == Lesson.DODGE) dodgeArrow(targetId, inp) else 0
-            ),
-            shown = l
+        val base = s.copy(
+            lesson = l.id,
+            promptText = l.prompt,
+            startedAtMs = inp.nowMs,
+            timeoutMs = l.timeoutMs,
+            slowMoUntilMs = if (slow > 0L) inp.nowMs + slow else 0L,
+            anchorY = inp.userY,
+            targetId = targetId,
+            lost = false
         )
+        return HintResult(track(base, l, inp), shown = l)
     }
 
     // Clears the active lesson (and slow-mo) and starts the cooldown.
@@ -199,6 +208,13 @@ object HintEngine {
     )
 
     private fun evaluate(l: Lesson, s: HintState, inp: HintInput): Outcome {
+        val elapsed = inp.nowMs - s.startedAtMs
+
+        // Hit during a dodge lesson: no success any more, but the prompt stays
+        // up for its minimum read time so it never vanishes in a blink.
+        if (s.lost) return if (elapsed >= l.minShowMs) Outcome.FAIL else Outcome.CONTINUE
+        if (l == Lesson.DODGE && inp.hitThisTick) return Outcome.LOST
+
         val success = when (l) {
             Lesson.STEER -> abs(inp.userY - s.anchorY) >= 8
             Lesson.GEM -> inp.pickedGem
@@ -206,17 +222,39 @@ object HintEngine {
             Lesson.POWERUP -> inp.pickedPowerupId != null
             Lesson.LOW_FUEL -> inp.refuelTapped
             // The boss window ends on its own; surviving it is the lesson.
-            Lesson.BOSS -> !inp.bossActive
-            Lesson.DODGE -> {
-                if (inp.hitThisTick) return Outcome.FAIL
-                dodged(s, inp)
-            }
+            // Passive, so it waits for the minimum read time.
+            Lesson.BOSS -> !inp.bossActive && elapsed >= l.minShowMs
+            Lesson.DODGE -> dodged(s, inp)
         }
         if (success) return Outcome.SUCCESS
         if (l == Lesson.LOW_FUEL && inp.fuelPercent > 50) return Outcome.FAIL // grabbed a fuel cell instead
-        if (inp.nowMs - s.startedAtMs >= s.timeoutMs) return Outcome.FAIL
+        if (elapsed >= s.timeoutMs) return Outcome.FAIL
         return Outcome.CONTINUE
     }
+
+    // ---------- highlight target ----------
+
+    private fun track(s: HintState, l: Lesson, inp: HintInput): HintState {
+        val t = targetOf(l, s, inp)
+        return s.copy(
+            arrow = if (l == Lesson.DODGE && !s.lost) dodgeArrow(s.targetId, inp) else 0,
+            targetX = t?.xOffsetFraction ?: -1f,
+            targetY = t?.yMatchPos ?: 0
+        )
+    }
+
+    private fun targetOf(l: Lesson, s: HintState, inp: HintInput): VisualTrackElement? = when (l) {
+        Lesson.GEM -> nearestAhead(inp, "gem")
+        Lesson.FUEL_CELL -> nearestAhead(inp, "fuel")
+        Lesson.POWERUP -> nearestAhead(inp, "powerup")
+        Lesson.DODGE -> if (s.lost) null else inp.elements.firstOrNull { it.id == s.targetId }
+        else -> null
+    }
+
+    private fun nearestAhead(inp: HintInput, type: String): VisualTrackElement? =
+        inp.elements
+            .filter { it.type == type && it.xOffsetFraction in 0.2f..1.0f }
+            .minByOrNull { it.xOffsetFraction }
 
     // ---------- DODGE helpers ----------
 
