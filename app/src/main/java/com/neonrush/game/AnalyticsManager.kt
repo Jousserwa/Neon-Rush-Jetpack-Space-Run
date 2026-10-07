@@ -34,6 +34,10 @@ object AnalyticsManager {
         firebaseAnalytics?.logEvent("ad_viewed", params)
     }
 
+    fun logFirstFlightReward() {
+        firebaseAnalytics?.logEvent("first_flight_reward", Bundle())
+    }
+
     // Ad health events: ad_load_failed, ad_not_ready, ad_show_failed,
     // offline_grace_used, ad_unavailable_no_grace. They show how much ad
     // inventory is being missed and why (offline vs. no fill).
