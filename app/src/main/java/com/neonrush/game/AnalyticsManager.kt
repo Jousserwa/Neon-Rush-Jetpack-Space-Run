@@ -26,11 +26,24 @@ object AnalyticsManager {
         firebaseAnalytics?.logEvent("game_over", params)
     }
 
-    fun logAdViewed(adType: String) {
+    fun logAdViewed(adType: String, slot: String = "") {
         val params = Bundle().apply {
             putString("ad_type", adType) // "rewarded" or "interstitial"
+            if (slot.isNotEmpty()) putString("ad_slot", slot)
         }
         firebaseAnalytics?.logEvent("ad_viewed", params)
+    }
+
+    // Ad health events: ad_load_failed, ad_not_ready, ad_show_failed,
+    // offline_grace_used, ad_unavailable_no_grace. They show how much ad
+    // inventory is being missed and why (offline vs. no fill).
+    fun logAdEvent(event: String, slot: String, code: Int = -1, online: Boolean? = null) {
+        val params = Bundle().apply {
+            putString("ad_slot", slot)
+            if (code >= 0) putInt("code", code)
+            if (online != null) putBoolean("online", online)
+        }
+        firebaseAnalytics?.logEvent(event, params)
     }
 
     fun logPurchaseAttempted(productId: String) {
