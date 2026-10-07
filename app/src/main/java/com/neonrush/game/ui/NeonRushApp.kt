@@ -238,7 +238,8 @@ private fun DrawScope.drawShieldAura(level: Int, x: Float, y: Float, r: Float, t
 
 // Ship hulls are cosmetic: each one gives the pilot a different thruster trail
 // and aura, drawn in code (no image assets). The pilot suit is separate.
-private fun DrawScope.drawHullEffect(hullId: String, x: Float, y: Float, h: Float, tick: Int, speedLevel: Int = 0) {
+internal fun DrawScope.drawHullEffect(hullId: String, x: Float, y: Float, h: Float, tick: Int, speedLevel: Int = 0) {
+    if (drawExtraHull(hullId, x, y, h, tick, speedLevel)) return // newer code-drawn hulls
     val color: Color
     val shape: Int // 0 diamond, 1 square, 2 triangle, 3 pulse, 4 gold, 5 grid
     when (hullId) {
@@ -516,7 +517,7 @@ if (showStreakFreezeOffer) {
     LaunchedEffect(Unit) {
         viewModel.streakRewardEvent.collect { reward ->
             streakBannerReward = reward
-            delay(4000)
+            delay(if (reward.bonusText != null) 6500 else 4000)
             streakBannerReward = null
         }
     }
@@ -764,6 +765,16 @@ if (showStreakFreezeOffer) {
                             fontFamily = FontFamily.Monospace,
                             fontSize = 16.sp
                         )
+                        reward.bonusText?.let { bonus ->
+                            Text(
+                                text = bonus,
+                                color = Color(0xFFFFD23F),
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
                     }
                 }
             }   
@@ -2791,6 +2802,7 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    SuitPreview(skin.id, Modifier.size(64.dp).padding(end = 10.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = skin.name,
@@ -2927,6 +2939,7 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
+                    if (id != "cyan_diamond") HullPreview(id)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = when (id) {
@@ -2935,6 +2948,11 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile) {
                                 "green_triangle" -> "🔺"
                                 "magenta_pulse" -> "⚡"
                                 "gold_transcendence" -> "🏆"
+                                "solar_comet" -> "☄️"
+                                "ice_shard" -> "❄️"
+                                "static_storm" -> "🌩️"
+                                "vaporwave_wave" -> "🌊"
+                                "phantom_echo" -> "👻"
                                 else -> "🪐"
                             },
                             fontSize = 18.sp,
@@ -4192,11 +4210,8 @@ val bossImagesByWorld = mapOf(
                         drawHullEffect(profile.activeSkinId, userX, userY, displayHeight, simState.tickIndex, afterburnerLevel)
 
                         rotate(degrees = tiltAngle, pivot = Offset(userX, userY)) {
-                            drawImage(
-                                image = currentFrameImg,
-                                dstOffset = IntOffset((userX - displayWidth / 2f).roundToInt(), (userY - displayHeight / 2f).roundToInt()),
-                                dstSize = IntSize(displayWidth.roundToInt(), displayHeight.roundToInt())
-                            )
+                            // Equipped pilot suit: colour grade + aura/particles on the shared frames.
+                            drawPilotWithSuit(profile.activePilotSkinId, currentFrameImg, userX, userY, displayWidth, displayHeight, simState.tickIndex)
                         }
 
                         for ((scoreDelta, spawnTick, spawnY) in scorePopups) {
@@ -4330,6 +4345,10 @@ fun GameOverOverlayScreen(
                     color = CyberPrimary,
                     fontFamily = FontFamily.Monospace
                 )
+
+                if (simState.firstFlightReward) {
+                    FirstFlightBanner()
+                }
 
                 Text(
                     text = "SCORE: ${simState.score}",
