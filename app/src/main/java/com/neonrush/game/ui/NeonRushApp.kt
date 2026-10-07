@@ -77,6 +77,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neonrush.game.AdMobManager
+import com.neonrush.game.RewardedSlot
 import com.neonrush.game.DailyMutations
 import com.neonrush.game.MutationDay
 import com.neonrush.game.NeonRushViewModel
@@ -456,6 +457,12 @@ fun NeonRushApp(viewModel: NeonRushViewModel) {
     val simState by viewModel.simState.collectAsState()
     
     val isPro by RevenueCatManager.isPro.collectAsState()
+    LaunchedEffect(isPro, currentProfile.adsRemoved) {
+        AdMobManager.setAdState(isPro, currentProfile.adsRemoved)
+    }
+    LaunchedEffect(simState.isStarted, simState.isCompleted) {
+        AdMobManager.refresh()
+    }
     var showPaywall by remember { mutableStateOf(false) }
     var paywallReason by remember { mutableStateOf("generic") }
     
@@ -528,9 +535,9 @@ if (showStreakFreezeOffer) {
             if (!simState.isStarted || simState.isCompleted) {
                 Column {
                     // Show home screen banner if user is NOT PRO
-                    if (!isPro) {
+                    if (!isPro && !currentProfile.adsRemoved) {
                         AdMobBannerView(
-                            adUnitId = "ca-app-pub-3841327492203214/6533049489",
+                            adUnitId = AdMobManager.BANNER_AD_UNIT_ID,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -2435,7 +2442,7 @@ fun DailyCrateDialog(profile: GameProfile, isPro: Boolean, viewModel: NeonRushVi
                                 viewModel.openDailyCrate(isPro)
                             } else {
                                 activity?.let { act ->
-                                    AdMobManager.showRewardedIfReady(act) {
+                                    AdMobManager.showRewardedIfReady(act, RewardedSlot.DAILY_CRATE) {
                                         viewModel.openDailyCrate(isPro)
                                         viewModel.recordAdWatched()
                                     }
@@ -2448,7 +2455,7 @@ fun DailyCrateDialog(profile: GameProfile, isPro: Boolean, viewModel: NeonRushVi
                     ) {
                         Text(
                             text = when {
-                                !noAd -> "🎬 WATCH AD TO OPEN"
+                                !noAd -> adButtonLabel(RewardedSlot.DAILY_CRATE, "🎬 WATCH AD TO OPEN")
                                 openedToday == 0 -> "🎁 OPEN CRATE"
                                 else -> "🎁 OPEN BONUS CRATE ⚡PRO"
                             },
@@ -3527,7 +3534,7 @@ val bossImagesByWorld = mapOf(
                                     // Tapping the banner itself works too — players
                                     // naturally tap the thing they're looking at.
                                     activity?.let {
-                                        AdMobManager.showRewardedIfReady(it) {
+                                        AdMobManager.showRewardedIfReady(it, RewardedSlot.DOUBLE_GEMS) {
                                             viewModel.claimSectorAdBonus()
                                         }
                                     }
@@ -3548,7 +3555,7 @@ val bossImagesByWorld = mapOf(
                         Button(
                             onClick = {
                                 activity?.let {
-                                    AdMobManager.showRewardedIfReady(it) {
+                                    AdMobManager.showRewardedIfReady(it, RewardedSlot.DOUBLE_GEMS) {
                                         viewModel.claimSectorAdBonus()
                                     }
                                 }
@@ -3558,7 +3565,7 @@ val bossImagesByWorld = mapOf(
                             modifier = Modifier.padding(top = 4.dp)
                         ) {
                             Text(
-                                text = "🎬 WATCH AD: DOUBLE TO +${simState.sectorBonusPending * 2}💎",
+                                text = adButtonLabel(RewardedSlot.DOUBLE_GEMS, "🎬 WATCH AD: DOUBLE TO +${simState.sectorBonusPending * 2}💎"),
                                 color = Color.Black,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
@@ -4224,9 +4231,9 @@ val bossImagesByWorld = mapOf(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            if (!isPro) {
+            if (!isPro && !profile.adsRemoved) {
                 AdMobBannerView(
-                    adUnitId = "ca-app-pub-3841327492203214/6533049489",
+                    adUnitId = AdMobManager.BANNER_AD_UNIT_ID,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -4356,7 +4363,7 @@ fun GameOverOverlayScreen(
     Button(
         onClick = {
             activity?.let {
-                AdMobManager.showRewardedIfReady(it) {
+                AdMobManager.showRewardedIfReady(it, RewardedSlot.REVIVE) {
                     viewModel.reviveSimulation()
                     viewModel.recordAdWatched()
                 }
@@ -4367,7 +4374,7 @@ fun GameOverOverlayScreen(
         modifier = Modifier.fillMaxWidth()
     ) {
         Text(
-            text = "🎬 WATCH AD TO REVIVE",
+            text = adButtonLabel(RewardedSlot.REVIVE, "🎬 WATCH AD TO REVIVE"),
             color = Color.White,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold
@@ -4506,7 +4513,7 @@ fun GameOverOverlayScreen(
     Button(
         onClick = {
             activity?.let {
-                AdMobManager.showRewardedIfReady(it) {
+                AdMobManager.showRewardedIfReady(it, RewardedSlot.DOUBLE_GEMS) {
                     viewModel.doubleGemsForRun()
                     viewModel.recordAdWatched()
                 }
@@ -4517,7 +4524,7 @@ fun GameOverOverlayScreen(
         modifier = Modifier.fillMaxWidth()
     ) {
        Text(
-            text = "🎬 DOUBLE GEMS (${profile.currentRunGemsCredited} 💎)",
+            text = adButtonLabel(RewardedSlot.DOUBLE_GEMS, "🎬 DOUBLE GEMS (${profile.currentRunGemsCredited} 💎)"),
             color = Color.Black,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold
@@ -4589,7 +4596,7 @@ fun GameOverOverlayScreen(
 
                 Button(
                     onClick = {
-                        if (!profile.adsRemoved && AdMobManager.isInterstitialDue()) {
+                        if (!isPro && !profile.adsRemoved && AdMobManager.isInterstitialDue()) {
                             activity?.let {
                                 AdMobManager.showInterstitialIfReady(it) {
                                     viewModel.resetSimulation()
