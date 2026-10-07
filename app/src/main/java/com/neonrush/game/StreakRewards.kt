@@ -3,7 +3,9 @@ package com.neonrush.game
 data class StreakReward(
     val day: Int,
     val gems: Int,
-    val label: String
+    val label: String,
+    // Extra prize line (hull shards / exclusive suit), shown under the gem amount.
+    val bonusText: String? = null
 )
 
 object StreakRewards {
