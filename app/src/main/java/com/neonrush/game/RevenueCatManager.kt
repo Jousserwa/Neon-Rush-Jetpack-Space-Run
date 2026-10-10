@@ -49,8 +49,10 @@ const val STARTER_PACK_GEMS_AMOUNT = 250
 val isAdsRemoved: StateFlow<Boolean> = _isAdsRemoved.asStateFlow()
 
     private var isInitialized = false
+    private var appCtx: Context? = null
 
     fun initialize(context: Context) {
+        appCtx = context.applicationContext
         if (isInitialized) return
         try {
             val configuration = PurchasesConfiguration.Builder(context, REVENUECAT_API_KEY).build()
@@ -87,123 +89,112 @@ val isAdsRemoved: StateFlow<Boolean> = _isAdsRemoved.asStateFlow()
     }
 }
 
-    fun purchaseProSubscription(activity: Activity, onResult: (Boolean) -> Unit) {
+    /** Human-readable reason for the last failed purchase ("" when the user just cancelled). UI shows it in a toast. */
+    @Volatile var lastError: String = ""
+
+    private fun finishOk(onResult: (Boolean) -> Unit) { lastError = ""; onResult(true) }
+    private fun finishFail(msg: String, onResult: (Boolean) -> Unit) {
+        lastError = msg; Log.e(TAG, msg)
+        // Always tell the player why a purchase did not start (previously every failure was silent).
+        appCtx?.let { c -> android.os.Handler(android.os.Looper.getMainLooper()).post {
+            android.widget.Toast.makeText(c, msg, android.widget.Toast.LENGTH_LONG).show() } }
+        onResult(false)
+    }
+
+    private fun runPurchase(
+        activity: Activity,
+        params: com.revenuecat.purchases.PurchaseParams,
+        onOk: (com.revenuecat.purchases.CustomerInfo) -> Unit,
+        onResult: (Boolean) -> Unit
+    ) {
+        Purchases.sharedInstance.purchase(params, object : PurchaseCallback {
+            override fun onCompleted(storeTransaction: StoreTransaction, customerInfo: com.revenuecat.purchases.CustomerInfo) {
+                onOk(customerInfo); finishOk(onResult)
+            }
+            override fun onError(error: PurchasesError, userCancelled: Boolean) {
+                if (userCancelled) { lastError = ""; onResult(false) }
+                else finishFail("Purchase failed: ${error.message}", onResult)
+            }
+        })
+    }
+
+    private fun buySubscription(activity: Activity, annual: Boolean, onResult: (Boolean) -> Unit) {
+        if (!isInitialized) { finishFail("Store is not ready yet. Please try again in a moment.", onResult); return }
         try {
-            Purchases.sharedInstance.getOfferings(
-                object : ReceiveOfferingsCallback {
-                    override fun onReceived(offerings: com.revenuecat.purchases.Offerings) {
-                        val monthlyPackage = offerings.current?.getPackage("\$rc_monthly")
-                        if (monthlyPackage != null) {
-                            val purchaseParams = com.revenuecat.purchases.PurchaseParams.Builder(activity, monthlyPackage).build()
-                            Purchases.sharedInstance.purchase(
-                                purchaseParams,
-                                object : PurchaseCallback {
-                                    override fun onCompleted(storeTransaction: StoreTransaction, customerInfo: com.revenuecat.purchases.CustomerInfo) {
-                                        _isPro.value = true
-                                        onResult(true)
-                                    }
-
-                                    override fun onError(error: PurchasesError, userCancelled: Boolean) {
-                                        Log.e(TAG, "Purchase failed: ${error.message}")
-                                        onResult(false)
-                                    }
-                                }
-                            )
-                        } else {
-                            Log.e(TAG, "Monthly package not found")
-                            onResult(false)
-                        }
+            Purchases.sharedInstance.getOfferings(object : ReceiveOfferingsCallback {
+                override fun onReceived(offerings: com.revenuecat.purchases.Offerings) {
+                    val wantedId = if (annual) PRODUCT_ID_PRO_ANNUAL else PRODUCT_ID_PRO_MONTHLY
+                    val keyword = if (annual) "annual" else "month"
+                    val type = if (annual) com.revenuecat.purchases.PackageType.ANNUAL else com.revenuecat.purchases.PackageType.MONTHLY
+                    // Search the current offering first, then every offering. Match by standard package
+                    // id, package type, exact product id, or a "monthly"/"annual" word in the id.
+                    val pools = listOfNotNull(offerings.current) + offerings.all.values
+                    val pkg = pools.asSequence().flatMap { it.availablePackages.asSequence() }.firstOrNull { p ->
+                        p.packageType == type || p.identifier == (if (annual) "\$rc_annual" else "\$rc_monthly") ||
+                            p.product.id == wantedId || p.product.id.contains(keyword, ignoreCase = true)
                     }
-
-                    override fun onError(error: PurchasesError) {
-                        Log.e(TAG, "Error fetching offerings: ${error.message}")
-                        onResult(false)
+                    if (pkg == null) {
+                        finishFail("Pro ${if (annual) "annual" else "monthly"} plan isn't available from the store yet (no matching package in the RevenueCat offering).", onResult)
+                        return
                     }
+                    try {
+                        val params = com.revenuecat.purchases.PurchaseParams.Builder(activity, pkg).build()
+                        runPurchase(activity, params, { _isPro.value = true }, onResult)
+                    } catch (e: Exception) { finishFail("Could not start purchase: ${e.message}", onResult) }
                 }
-            )
+                override fun onError(error: PurchasesError) {
+                    finishFail("Could not reach the store: ${error.message}", onResult)
+                }
+            })
         } catch (e: Exception) {
-            Log.e(TAG, "Exception during purchase: ${e.message}")
-            onResult(false)
+            finishFail("Store error: ${e.message}", onResult)
         }
     }
 
-    fun purchaseProSubscriptionAnnual(activity: Activity, onResult: (Boolean) -> Unit) {
-        try {
-            Purchases.sharedInstance.getOfferings(
-                object : ReceiveOfferingsCallback {
-                    override fun onReceived(offerings: com.revenuecat.purchases.Offerings) {
-                        val annualPackage = offerings.current?.getPackage("\$rc_annual")
-                        if (annualPackage != null) {
-                            val purchaseParams = com.revenuecat.purchases.PurchaseParams.Builder(activity, annualPackage).build()
-                            Purchases.sharedInstance.purchase(
-                                purchaseParams,
-                                object : PurchaseCallback {
-                                    override fun onCompleted(storeTransaction: StoreTransaction, customerInfo: com.revenuecat.purchases.CustomerInfo) {
-                                        _isPro.value = true
-                                        onResult(true)
-                                    }
+    fun purchaseProSubscription(activity: Activity, onResult: (Boolean) -> Unit) = buySubscription(activity, false, onResult)
 
-                                    override fun onError(error: PurchasesError, userCancelled: Boolean) {
-                                        onResult(false)
-                                    }
-                                }
-                            )
-                        } else {
-                            onResult(false)
-                        }
-                    }
+    fun purchaseProSubscriptionAnnual(activity: Activity, onResult: (Boolean) -> Unit) = buySubscription(activity, true, onResult)
 
-                    override fun onError(error: PurchasesError) {
-                        onResult(false)
-                    }
-                }
-            )
-        } catch (e: Exception) {
-            onResult(false)
-        }
-    }
-
+    /**
+     * Generic one-time purchase by store product id (gem packs, remove ads, starter pack, hulls, bundle, season pass).
+     * 1) uses the product from any RevenueCat offering; 2) if it is not in an offering, asks the store directly
+     * (getProducts) so the product does NOT have to be placed in an offering to be purchasable.
+     */
     fun purchaseGemPack(activity: Activity, productId: String, onResult: (Boolean) -> Unit) {
-        try {
-            Purchases.sharedInstance.getOfferings(
-                object : ReceiveOfferingsCallback {
-                    override fun onReceived(offerings: com.revenuecat.purchases.Offerings) {
-                        // Find the package by product ID
-                        val packageToBuy = offerings.all.values
-                            .flatMap { it.availablePackages }
-                            .find { it.product.id == productId }
-                        
-                        if (packageToBuy != null) {
-              AnalyticsManager.logPurchaseAttempted(productId)
-             val purchaseParams = com.revenuecat.purchases.PurchaseParams.Builder(activity, packageToBuy).build()
-                            Purchases.sharedInstance.purchase(
-                                purchaseParams,
-                                object : PurchaseCallback {
-                                    override fun onCompleted(storeTransaction: StoreTransaction, customerInfo: com.revenuecat.purchases.CustomerInfo) {
-    AnalyticsManager.logPurchaseCompleted(productId)
-    val hasAdsRemoved = customerInfo.entitlements.active.containsKey("remove_ads")
-    _isAdsRemoved.value = hasAdsRemoved
-    onResult(true)
-}
-                                        
- override fun onError(error: PurchasesError, userCancelled: Boolean) {
-                                        onResult(false)
-                                    }
-                                }
-                            )
-                        } else {
-                            onResult(false)
-                        }
-                    }
-
-                    override fun onError(error: PurchasesError) {
-                        onResult(false)
-                    }
-                }
-            )
-        } catch (e: Exception) {
-            onResult(false)
+        if (!isInitialized) { finishFail("Store is not ready yet. Please try again in a moment.", onResult); return }
+        fun start(params: com.revenuecat.purchases.PurchaseParams) {
+            AnalyticsManager.logPurchaseAttempted(productId)
+            runPurchase(activity, params, { info ->
+                AnalyticsManager.logPurchaseCompleted(productId)
+                _isAdsRemoved.value = info.entitlements.active.containsKey("remove_ads") || _isAdsRemoved.value
+            }, onResult)
         }
+        fun viaStore() {
+            try {
+                Purchases.sharedInstance.getProducts(listOf(productId), object : com.revenuecat.purchases.interfaces.GetStoreProductsCallback {
+                    override fun onReceived(storeProducts: List<com.revenuecat.purchases.models.StoreProduct>) {
+                        val p = storeProducts.firstOrNull { it.id.substringBefore(':') == productId } ?: storeProducts.firstOrNull()
+                        if (p == null) finishFail("\"$productId\" isn't available in the store yet. Create it in Play Console (and activate it).", onResult)
+                        else try { start(com.revenuecat.purchases.PurchaseParams.Builder(activity, p).build()) }
+                        catch (e: Exception) { finishFail("Could not start purchase: ${e.message}", onResult) }
+                    }
+                    override fun onError(error: PurchasesError) { finishFail("Store error: ${error.message}", onResult) }
+                })
+            } catch (e: Exception) { finishFail("Store error: ${e.message}", onResult) }
+        }
+        try {
+            Purchases.sharedInstance.getOfferings(object : ReceiveOfferingsCallback {
+                override fun onReceived(offerings: com.revenuecat.purchases.Offerings) {
+                    val pkg = offerings.all.values.flatMap { it.availablePackages }
+                        .find { it.product.id == productId || it.product.id.substringBefore(':') == productId }
+                    if (pkg != null) {
+                        try { start(com.revenuecat.purchases.PurchaseParams.Builder(activity, pkg).build()) }
+                        catch (e: Exception) { finishFail("Could not start purchase: ${e.message}", onResult) }
+                    } else viaStore()
+                }
+                override fun onError(error: PurchasesError) { viaStore() }
+            })
+        } catch (e: Exception) { viaStore() }
     }
 
     fun purchasePilotSuit(activity: Activity, productId: String, onResult: (Boolean) -> Unit) {
