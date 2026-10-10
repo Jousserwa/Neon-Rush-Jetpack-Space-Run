@@ -83,7 +83,8 @@ data class HangarUiState(
     val proMonths: Int = 0,
     val isAnnual: Boolean = false,
     val chroma: Map<String, Int> = emptyMap(),
-    val stipendClaimable: Boolean = false
+    val stipendClaimable: Boolean = false,
+    val hullLabels: Map<String, String> = emptyMap()   // id -> "emoji name" for every hull (gem + premium)
 )
 
 data class HangarActions(
@@ -438,44 +439,43 @@ internal fun HangarPreview(hullId: String, reactions: Boolean, height: Dp = 110.
 
 @Composable
 private fun LoadoutPanel(state: HangarUiState, actions: HangarActions) {
-    val ownedPremium = HullCatalog.ALL.filter { it.id in state.ownedHullIds }
+    val ownedHulls = state.ownedHullIds.toList().sortedBy { state.hullLabels[it] ?: it }
     Column {
-        Text("LOADOUT & ROTATION", color = CyberPrimary, fontFamily = FontFamily.Monospace,
+        Text("LOADOUT & FREE RIDE", color = CyberPrimary, fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        Text("Owned premium hulls swap each sector. The hull you picked last shows up about twice as often. " +
-            "Lock one to fly it every sector.", color = CyberOnSurface.copy(alpha = 0.7f), fontSize = 12.sp,
+        Text("Your equipped hull stays on permanently. Turn on Free Ride to swap between your hulls every sector " +
+            "(the one you picked last shows up about twice as often).", color = CyberOnSurface.copy(alpha = 0.7f), fontSize = 12.sp,
             modifier = Modifier.padding(vertical = 6.dp))
-        if (ownedPremium.isEmpty()) {
-            Text("No premium hulls yet. Pick one in HULLS and it joins your rotation automatically.",
+        if (ownedHulls.size < 2) {
+            Text("You need at least two hulls for Free Ride. Your equipped hull stays on.",
                 color = CyberOnSurface.copy(alpha = 0.6f), fontSize = 12.sp)
             return
         }
-        // Lock switch
+        // Free Ride switch (default OFF = equipped hull stays on)
         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp).background(CyberSurface, RoundedCornerShape(8.dp))
             .padding(10.dp), horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("🔒 Lock to equipped hull", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                Text("Stops rotation. Flies only ${HullCatalog.byId(state.activeHullId)?.name ?: "the equipped hull"}.",
+                Text("🔄 Free Ride", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text(if (state.lockedHullId == null) "ON: hulls swap every sector." else "OFF: staying on ${state.hullLabels[state.activeHullId] ?: "your equipped hull"}.",
                     color = CyberOnSurface.copy(alpha = 0.6f), fontSize = 11.sp)
             }
-            Switch(checked = state.lockedHullId != null,
-                onCheckedChange = { on -> actions.onSetLock(if (on) state.activeHullId else null) })
+            Switch(checked = state.lockedHullId == null,
+                onCheckedChange = { on -> actions.onSetLock(if (on) null else state.activeHullId) })
         }
-        ownedPremium.forEach { h ->
-            val inRot = h.id in state.rotationIds
+        ownedHulls.forEach { hid ->
+            val inRot = hid in state.rotationIds
             Row(Modifier.fillMaxWidth().padding(vertical = 3.dp).background(CyberSurface, RoundedCornerShape(8.dp))
                 .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                Text(h.emoji, fontSize = 20.sp, modifier = Modifier.padding(end = 8.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(h.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    if (state.nextRotationId == h.id && state.lockedHullId == null)
+                    Text(state.hullLabels[hid] ?: hid, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    if (state.nextRotationId == hid && state.lockedHullId == null)
                         Text("Next up", color = CyberPrimary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                 }
-                Text("Rotate", color = CyberOnSurface.copy(alpha = 0.6f), fontSize = 10.sp,
+                Text("In Free Ride", color = CyberOnSurface.copy(alpha = 0.6f), fontSize = 10.sp,
                     modifier = Modifier.padding(end = 6.dp))
-                Switch(checked = inRot, onCheckedChange = { actions.onToggleRotation(h.id, it) })
+                Switch(checked = inRot, onCheckedChange = { actions.onToggleRotation(hid, it) })
             }
         }
     }
