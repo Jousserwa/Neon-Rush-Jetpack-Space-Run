@@ -1,5 +1,6 @@
 package com.neonrush.game.db
 
+import com.neonrush.game.HangarStore
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
@@ -87,6 +88,8 @@ data class GhostChallengeEntity(
 
 class GameDao(context: Context) {
     private val dbHelper = GameDbHelper(context)
+    /** Used by HangarStore (hull system key/value table). */
+    fun db(): SQLiteDatabase = dbHelper.writableDatabase
     private val _profileFlow = MutableStateFlow<GameProfile?>(null)
     private val profileMutex = Mutex()
     
@@ -328,7 +331,7 @@ class GameDao(context: Context) {
     }
 }
 
-class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_companion.db", null, 20) {
+class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_companion.db", null, 21) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE game_profile (
@@ -393,7 +396,7 @@ class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_comp
                 yPositionsCsv TEXT,
                 timestamp INTEGER
             )
-        """)
+        """)        db.execSQL(HangarStore.CREATE_SQL)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -475,6 +478,9 @@ class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_comp
         db.execSQL("ALTER TABLE game_profile ADD COLUMN hintsCsv TEXT DEFAULT ''")
         // Existing players have already learned the game: no hints for them.
         db.execSQL("UPDATE game_profile SET hintsCsv = 'ALL' WHERE hasSeenTutorial = 1 OR totalRuns > 0")
+    }
+    if (oldVersion < 21) {
+        db.execSQL(HangarStore.CREATE_SQL)
     }
 }
 }
