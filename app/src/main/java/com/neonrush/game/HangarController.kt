@@ -53,6 +53,7 @@ class HangarController(
     private var celebrate: String? = null
     private var currentSector = 0
     private var pro = ProSnapshot()
+    private var pendingTrial: String? = null
     var progression: HullProgression? = null
     private var lastMarkM = 0
     private fun currentHull(equipped: String) = _sectorHullId.value ?: equipped
@@ -177,6 +178,7 @@ class HangarController(
         onSetChroma = { id, v -> onChroma(id, v) },
         onClaimStipend = { onStipend() },
         onBuyBundle = { act -> HullPurchases.buyApexBundle(act) { ok -> if (ok) scope.launch { reconcileWithStore(); progression?.refresh() } } },
+        onArmTrial = { id -> pendingTrial = id },
         onTryStart = { HangarAnalytics.hullTryStarted(it) },
         onDismissCelebration = { celebrate = null; scope.launch { publish() } },
         onRestore = {
@@ -192,6 +194,15 @@ class HangarController(
     /** Call at run start (and revive start). Resets rotation to the equipped hull. */
     fun onRunStart(equippedId: String) {
         lastMarkM = 0; currentSector = 0; _sectorHullId.value = null; nextRoll = null
+        pendingTrial?.let { t ->
+            pendingTrial = null
+            _sectorHullId.value = t
+            _toast.value = "🧪 Trying ${HullCatalog.byId(t)?.name ?: t} for 8s"
+            scope.launch {
+                delay(8000)
+                if (_sectorHullId.value == t) { _sectorHullId.value = null; _toast.value = "Trial over. Buy it in the Hangar" }
+            }
+        }
         lastPicked?.let { } // lastPicked already persisted
     }
 
