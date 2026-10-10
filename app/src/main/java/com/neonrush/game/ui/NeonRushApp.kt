@@ -713,16 +713,7 @@ if (showStreakFreezeOffer) {
                                         onNavigateToGlobal = { activeTab = "rankings" },
                                         onNavigateToSkins = { activeTab = "skins" },
                                         onNavigateToSocial = { activeTab = "social" },
-                                        onStartSpecialMode = {
-                                            val specialGhost = com.neonrush.game.db.GhostChallengeEntity(
-                                                "ghost_cyberrunner",
-                                                "CyberRunner",
-                                                850,
-                                                4,
-                                                ZoneGenerator.generateTelemetryCsv(850, 111)
-                                            )
-                                            viewModel.startSpecialModeRun(specialGhost)
-                                        },
+                                        onStartSpecialMode = { activeTab = "special" }, // choose any unlocked world
                                         isPro = isPro
                                     
                                 
@@ -735,7 +726,7 @@ if (showStreakFreezeOffer) {
                             "special" -> SpecialModeTab(
                                 profile = currentProfile,
                                 viewModel = viewModel,
-                                onStartSpecialMode = {
+                                onStartSpecialMode = { tier ->
                                     val specialGhost = com.neonrush.game.db.GhostChallengeEntity(
                                         "ghost_cyberrunner",
                                         "CyberRunner",
@@ -743,7 +734,7 @@ if (showStreakFreezeOffer) {
                                         4,
                                         ZoneGenerator.generateTelemetryCsv(850, 111)
                                     )
-                                    viewModel.startSpecialModeRun(specialGhost)
+                                    viewModel.startSpecialModeRun(specialGhost, tier)
                                 }
                             )
                             "profile" -> ProfileTab(profile = currentProfile, viewModel = viewModel)
@@ -1236,7 +1227,7 @@ Spacer(modifier = Modifier.height(8.dp))
     }
 }
 @Composable
-fun SpecialModeTab(profile: GameProfile, viewModel: NeonRushViewModel, onStartSpecialMode: () -> Unit) {
+fun SpecialModeTab(profile: GameProfile, viewModel: NeonRushViewModel, onStartSpecialMode: (Int) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1258,11 +1249,19 @@ fun SpecialModeTab(profile: GameProfile, viewModel: NeonRushViewModel, onStartSp
         )
         Spacer(modifier = Modifier.height(20.dp))
 
-        val tiers = listOf(
-            Triple(1, "Signal Fracture", "Complete all 3 Daily Missions"),
-            Triple(2, "Frozen Veil", "Complete all 3 Weekly Missions"),
-            Triple(3, "Apex Signal", "Complete all 3 Monthly Missions")
-        )
+        val tiers = (1..Worlds.SPECIAL_TIER_COUNT).map { t ->
+            val w = Worlds.specialWorldForTier(t)
+            val title = w?.title?.lowercase()?.split(" ")?.joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } } ?: "World $t"
+            val requirement = when (t) {
+                1 -> "Complete all 3 Daily Missions"
+                2 -> "Complete all 3 Weekly Missions"
+                3 -> "Complete all 3 Monthly Missions"
+                else -> MissionManager.specialReq(t)?.let { r ->
+                    "${r.text} (${MissionManager.specialProgress(profile, r).coerceAtMost(r.need)}/${r.need})"
+                } ?: ""
+            }
+            Triple(t, title, requirement)
+        }
 
         var expandedTier by remember { mutableStateOf<Int?>(null) }
 
@@ -1299,9 +1298,10 @@ fun SpecialModeTab(profile: GameProfile, viewModel: NeonRushViewModel, onStartSp
                         color = CyberOnSurface.copy(alpha = 0.6f)
                     )
                 }
-                if (unlocked && tierNum == profile.specialWorldTier) {
+                // Every world you have unlocked stays playable: pick any of them.
+                if (unlocked) {
                     Button(
-                        onClick = onStartSpecialMode,
+                        onClick = { onStartSpecialMode(tierNum) },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9C27B0)),
                         shape = RoundedCornerShape(4.dp)
                     ) {
@@ -1313,13 +1313,30 @@ fun SpecialModeTab(profile: GameProfile, viewModel: NeonRushViewModel, onStartSp
 
         if (expandedTier != null) {
             val tierNum = expandedTier!!
+            if (tierNum >= 4) {
+                val req = MissionManager.specialReq(tierNum)
+                AlertDialog(
+                    onDismissRequest = { expandedTier = null },
+                    title = { Text("What's still needed", fontFamily = FontFamily.Monospace) },
+                    text = {
+                        Column {
+                            Text(
+                                text = (if (tierNum - 1 > profile.specialWorldTier) "🔒 Unlock the previous world first.\n\n" else "") +
+                                    (req?.let { "◻️ ${it.text}\n\nProgress: ${MissionManager.specialProgress(profile, it).coerceAtMost(it.need)}/${it.need}" } ?: ""),
+                                color = Color.White, fontSize = 13.sp
+                            )
+                        }
+                    },
+                    confirmButton = { Button(onClick = { expandedTier = null }) { Text("Got it") } }
+                )
+            }
             val (missions, claimedCsv) = when (tierNum) {
                 1 -> MissionManager.currentDailyMissions(profile.dailyRerollCount) to profile.dailyMissionsClaimedCsv
                 2 -> MissionManager.currentWeeklyMissions(profile.weeklyRerollCount) to profile.weeklyMissionsClaimedCsv
                 else -> MissionManager.currentMonthlyMissions(profile.monthlyRerollCount) to profile.monthlyMissionsClaimedCsv
             }
             val claimed = MissionManager.parseClaimedCsv(claimedCsv)
-            AlertDialog(
+            if (tierNum < 4) AlertDialog(
                 onDismissRequest = { expandedTier = null },
                 title = { Text("What's still needed", fontFamily = FontFamily.Monospace) },
                 text = {
@@ -1804,6 +1821,7 @@ fun ArcadeHomeView(
             }
         }
 
+        if (showSpecialLockInfo && profile.specialWorldTier >= 3) showSpecialLockInfo = false
         if (showSpecialLockInfo) {
             val nextTier = profile.specialWorldTier + 1
             val (missions, claimedCsv) = when (nextTier) {
@@ -3537,7 +3555,9 @@ val bossImagesByWorld = mapOf(
                 title = if (variant?.isRift == true) "$familyTitle: ${variant.suffix}" else currentWorld.title,
                 subtitle = when {
                     variant == null -> currentWorld.subtitle
-                    variant.isRift -> "RIFT SECTOR ${variant.riftNumber}"
+                    variant.isRift -> "RIFT SECTOR ${variant.riftNumber}" +
+                        (com.neonrush.game.WorldFlavors.forZone(currentWorld.id, currentWorld.worldFamily, simState.currentZoneNumber)
+                            ?.let { " · ${it.title}" } ?: "")
                     else -> "${currentWorld.subtitle} · ${variant.suffix}"
                 },
                 accent = variant?.accent ?: CyberPrimary,
