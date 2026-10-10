@@ -110,16 +110,48 @@ fun currentMonthlyMissions(rerollCount: Int = 0): List<MissionTemplate> = select
 
     fun findTemplate(id: String): MissionTemplate? =
         (DAILY_POOL + WEEKLY_POOL + MONTHLY_POOL).find { it.id == id }
-        fun checkSpecialWorldQualification(profile: GameProfile): Int {
-    var tier = profile.specialWorldTier
-    val dailyClaimed = parseClaimedCsv(profile.dailyMissionsClaimedCsv)
-    if (tier < 1 && dailyClaimed.size >= 3) tier = 1
-    val weeklyClaimed = parseClaimedCsv(profile.weeklyMissionsClaimedCsv)
-    if (tier < 2 && weeklyClaimed.size >= 3) tier = 2
-    val monthlyClaimed = parseClaimedCsv(profile.monthlyMissionsClaimedCsv)
-    if (tier < 3 && monthlyClaimed.size >= 3) tier = 3
-    return tier
-}
+    // ---- Special worlds 4-9: earned by repeatedly finishing the mission sets. ----
+    // "sets" = how many times the player has claimed all 3 missions of a period.
+    // Counters live in GameProfile.specialProgressCsv as "d:5,w:2,m:0".
+    fun parseSpecialCounters(csv: String): MutableMap<String, Int> {
+        val m = mutableMapOf("d" to 0, "w" to 0, "m" to 0)
+        csv.split(",").forEach { part ->
+            val kv = part.split(":")
+            if (kv.size == 2 && kv[0] in m) m[kv[0]] = kv[1].toIntOrNull() ?: 0
+        }
+        return m
+    }
+    private fun specialCountersToCsv(m: Map<String, Int>) = "d:${m["d"] ?: 0},w:${m["w"] ?: 0},m:${m["m"] ?: 0}"
+
+    /** key = counter id, need = how many completed sets are required for that tier. */
+    data class SpecialReq(val tier: Int, val key: String, val need: Int, val text: String)
+    val SPECIAL_REQS = listOf(
+        SpecialReq(4, "d", 5, "Complete all 3 Daily Missions on 5 different days"),
+        SpecialReq(5, "w", 2, "Complete all 3 Weekly Missions in 2 different weeks"),
+        SpecialReq(6, "d", 15, "Complete all 3 Daily Missions on 15 different days"),
+        SpecialReq(7, "w", 5, "Complete all 3 Weekly Missions in 5 different weeks"),
+        SpecialReq(8, "m", 2, "Complete all 3 Monthly Missions in 2 different months"),
+        SpecialReq(9, "m", 3, "Complete all 3 Monthly Missions in 3 different months")
+    )
+    fun specialReq(tier: Int): SpecialReq? = SPECIAL_REQS.firstOrNull { it.tier == tier }
+    fun specialProgress(profile: GameProfile, req: SpecialReq): Int =
+        parseSpecialCounters(profile.specialProgressCsv)[req.key] ?: 0
+
+    fun checkSpecialWorldQualification(profile: GameProfile): Int {
+        var tier = profile.specialWorldTier
+        val dailyClaimed = parseClaimedCsv(profile.dailyMissionsClaimedCsv)
+        if (tier < 1 && dailyClaimed.size >= 3) tier = 1
+        val weeklyClaimed = parseClaimedCsv(profile.weeklyMissionsClaimedCsv)
+        if (tier < 2 && weeklyClaimed.size >= 3) tier = 2
+        val monthlyClaimed = parseClaimedCsv(profile.monthlyMissionsClaimedCsv)
+        if (tier < 3 && monthlyClaimed.size >= 3) tier = 3
+        // Tiers 4-9 unlock in order, once their counters are met.
+        while (tier in 3 until Worlds.SPECIAL_TIER_COUNT) {
+            val req = specialReq(tier + 1) ?: break
+            if (specialProgress(profile, req) >= req.need) tier++ else break
+        }
+        return tier
+    }
 
     // Resets progress/claimed CSVs whenever the period key has changed since last recorded.
     private fun rolledOver(profile: GameProfile): GameProfile {
@@ -209,10 +241,17 @@ fun currentMonthlyMissions(rerollCount: Int = 0): List<MissionTemplate> = select
         if (current < template.target) return null
         claimed.add(missionId)
         val newClaimedCsv = claimedSetToCsv(claimed)
-        val updated = when (tier) {
+        var updated = when (tier) {
             MissionTier.DAILY -> profile.copy(dailyMissionsClaimedCsv = newClaimedCsv)
             MissionTier.WEEKLY -> profile.copy(weeklyMissionsClaimedCsv = newClaimedCsv)
             MissionTier.MONTHLY -> profile.copy(monthlyMissionsClaimedCsv = newClaimedCsv)
+        }
+        // The moment a period's set reaches all 3 claimed, count one completed set (once per period).
+        if (claimed.size == 3) {
+            val counters = parseSpecialCounters(profile.specialProgressCsv)
+            val key = when (tier) { MissionTier.DAILY -> "d"; MissionTier.WEEKLY -> "w"; MissionTier.MONTHLY -> "m" }
+            counters[key] = (counters[key] ?: 0) + 1
+            updated = updated.copy(specialProgressCsv = specialCountersToCsv(counters))
         }
         return updated to template.rewardGems
     }
