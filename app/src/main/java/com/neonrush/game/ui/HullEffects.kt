@@ -38,6 +38,7 @@ import kotlin.random.Random
  * returns true when it handled the hull so the classic trail is skipped.
  */
 internal fun DrawScope.drawExtraHull(hullId: String, x: Float, y: Float, h: Float, tick: Int, speedLevel: Int): Boolean {
+    if (drawPremiumHull(hullId, x, y, h, tick, speedLevel)) return true
     val unit = h * 0.06f
     val n = 8 + speedLevel * 2
     val t = tick.toFloat()
