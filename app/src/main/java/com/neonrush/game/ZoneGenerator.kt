@@ -73,8 +73,17 @@ object ZoneGenerator {
     Triple("TRANSCENDENT", "✨", "#FFFFFF"),
     Triple("GHOST PROTOCOL", "👻", "#00FFC8"),
     Triple("DEEP ARCHIVE", "💾", "#33FF33"),
-    Triple("LAST TRANSMISSION", "📡", "#FFF8E7")
+    Triple("LAST TRANSMISSION", "📡", "#FFF8E7"),
+    // 22-27: mission-unlocked Special worlds 27-32 (no new art: they remix existing layers in code)
+    Triple("SPORE GARDEN", "🍄", "#9CFF3A"),
+    Triple("STORM CORRIDOR", "⛈️", "#7FDBFF"),
+    Triple("CRIMSON FOUNDRY", "🔥", "#FF5A1F"),
+    Triple("ABYSS TIDE", "🌊", "#3A8BFF"),
+    Triple("SOLAR CATHEDRAL", "☀️", "#FFD23F"),
+    Triple("NULL HORIZON", "🕳️", "#FF2BD6")
 )
+    /** Endless/gap territory only cycles the original 22 environments; 22+ belong to the Special worlds. */
+    const val ENDLESS_ENV_COUNT = 22
     fun calculateSpeed(zone: Int): Float {
         // Grace period trimmed to just zone 1, so the ramp (and tension) kicks
         // in almost immediately instead of staying flat through zone 3.
@@ -116,7 +125,7 @@ object ZoneGenerator {
             // realistically use, so consecutive sectors never collide here
             // either.
             val sectorNumber = (zone - 1) / 2
-            ((sectorNumber * 41 + 7) % ENVIRONMENTS.size)
+            ((sectorNumber * 41 + 7) % ENDLESS_ENV_COUNT)
         }
     }
     fun selectMechanics(zone: Int, random: Random): List<Int> {
