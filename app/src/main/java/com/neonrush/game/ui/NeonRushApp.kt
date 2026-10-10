@@ -1,6 +1,11 @@
 package com.neonrush.game.ui
 
 import android.app.Activity
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.res.painterResource
+import com.neonrush.game.AuraRank
+import kotlinx.coroutines.delay as hudDelay
 import androidx.compose.ui.window.Popup
 import com.neonrush.game.HullCatalog
 import com.neonrush.game.HullPurchases
@@ -64,6 +69,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -85,6 +91,7 @@ import com.neonrush.game.RewardedSlot
 import com.neonrush.game.DailyMutations
 import com.neonrush.game.MutationDay
 import com.neonrush.game.NeonRushViewModel
+import com.neonrush.game.LeaderboardPilot
 import com.neonrush.game.RevenueCatManager
 import com.neonrush.game.SimulationState
 import com.neonrush.game.ZoneGenerator
@@ -667,6 +674,7 @@ if (showStreakFreezeOffer) {
                     onShowPaywall = { showPaywall = true }
                 )
             } else {
+                ScreenStarField(Modifier.fillMaxSize())
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -876,19 +884,41 @@ fun HeaderProfileDeck(profile: GameProfile, viewModel: NeonRushViewModel) {
         ) {
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "🚀",
-                        fontSize = 24.sp,
-                        modifier = Modifier.padding(end = 8.dp)
+                    val menuTick = rememberMenuTick()
+                    val tickNow by rememberUpdatedState(menuTick)
+                    val perks by viewModel.proPerks.snapshot.collectAsState()
+                    val hangarSt by viewModel.hangar.ui.collectAsState()
+                    val pilotStats = PilotStats(
+                        bestScore = profile.bestScore, bestZone = profile.bestZoneReached, streak = profile.currentStreak,
+                        totalRuns = profile.totalRuns, masteryLevel = RunGoals.level(profile.masteryPoints),
+                        hullsOwned = hangarSt?.ownedHullCount ?: 0, proMonths = perks.months, isLegend = perks.isLegend, rank = perks.rank
                     )
+                    var showPilotCard by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) { while (true) { hudDelay(5000); HullFx.gemTick = tickNow } }
+                    LivingAvatar(menuTick, Modifier.padding(end = 10.dp).clickable { HullFx.gemTick = tickNow; showPilotCard = true }) {
+                        Image(painterResource(R.drawable.pilot_run_1), null, Modifier.size(56.dp))
+                    }
+                    if (showPilotCard) {
+                        PilotCardDialog(
+                            PilotCardData(profile.username, profile.activeSkinId, profile.bestScore, profile.bestZoneReached,
+                                perks.rank, perks.isLegend, PilotIdentity.autoTitleId(pilotStats), PilotIdentity.autoBadgeIds(pilotStats), perks.isPro),
+                            onDismiss = { showPilotCard = false })
+                    }
                     Column {
-                        Text(
+                        if (perks.isPro) ProName(profile.username, perks.isLegend, fontSize = 18.sp)
+                        else Text(
                             text = profile.username,
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp,
                             fontFamily = FontFamily.Monospace,
                             color = CyberPrimary
                         )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            AuraBadge(perks.rank)
+                            if (perks.isLegend) LegendTitle()
+                        }
+                        Text(PilotIdentity.title(PilotIdentity.autoTitleId(pilotStats)).text, color = Color(0xFFC9B8FF),
+                            fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                         Text(
                             text = "TRANSCENDENCE LEVEL: ${profile.transcendenceCount}",
                             fontSize = 11.sp,
@@ -934,6 +964,14 @@ fun HeaderProfileDeck(profile: GameProfile, viewModel: NeonRushViewModel) {
 @Composable
 fun LeaderboardsTab(viewModel: NeonRushViewModel, playerProfile: GameProfile) {
     val rankingList by viewModel.leaderboard.collectAsState()
+    var selectedPilot by remember { mutableStateOf<LeaderboardPilot?>(null) }
+    selectedPilot?.let { sp ->
+        PilotCardDialog(
+            PilotCardData(sp.name, sp.activeSkinId, sp.bestScore, 1,
+                runCatching { AuraRank.valueOf(sp.auraRank) }.getOrDefault(AuraRank.NONE), sp.isLegend, sp.titleId, sp.badgeIds,
+                sp.auraRank != "NONE"),
+            onDismiss = { selectedPilot = null })
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
@@ -971,6 +1009,7 @@ fun LeaderboardsTab(viewModel: NeonRushViewModel, playerProfile: GameProfile) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .border(1.dp, borderBrush, RoundedCornerShape(8.dp))
+                        .clickable { selectedPilot = pilot }
                 ) {
                     Row(
                         modifier = Modifier
@@ -1002,11 +1041,14 @@ fun LeaderboardsTab(viewModel: NeonRushViewModel, playerProfile: GameProfile) {
                                 )
                             }
 
-                            Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            LeaderboardAvatar(pilot.activeSkinId, Modifier.size(width = 64.dp, height = 36.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
 
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
+                                    if (pilot.auraRank != "NONE") ProName(pilot.name, pilot.isLegend, fontSize = 15.sp)
+                                    else Text(
                                         text = pilot.name,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 15.sp,
@@ -2386,7 +2428,7 @@ fun RunGoalsSummary(simState: SimulationState, profile: GameProfile) {
 @Composable
 fun DailyCrateDialog(profile: GameProfile, isPro: Boolean, viewModel: NeonRushViewModel, onDismiss: () -> Unit) {
     val result by viewModel.crateResult.collectAsState()
-    val activity = LocalContext.current as? Activity
+    val activity = LocalContext.current.findActivity()
     val gold = Color(0xFFFFD23F)
     val ready = DailyCrate.isReady(profile, isPro)
     val noAd = isPro || profile.adsRemoved
@@ -2628,7 +2670,7 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile) {
     val unlockedSkins = remember(profile.unlockedSkinsCsv) {
         profile.unlockedSkinsCsv.split(",").toSet()
     }
-    val activity = LocalContext.current as? Activity
+    val activity = LocalContext.current.findActivity()
     var selectedTab by remember { mutableStateOf("pilots") }
 
     Column(
@@ -3250,7 +3292,7 @@ fun RacingSimulatorScreen(
     var previousUserYPos by remember { mutableStateOf(simState.userYPos) }
     val tiltAngle = (simState.userYPos - previousUserYPos).toFloat().coerceIn(-10f, 10f) * 1.8f
     SideEffect { previousUserYPos = simState.userYPos }
-    val activity = LocalContext.current as? Activity
+    val activity = LocalContext.current.findActivity()
     val sectorHull by viewModel.hangar.sectorHullId.collectAsState()
     val hullToast by viewModel.hangar.toast.collectAsState()
     LaunchedEffect(hullToast) { if (hullToast != null) { kotlinx.coroutines.delay(1800); viewModel.hangar.consumeToast() } }
@@ -3258,6 +3300,15 @@ fun RacingSimulatorScreen(
         Popup(alignment = Alignment.TopCenter) {
             Box(Modifier.padding(top = 90.dp).background(Color(0xCC000000), RoundedCornerShape(20.dp)).padding(horizontal = 14.dp, vertical = 6.dp)) {
                 Text(hullToast ?: "", color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+
+    Popup(alignment = Alignment.TopStart) {
+        Box(Modifier.padding(start = 8.dp, top = 140.dp)) {
+            LivingAvatar(simState.tickIndex) {
+                Image(painterResource(R.drawable.pilot_run_1), null,
+                    Modifier.size(38.dp).clip(CircleShape).background(Color(0x66000000)))
             }
         }
     }
@@ -4350,7 +4401,7 @@ fun GameOverOverlayScreen(
     profile: GameProfile,
     onShowPaywall: () -> Unit
 ) {
-    val activity = LocalContext.current as? Activity
+    val activity = LocalContext.current.findActivity()
     val revivesExhausted = if (isPro) false else simState.reviveCount >= 3
     var showSummary by remember(simState.reviveCount) { mutableStateOf(revivesExhausted) }
     var secondsLeft by remember(simState.reviveCount) { mutableStateOf(5) }
@@ -4539,6 +4590,24 @@ fun GameOverOverlayScreen(
                         fontFamily = FontFamily.Monospace,
                         textAlign = TextAlign.Center
                     )
+                }
+
+                run {
+                    val goPB = simState.score > 0 && simState.score >= profile.bestScore
+                    val goTick = rememberMenuTick()
+                    val goPerks by viewModel.proPerks.snapshot.collectAsState()
+                    LaunchedEffect(Unit) { if (goPB) HullFx.gemTick = goTick else HullFx.closeCallTick = goTick }
+                    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically) {
+                        LivingAvatar(goTick) { Image(painterResource(R.drawable.pilot_run_1), null, Modifier.size(72.dp)) }
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            if (goPerks.isPro) ProName(profile.username, goPerks.isLegend, fontSize = 16.sp)
+                            else Text(profile.username, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text(if (goPB) "🎉 NEW BEST!" else "Nice run!", color = Color(0xFFFFD23F), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                            AuraBadge(goPerks.rank)
+                        }
+                    }
                 }
 
                 // One-tap share card (image + watermark + QR). Highlighted on a new PB.
@@ -5323,7 +5392,22 @@ fun StatRow(label: String, value: String) {
 
 @Composable
 fun PaywallDialog(onDismiss: () -> Unit, reason: String) {
-    val activity = LocalContext.current as? Activity
+    val ctx = LocalContext.current
+    // LocalContext is often a ContextWrapper, so a plain `as? Activity` can be null and the
+    // buttons then silently did nothing. Unwrap to find the real Activity.
+    val activity: Activity? = remember(ctx) { ctx.findActivity() }
+    fun buy(annual: Boolean) {
+        val a = activity
+        if (a == null) {
+            android.widget.Toast.makeText(ctx, "Purchase screen unavailable. Please restart the app.", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        val done: (Boolean) -> Unit = { success ->
+            if (success) onDismiss()
+        }
+        if (annual) RevenueCatManager.purchaseProSubscriptionAnnual(a, done)
+        else RevenueCatManager.purchaseProSubscription(a, done)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -5365,13 +5449,7 @@ fun PaywallDialog(onDismiss: () -> Unit, reason: String) {
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Button(
-                    onClick = {
-                        activity?.let {
-                            RevenueCatManager.purchaseProSubscription(it) { success ->
-                                if (success) onDismiss()
-                            }
-                        }
-                    },
+                    onClick = { buy(false) },
                     colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
                     shape = RoundedCornerShape(24.dp),
                     modifier = Modifier.fillMaxWidth().height(48.dp)
@@ -5380,13 +5458,7 @@ fun PaywallDialog(onDismiss: () -> Unit, reason: String) {
                 }
                 Spacer(modifier = Modifier.height(10.dp))
                 Button(
-                    onClick = {
-                        activity?.let {
-                            RevenueCatManager.purchaseProSubscriptionAnnual(it) { success ->
-                                if (success) onDismiss()
-                            }
-                        }
-                    },
+                    onClick = { buy(true) },
                     colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary),
                     shape = RoundedCornerShape(24.dp),
                     modifier = Modifier.fillMaxWidth().height(48.dp)
@@ -5536,4 +5608,65 @@ for (i in 0..8) {
                 .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
         )
     }
+}
+
+
+/** Full-screen parallax star field: 3 depth layers, twinkle, a few shooting streaks. Draw-only, no layout or touch impact. */
+@Composable
+fun ScreenStarField(modifier: Modifier = Modifier) {
+    val t = rememberInfiniteTransition(label = "screenStars")
+    val phase by t.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(60000, easing = LinearEasing)),
+        label = "starPhase"
+    )
+    val tints = remember { listOf(Color.White, Color(0xFF9BE8FF), Color(0xFFFFB3F0)) }
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        if (w <= 0f || h <= 0f) return@Canvas
+        val twoPi = (2 * Math.PI).toFloat()
+        val total = 130
+        for (i in 0 until total) {
+            val layer = i % 3 // 0 far, 1 mid, 2 near
+            val bx = ((i * 7919) % 1000) / 1000f * w
+            val by = ((i * 104729) % 1000) / 1000f * h
+            val speed = (1 + layer) * 1  // full wraps per minute
+            val x = (bx - phase * speed * w).mod(w)
+            val y = (by + phase * (layer) * 0.0f + h * 0f).mod(h)
+            val tw = 0.5f + 0.5f * kotlin.math.sin(twoPi * (phase * (3 + i % 5) * 4 + (i % 11) / 11f))
+            val baseA = 0.18f + layer * 0.14f
+            val a = (baseA + tw * (0.25f + layer * 0.1f)).coerceIn(0f, 1f)
+            val r = (0.6f + layer * 0.7f + (i % 2) * 0.3f).dp.toPx()
+            val c = tints[(i / 3) % 3]
+            if (layer == 2) drawCircle(c.copy(alpha = a * 0.18f), r * 3.2f, Offset(x, y))
+            drawCircle(c.copy(alpha = a), r, Offset(x, y))
+        }
+        // occasional shooting streaks (staggered, each visible ~8% of the cycle)
+        for (k in 0 until 3) {
+            val p = ((phase * 6f + k / 3f) % 1f)
+            if (p < 0.2f) {
+                val f = p / 0.2f
+                val sx = w * (0.15f + 0.3f * k) + f * w * 0.35f
+                val sy = h * (0.1f + 0.25f * k) + f * h * 0.12f
+                val a = (1f - f) * 0.55f
+                drawLine(
+                    Color(0xFF9BE8FF).copy(alpha = a),
+                    Offset(sx, sy), Offset(sx - 70.dp.toPx(), sy - 14.dp.toPx()),
+                    strokeWidth = 1.6.dp.toPx(), cap = StrokeCap.Round
+                )
+            }
+        }
+    }
+}
+
+
+/** Walks ContextWrapper layers to the real Activity. `LocalContext.current as? Activity` is null whenever the context is wrapped. */
+fun android.content.Context.findActivity(): Activity? {
+    var c: android.content.Context? = this
+    while (c != null) {
+        if (c is Activity) return c
+        c = (c as? android.content.ContextWrapper)?.baseContext
+    }
+    return null
 }
