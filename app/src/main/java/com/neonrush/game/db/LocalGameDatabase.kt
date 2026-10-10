@@ -63,6 +63,7 @@ data class GameProfile(
     val weeklyRerollCount: Int = 0,
     val monthlyRerollCount: Int = 0,
     val specialWorldTier: Int = 0,
+    val specialProgressCsv: String = "",
     // Permanent gem upgrades, e.g. "shield:2,gem:1" (see Upgrades.kt)
     val upgradesCsv: String = "",
     // Daily crate (see DailyCrate.kt)
@@ -141,6 +142,7 @@ class GameDao(context: Context) {
             val weeklyRerollCountIdx = cursor.getColumnIndex("weeklyRerollCount")
             val monthlyRerollCountIdx = cursor.getColumnIndex("monthlyRerollCount")
             val specialWorldTierIdx = cursor.getColumnIndex("specialWorldTier")
+            val specialProgressCsvIdx = cursor.getColumnIndex("specialProgressCsv")
             val currentRunGemsCreditedIdx = cursor.getColumnIndex("currentRunGemsCredited")
             val currentRunBossZonesRewardedIdx = cursor.getColumnIndex("currentRunBossZonesRewarded")
             val currentRunMilestonesRewardedIdx = cursor.getColumnIndex("currentRunMilestonesRewarded")
@@ -192,6 +194,7 @@ class GameDao(context: Context) {
                 weeklyRerollCount = if (weeklyRerollCountIdx != -1) cursor.getInt(weeklyRerollCountIdx) else 0,
                 monthlyRerollCount = if (monthlyRerollCountIdx != -1) cursor.getInt(monthlyRerollCountIdx) else 0,
                 specialWorldTier = if (specialWorldTierIdx != -1) cursor.getInt(specialWorldTierIdx) else 0,
+                specialProgressCsv = if (specialProgressCsvIdx != -1) (cursor.getString(specialProgressCsvIdx) ?: "") else "",
                 currentRunGemsCredited = if (currentRunGemsCreditedIdx != -1) cursor.getInt(currentRunGemsCreditedIdx) else 0,
                 currentRunBossZonesRewarded = if (currentRunBossZonesRewardedIdx != -1) cursor.getString(currentRunBossZonesRewardedIdx) else "",
                 currentRunMilestonesRewarded = if (currentRunMilestonesRewardedIdx != -1) cursor.getString(currentRunMilestonesRewardedIdx) else "",
@@ -275,6 +278,7 @@ class GameDao(context: Context) {
             put("weeklyRerollCount", profile.weeklyRerollCount)
             put("monthlyRerollCount", profile.monthlyRerollCount)
             put("specialWorldTier", profile.specialWorldTier)
+            put("specialProgressCsv", profile.specialProgressCsv)
             put("currentRunGemsCredited", profile.currentRunGemsCredited)
             put("currentRunBossZonesRewarded", profile.currentRunBossZonesRewarded)
             put("currentRunMilestonesRewarded", profile.currentRunMilestonesRewarded)
@@ -331,7 +335,7 @@ class GameDao(context: Context) {
     }
 }
 
-class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_companion.db", null, 21) {
+class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_companion.db", null, 22) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE game_profile (
@@ -368,6 +372,7 @@ class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_comp
                 weeklyRerollCount INTEGER,
                 monthlyRerollCount INTEGER,
                 specialWorldTier INTEGER,
+                specialProgressCsv TEXT,
                 currentRunGemsCredited INTEGER,
                 currentRunBossZonesRewarded TEXT,
                currentRunMilestonesRewarded TEXT,
@@ -482,6 +487,9 @@ class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_comp
     }
     if (oldVersion < 21) {
         db.execSQL(HangarStore.CREATE_SQL)
+    }
+    if (oldVersion < 22) {
+        db.execSQL("ALTER TABLE game_profile ADD COLUMN specialProgressCsv TEXT DEFAULT ''")
     }
 }
 }
