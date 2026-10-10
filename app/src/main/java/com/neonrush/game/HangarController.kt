@@ -82,6 +82,7 @@ class HangarController(
         lastPicked = store.get(HangarStore.K_LAST_PICKED).ifBlank { null }
         reconcileWithStore()
         loadSchedule()
+        enforceEquipped()
         publish()
         while (true) { delay(30_000); publish() }      // keeps countdowns fresh
     }
@@ -200,8 +201,27 @@ class HangarController(
 
     // ------------------------------------------------------------ run hooks
 
+    /** Record an explicit player choice (old shop, first-flight, transcendence) as THE hull to keep. */
+    fun noteEquipped(id: String) {
+        lastPicked = id; scope.launch { store.put(HangarStore.K_LAST_PICKED, id) }
+    }
+
+    /**
+     * Lock-in guarantee: unless Free Ride is on, the hull the player last picked is the equipped hull.
+     * If anything ever overwrote profile.activeSkinId, this puts it back before the run uses it.
+     */
+    private fun enforceEquipped() { scope.launch {
+        val pick = lastPicked ?: return@launch
+        if (freeRide) return@launch
+        val p = dao.getProfileFlow().value ?: return@launch
+        if (p.activeSkinId == pick) return@launch
+        val unlocked = p.unlockedSkinsCsv.split(",").filter { it.isNotBlank() }.toSet()
+        if (pick in unlocked || pick in owned) { dao.updateProfile { it.copy(activeSkinId = pick) }; publish() }
+    } }
+
     /** Call at run start (and revive start). Resets rotation to the equipped hull. */
     fun onRunStart(equippedId: String) {
+        enforceEquipped()
         lastMarkM = 0; currentSector = 0; _sectorHullId.value = null; nextRoll = null
         pendingTrial?.let { t ->
             pendingTrial = null
