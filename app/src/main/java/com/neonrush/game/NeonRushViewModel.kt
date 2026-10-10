@@ -862,6 +862,7 @@ fun freezeStreak() {
                     prof
                 }
             }
+            if (outcome != "none") hangar.noteEquipped(skinId)
             when (outcome) {
                 "equipped" -> {
                     soundEngine.playTone(400f, 100, "sine")
@@ -1008,6 +1009,7 @@ fun freezeStreak() {
                 }
             }
             if (didTranscend) {
+                gameDao.getProfileFlow().value?.activeSkinId?.let { hangar.noteEquipped(it) }
                 soundEngine.playTone(880f, 500, "sawtooth")
                 loadDefaultLeaderboard()
             }
@@ -1044,6 +1046,14 @@ fun freezeStreak() {
             startRacingSimulation(hardGhost)
             onComplete(true, newAttempts)
         }
+    }
+
+    /** Gameplay personality for this tick's zone (null = normal tuning). */
+    private fun flavorFor(st: SimulationState, zone: Int): ZoneFlavor? {
+        val w = st.specialWorldId?.let { envId ->
+            (Worlds.SPECIAL_WORLDS + Worlds.NEW_GAME_PLUS).find { it.environmentIds.contains(envId) }
+        } ?: Worlds.worldForZone(zone)
+        return WorldFlavors.forZone(w.id, w.worldFamily, zone)
     }
 
     fun overrideEnvironment(dna: ZoneDNA, envId: Int): ZoneDNA {
@@ -1100,10 +1110,12 @@ private fun assistStrength(tick: Int): Float =
 private fun hintTickDelayMs(): Long =
     if (android.os.SystemClock.elapsedRealtime() < _simState.value.hint.slowMoUntilMs) 240L else 120L
 
-fun startSpecialModeRun(ghost: GhostChallengeEntity) {
+fun startSpecialModeRun(ghost: GhostChallengeEntity, tier: Int? = null) {
     viewModelScope.launch {
         val prof = gameDao.getProfileDirect() ?: GameProfile()
-        val world = Worlds.specialWorldForTier(prof.specialWorldTier)
+        // Any unlocked world can be chosen; never allow a tier above what is unlocked.
+        val chosenTier = (tier ?: prof.specialWorldTier).coerceIn(1, maxOf(1, prof.specialWorldTier))
+        val world = Worlds.specialWorldForTier(chosenTier)
         val envId = world?.environmentIds?.firstOrNull()
         if (envId != null) {
             startRacingSimulation(ghost, specialWorldId = envId)
@@ -1382,12 +1394,13 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         updatedElements.add(VisualTrackElement("fuel_${tick}", gridX, routeTargetY + random.nextInt(-5, 5), "fuel"))
                     }
                 }
-                val spacingVal = ((activeDna.obstacleSpacingAndDensity / (12f * spacingBias * liveDifficultyMultiplier * selectedDifficulty.spacingMultiplier)) * (1f + 0.4f * assist)).coerceAtLeast(4f).toInt()
+                val flavor = flavorFor(state, nextZoneNumber)
+                val spacingVal = ((activeDna.obstacleSpacingAndDensity / (12f * spacingBias * liveDifficultyMultiplier * selectedDifficulty.spacingMultiplier * (flavor?.spacingMul ?: 1f))) * (1f + 0.4f * assist)).coerceAtLeast(4f).toInt()
                 if (tick % spacingVal == 0) {
                     val targetGhostY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     val obstacles = spawnObstacleForSet(activeDna.obstacleSetId, tick, random, targetGhostY, nextZoneNumber)
                     updatedElements.addAll(obstacles)
-                    if (random.nextFloat() < activeDna.powerupDensity) {
+                    if (random.nextFloat() < activeDna.powerupDensity * (flavor?.powerupMul ?: 1f)) {
                         val puType = chooseProceduralPowerupType(random, isSundayLegendary)
                         updatedElements.add(VisualTrackElement("pu_${tick}", 1.22f, targetGhostY + random.nextInt(-10, 10), "powerup", puType))
                     }
@@ -1403,8 +1416,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         bossHealthState = 1.0f
                     }
                     val trackingYBias = userY - bossYState
-                    bossYState += (trackingYBias * 0.05f).toInt()
-                    if (tick % Upgrades.bossBulletInterval(activeUpgradesCsv, 9) == 0) {
+                    bossYState += (trackingYBias * 0.05f * (flavor?.bossAggro ?: 1f)).toInt()
+                    if (tick % (Upgrades.bossBulletInterval(activeUpgradesCsv, 9) / (flavor?.bossAggro ?: 1f)).toInt().coerceAtLeast(2) == 0) {
                         updatedElements.add(VisualTrackElement("bullet_${tick}", 1.15f, bossYState + random.nextInt(-18, 18), "bullet"))
                     }
                     bossHealthState -= 0.04f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
@@ -1887,6 +1900,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 firstFlightReward = firstFlight || _simState.value.firstFlightReward
             )
             if (firstFlight) {
+                hangar.noteEquipped("purple_square")
                 soundEngine.playUnlockSkin()
                 AnalyticsManager.logFirstFlightReward()
             }
@@ -2111,12 +2125,13 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         updatedElements.add(VisualTrackElement("fuel_${tick}", gridX, routeTargetY + random.nextInt(-5, 5), "fuel"))
                     }
                 }
-                val spacingVal = (activeDna.obstacleSpacingAndDensity / (12f * metaDifficultyMultiplier)).coerceAtLeast(4f).toInt()
+                val flavor = flavorFor(state, nextZoneNumber)
+                val spacingVal = (activeDna.obstacleSpacingAndDensity / (12f * metaDifficultyMultiplier * (flavor?.spacingMul ?: 1f))).coerceAtLeast(4f).toInt()
                 if (tick % spacingVal == 0) {
                     val targetGhostY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     val obstacles = spawnObstacleForSet(activeDna.obstacleSetId, tick, random, targetGhostY, nextZoneNumber)
                     updatedElements.addAll(obstacles)
-                    if (random.nextFloat() < activeDna.powerupDensity) {
+                    if (random.nextFloat() < activeDna.powerupDensity * (flavor?.powerupMul ?: 1f)) {
                         val puType = chooseProceduralPowerupType(random, isSundayLegendary)
                         updatedElements.add(VisualTrackElement("pu_${tick}", 1.22f, targetGhostY + random.nextInt(-10, 10), "powerup", puType))
                     }
@@ -2132,8 +2147,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         bossHealthState = 1.0f
                     }
                     val trackingYBias = userY - bossYState
-                    bossYState += (trackingYBias * 0.12f).toInt()
-                    if (tick % Upgrades.bossBulletInterval(activeUpgradesCsv, 6) == 0) {
+                    bossYState += (trackingYBias * 0.12f * (flavor?.bossAggro ?: 1f)).toInt()
+                    if (tick % (Upgrades.bossBulletInterval(activeUpgradesCsv, 6) / (flavor?.bossAggro ?: 1f)).toInt().coerceAtLeast(2) == 0) {
                         updatedElements.add(VisualTrackElement("bullet_${tick}", 1.15f, bossYState + random.nextInt(-5, 5), "bullet"))
                     }
                     bossHealthState -= 0.04f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
