@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.neonrush.game.db.GameDao
+import com.neonrush.game.ui.HullFx
+import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.tasks.await
 import com.neonrush.game.db.GameProfile
 import com.neonrush.game.db.GhostChallengeEntity
 import kotlinx.coroutines.Job
@@ -29,7 +32,11 @@ data class LeaderboardPilot(
     val activeSkinId: String,
     val isFollowed: Boolean,
     val isBot: Boolean = true,
-    val challengeId: String
+    val challengeId: String,
+    val auraRank: String = "NONE",
+    val isLegend: Boolean = false,
+    val titleId: String = "rookie",
+    val badgeIds: List<String> = emptyList()
 )
 
 data class SocialComment(
@@ -166,6 +173,18 @@ class NeonRushViewModel(
         Triple("phantom_echo", "Phantom Echo", 2400),
         Triple("matrix_grid", "Hex Grid Cyber-Fighter", 3000)
     )
+
+    // ---- Hull system (Hangar, Pro perks, progression, season pass)
+    private val hangarStore = HangarStore { gameDao.db() }
+    val hangar = HangarController(gameDao, hangarStore, viewModelScope, shopSkins.size)
+    val proPerks = ProPerks(gameDao, hangarStore, viewModelScope, hangar)
+    val progression = HullProgression(gameDao, hangarStore, viewModelScope, hangar)
+    val seasonPass = SeasonPass(gameDao, hangarStore, viewModelScope, hangar) { RevenueCatManager.isPro.value }
+    init {
+        hangar.progression = progression
+        hangar.onChroma = { id, v -> proPerks.setChroma(id, v) }
+        hangar.onStipend = { proPerks.claimStipend() }
+    }
 
     val leaderboard: StateFlow<List<LeaderboardPilot>> = FirebaseLeaderboardManager.globalRankings
 
@@ -697,6 +716,19 @@ fun freezeStreak() {
                 activeTotalRuns = p?.totalRuns ?: 0
             }
         }
+        hangar.start(); progression.start()
+        HullPurchases.loadPrices()
+        viewModelScope.launch {
+            try {
+                val auth = FirebaseAuth.getInstance()
+                val uid = auth.currentUser?.uid ?: auth.signInAnonymously().await().user?.uid
+                if (uid != null) ServerClock.sync(uid)
+            } catch (_: Exception) {}
+            seasonPass.start(); proPerks.refresh(); hangar.reconcileWithStore()
+        }
+        viewModelScope.launch {
+            RevenueCatManager.isPro.collect { proPerks.refresh(); seasonPass.refresh() }
+        }
         loadSocialComments()
         prepopulateSampleGhostChallenges()
         viewModelScope.launch {
@@ -1115,6 +1147,7 @@ fun startFromCheckpoint(checkpointZone: Int) {
 
 fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = null, startFromZone: Int = 1) {
     simJob?.cancel()
+    HullFx.reset(); hangar.onRunStart(profile.value?.activeSkinId ?: "cyan_diamond")
     var startupDna = ZoneGenerator.generateZone(startFromZone, 42)
     if (specialWorldId != null) startupDna = overrideEnvironment(startupDna, specialWorldId)
     val todayMutation = DailyMutations.getActiveMutation()
@@ -1252,6 +1285,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (nextZoneNumber != state.currentZoneNumber) {
                     soundEngine.playTone(660f, 300, "sawtooth")
                     updatedMsg = "ENTERING: ${activeDna.environmentName} ${activeDna.environmentEmoji}"
+                    HullFx.zoneTick = tick; HullFx.zone = nextZoneNumber
 
                     // Sector transition: every 2 zones is a "sector" with a
                     // guaranteed-different obstacle set/mechanics/environment
@@ -1261,6 +1295,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     val computedSectorNumber = (nextZoneNumber - 1) / 2
                     if (computedSectorNumber != state.currentSectorNumber) {
                         nextSectorNumber = computedSectorNumber
+                        hangar.onSectorChange(computedSectorNumber + 1, prof.activeSkinId, state.distanceMeters.toInt())
                         soundEngine.playTone(880f, 200, "triangle")
                         sectorBannerText = "SECTOR ${computedSectorNumber + 1}: ${activeDna.environmentName} ${activeDna.environmentEmoji}"
                         sectorBannerUntilTick = tick + 30
@@ -1364,6 +1399,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     if (!state.bossActive) {
                         soundEngine.playTone(220f, 600, "sawtooth")
                         updatedMsg = "CRITICAL WARNING: ZONE BOSS INCOMING!"
+                        HullFx.bossTick = tick
                         bossHealthState = 1.0f
                     }
                     val trackingYBias = userY - bossYState
@@ -1456,6 +1492,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 "gem" -> {
                                     soundEngine.playGemCollect()
                                     gemsGathered += 1
+                                    HullFx.gemTick = tick; hangar.onGem(prof.activeSkinId)
                                       repeat(6) { i ->
                                         activeParticles.add(
                                             Particle(
@@ -1581,6 +1618,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                             verticalDist < collisionRadius + 10 && grazedIds.add(elem.id)) {
                             soundEngine.playNearMiss()
                             updatedMsg = "CLOSE CALL!"
+                            HullFx.closeCallTick = tick; hangar.onCloseCall(prof.activeSkinId)
                             if (assist > 0f && assistGemsGiven < 8) { // first run only: small gem reward
                                 assistGemsGiven++
                                 gemsGathered += 1
@@ -1858,13 +1896,19 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 isNewPB = isNewPB,
                 zoneReached = finalState.currentZoneNumber
             )
+            hangar.onRunEnd(finalState.distanceMeters.toInt(), activeSkinForLeaderboard)
+            seasonPass.onRunEnd(finalState.distanceMeters.toInt(), finalState.currentZoneNumber, isNewPB)
             if (!adsRemovedResult) {
                 AdMobManager.incrementGameOver()
             }
             if (isNewPB) {
                 soundEngine.playPersonalBestBroken()
                 // The assisted first run stays off the global board.
-                if (!wasAssisted) FirebaseLeaderboardManager.submitScore(usernameForLeaderboard, finalState.score, activeSkinForLeaderboard)
+                if (!wasAssisted) run {
+                    val ps = proPerks.snapshot.value
+                    FirebaseLeaderboardManager.submitScore(usernameForLeaderboard, finalState.score, activeSkinForLeaderboard,
+                        ps.rank.name, ps.isLegend)
+                }
             }
         }
     }
@@ -1872,6 +1916,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
     val currentState = _simState.value
     if (!isPro && currentState.reviveCount >= 3) return
     val currentTick = currentState.tickIndex
+    HullFx.reviveTick = currentTick
     _simState.value = currentState.copy(
         isCompleted = false,
         fuelLevelPercent = 100,
@@ -1968,6 +2013,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (nextZoneNumber != state.currentZoneNumber) {
                     soundEngine.playTone(660f, 300, "sawtooth")
                     updatedMsg = "ENTERING: ${activeDna.environmentName} ${activeDna.environmentEmoji}"
+                    HullFx.zoneTick = tick; HullFx.zone = nextZoneNumber
 
                     // Sector transition: same as loop 1 — every 2 zones is a
                     // "sector" with a guaranteed-different obstacle
@@ -1976,6 +2022,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     val computedSectorNumber = (nextZoneNumber - 1) / 2
                     if (computedSectorNumber != state.currentSectorNumber) {
                         nextSectorNumber = computedSectorNumber
+                        hangar.onSectorChange(computedSectorNumber + 1, prof.activeSkinId, state.distanceMeters.toInt())
                         soundEngine.playTone(880f, 200, "triangle")
                         sectorBannerText = "SECTOR ${computedSectorNumber + 1}: ${activeDna.environmentName} ${activeDna.environmentEmoji}"
                         sectorBannerUntilTick = tick + 30
@@ -2081,6 +2128,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     if (!state.bossActive) {
                         soundEngine.playTone(220f, 600, "sawtooth")
                         updatedMsg = "CRITICAL WARNING: ZONE BOSS INCOMING!"
+                        HullFx.bossTick = tick
                         bossHealthState = 1.0f
                     }
                     val trackingYBias = userY - bossYState
@@ -2153,6 +2201,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 "gem" -> {
                                     soundEngine.playGemCollect()
                                     gemsGathered += 1
+                                    HullFx.gemTick = tick; hangar.onGem(prof.activeSkinId)
                                     repeat(6) { i ->
                                         activeParticles.add(
                                             Particle(
@@ -2272,6 +2321,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                             verticalDist < collisionRadius + 10 && grazedIds.add(elem.id)) {
                             soundEngine.playNearMiss()
                             updatedMsg = "CLOSE CALL!"
+                            HullFx.closeCallTick = tick; hangar.onCloseCall(prof.activeSkinId)
                             if (assist > 0f && assistGemsGiven < 8) { // first run only: small gem reward
                                 assistGemsGiven++
                                 gemsGathered += 1
