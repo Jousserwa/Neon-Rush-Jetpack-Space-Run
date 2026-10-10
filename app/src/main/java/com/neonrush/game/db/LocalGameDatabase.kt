@@ -396,7 +396,8 @@ class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_comp
                 yPositionsCsv TEXT,
                 timestamp INTEGER
             )
-        """)        db.execSQL(HangarStore.CREATE_SQL)
+        """)
+        db.execSQL(HangarStore.CREATE_SQL)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
