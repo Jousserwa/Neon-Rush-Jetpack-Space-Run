@@ -176,7 +176,7 @@ class NeonRushViewModel(
 
     // ---- Hull system (Hangar, Pro perks, progression, season pass)
     private val hangarStore = HangarStore { gameDao.db() }
-    val hangar = HangarController(gameDao, hangarStore, viewModelScope, shopSkins.size)
+    val hangar = HangarController(gameDao, hangarStore, viewModelScope, shopSkins.size, shopSkins.map { it.first to it.second })
     val proPerks = ProPerks(gameDao, hangarStore, viewModelScope, hangar)
     val progression = HullProgression(gameDao, hangarStore, viewModelScope, hangar)
     val seasonPass = SeasonPass(gameDao, hangarStore, viewModelScope, hangar) { RevenueCatManager.isPro.value }
