@@ -1,5 +1,12 @@
 package com.neonrush.game.ui
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.getValue
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,4 +55,13 @@ fun LivingAvatar(tick: Int, modifier: Modifier = Modifier, content: @Composable 
         content()
         if (emote != null) Box(Modifier.align(Alignment.TopEnd)) { Text(emote, fontSize = 18.sp) }
     }
+}
+
+
+/** Free-running tick (~10/s) for menus, where there is no simulation tick. */
+@Composable
+fun rememberMenuTick(): Int {
+    val t = rememberInfiniteTransition(label = "menuTick")
+    val v by t.animateFloat(0f, 6000f, infiniteRepeatable(tween(600000, easing = LinearEasing), RepeatMode.Restart), label = "mt")
+    return v.toInt()
 }
