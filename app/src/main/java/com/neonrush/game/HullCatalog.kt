@@ -70,9 +70,11 @@ object HullCatalog {
      * releaseAtMs must come from a trusted clock (RevenueCat / Firestore server time),
      * not the device clock, or the window can be bypassed by changing the phone date.
      */
-    fun canBuyNow(isPro: Boolean, releaseAtMs: Long, serverNowMs: Long): Boolean =
-        serverNowMs >= releaseAtMs + (if (isPro) 0L else earlyAccessMillis())
+    fun canBuyNow(isPro: Boolean, releaseAtMs: Long, serverNowMs: Long): Boolean {
+        if (releaseAtMs <= 0L) return true            // launch set / no scheduled drop: everyone can buy now
+        return serverNowMs >= releaseAtMs + (if (isPro) 0L else earlyAccessMillis())
+    }
 
     fun millisUntilPublic(releaseAtMs: Long, serverNowMs: Long): Long =
-        (releaseAtMs + earlyAccessMillis() - serverNowMs).coerceAtLeast(0L)
+        if (releaseAtMs <= 0L) 0L else (releaseAtMs + earlyAccessMillis() - serverNowMs).coerceAtLeast(0L)
 }
