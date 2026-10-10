@@ -26,18 +26,33 @@ object HullPurchases {
 
     /** productId -> price string, from the store. Call once at startup / when Hangar opens. */
     fun loadPrices() {
+        val wanted = HullCatalog.SOLD.map { it.productId } + HullCatalog.BUNDLE_APEX_PRODUCT +
+            SeasonPass.PRODUCT + SeasonPass.PRODUCT_PRO
         try {
             Purchases.sharedInstance.getOfferings(object : ReceiveOfferingsCallback {
                 override fun onReceived(offerings: com.revenuecat.purchases.Offerings) {
                     val map = offerings.all.values.flatMap { it.availablePackages }
-                        .filter { it.product.id.startsWith("neonrush_hull_") || it.product.id.startsWith("neonrush_pass_") ||
-                                  it.product.id.startsWith("neonrush_bundle_") }
+                        .filter { it.product.id.substringBefore(':') in wanted }
                         .associate { it.product.id.substringBefore(':') to it.product.price.formatted }
-                    _prices.value = map
+                    _prices.value = _prices.value + map
+                    loadMissingFromStore(wanted.filter { it !in _prices.value })
                 }
-                override fun onError(error: PurchasesError) { Log.e(TAG, "offerings: ${error.message}") }
+                override fun onError(error: PurchasesError) { Log.e(TAG, "offerings: ${error.message}"); loadMissingFromStore(wanted) }
             })
         } catch (e: Exception) { Log.e(TAG, "loadPrices: ${e.message}") }
+    }
+
+    /** Products that are not in any offering are priced straight from the store. */
+    private fun loadMissingFromStore(ids: List<String>) {
+        if (ids.isEmpty()) return
+        try {
+            Purchases.sharedInstance.getProducts(ids, object : com.revenuecat.purchases.interfaces.GetStoreProductsCallback {
+                override fun onReceived(storeProducts: List<com.revenuecat.purchases.models.StoreProduct>) {
+                    _prices.value = _prices.value + storeProducts.associate { it.id.substringBefore(':') to it.price.formatted }
+                }
+                override fun onError(error: PurchasesError) { Log.e(TAG, "getProducts: ${error.message}") }
+            })
+        } catch (e: Exception) { Log.e(TAG, "loadMissingFromStore: ${e.message}") }
     }
 
     /** Buy one hull. Reuses the generic flow so purchase_attempted/completed analytics fire. */
