@@ -30,6 +30,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.res.imageResource
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.text.style.TextOverflow
+import com.neonrush.game.R
+import kotlin.math.roundToInt
+import kotlin.math.sin
 import androidx.compose.ui.unit.sp
 import com.neonrush.game.HullCatalog
 import com.neonrush.game.PremiumHull
@@ -83,7 +94,8 @@ data class HangarActions(
     val onRestore: () -> Unit = {},
     val onSetChroma: (String, Int) -> Unit = { _, _ -> },
     val onClaimStipend: () -> Unit = {},
-    val onBuyBundle: (android.app.Activity) -> Unit = {}
+    val onBuyBundle: (android.app.Activity) -> Unit = {},
+    val onArmTrial: (String) -> Unit = {}     // fly this hull for 8s at the start of the next real run
 )
 
 private enum class HangarTab(val label: String) { HULLS("HULLS"), LOADOUT("LOADOUT"), VAULT("VAULT"), PASS("PASS"), GOALS("GOALS") }
@@ -215,90 +227,159 @@ private fun HullCard(h: PremiumHull, state: HangarUiState, actions: HangarAction
     val canBuy = !h.earnedOnly && HullCatalog.canBuyNow(state.isPro, release, state.serverNowMs)
     val msLeft = HullCatalog.millisUntilPublic(release, state.serverNowMs)
     val proEarly = !h.earnedOnly && state.isPro && msLeft > 0
+    var showTest by remember(h.id) { mutableStateOf(false) }
+    val price = priceLabel(h, state)
 
-    var tryUntilMs by remember(h.id) { mutableStateOf(0L) }
-    var tryLeft by remember(h.id) { mutableStateOf(0) }
-    val trying = tryLeft > 0
-    LaunchedEffect(tryUntilMs) {
-        if (tryUntilMs == 0L) return@LaunchedEffect
-        tryLeft = 8
-        while (tryLeft > 0) { delay(1000); tryLeft-- }
-    }
-
+    // Every card is exactly the same size: hero (animation + name + buttons + price) and a fixed info area.
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-            .background(Brush.verticalGradient(listOf(CyberSurface, CyberBackground)))
-            .border(1.5.dp, if (active) CyberPrimary else CyberTertiary.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
-            .padding(14.dp)
+        Modifier.fillMaxWidth().height(330.dp).clip(RoundedCornerShape(18.dp))
+            .background(CyberSurface)
+            .border(1.5.dp, if (active) CyberPrimary else CyberTertiary.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
     ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("${h.emoji} ${h.name}", color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp)
-            if (h.earnedOnly) Badge("EARNED ONLY", Color(0xFFFFD23F))
-            else if (h.id == state.loanerHullId) Badge("PRO LOANER", Color(0xFFFFD23F))
-            else if (proEarly) Badge("PRO EARLY ACCESS", CyberSecondary)
-        }
-        Text(h.tagline, color = CyberOnSurface.copy(alpha = 0.75f), fontSize = 12.sp,
-            modifier = Modifier.padding(top = 2.dp, bottom = 8.dp))
-
-        // Big live preview. While "Try it" runs we also fire the reaction events so the buyer sees them.
-        HangarPreview(h.id, reactions = trying || owned)
-
-        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            h.layers.forEach { Badge(it, CyberPrimary) }
-        }
-        if (owned && state.isPro) {
-            Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("CHROMA", color = Color(0xFFFFD23F), fontSize = 9.sp, fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold)
-                val cur = state.chroma[h.id] ?: 0
-                listOf(0, 1, 2, 3).forEach { v ->
-                    Box(Modifier.size(22.dp).clip(RoundedCornerShape(50))
-                        .background(androidx.compose.ui.graphics.Color.hsv((v * 90f + 190f) % 360f, 0.8f, 1f))
-                        .border(if (cur == v) 2.dp else 0.dp, Color.White, RoundedCornerShape(50))
-                        .clickable { actions.onSetChroma(h.id, v) })
+        Box(Modifier.fillMaxWidth().height(215.dp)
+            .background(Brush.verticalGradient(listOf(Color(0xFF1B0B4A), Color(0xFF08070F))))) {
+            HangarPreview(h.id, reactions = true, height = 215.dp)
+            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(76.dp)
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE608070F)))))
+            // top-left: name
+            Text("${h.emoji} ${h.name}", color = Color.White, fontWeight = FontWeight.Black, fontSize = 17.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.TopStart).padding(start = 14.dp, top = 12.dp, end = 120.dp))
+            // top-right: one status badge
+            Box(Modifier.align(Alignment.TopEnd).padding(10.dp)) {
+                when {
+                    h.earnedOnly -> Badge("EARNED ONLY", Color(0xFFFFD23F))
+                    h.id == state.loanerHullId -> Badge("PRO LOANER", Color(0xFFFFD23F))
+                    proEarly -> Badge("PRO EARLY", CyberSecondary)
+                    owned -> Badge("OWNED", CyberPrimary)
                 }
             }
-        } else if (owned && !state.isPro && !h.earnedOnly) {
-            Text("🎨 Pro unlocks Chroma recolors", color = CyberOnSurface.copy(alpha = 0.5f), fontSize = 10.sp,
-                modifier = Modifier.padding(top = 6.dp))
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            if (!owned) {
+            // bottom bar: TRY on the left, price / action on the right, all on top of the animation
+            Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Button(
-                    onClick = { if (!trying) { actions.onTryStart(h.id); tryUntilMs = System.nanoTime() } },
-                    colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
-                    shape = RoundedCornerShape(6.dp),
-                    modifier = Modifier.border(1.dp, CyberPrimary, RoundedCornerShape(6.dp))
-                ) { Text(if (trying) "TRY ${tryLeft}s" else "▶ TRY IT 8s", color = CyberPrimary,
-                    fontFamily = FontFamily.Monospace, fontSize = 11.sp) }
+                    onClick = { actions.onTryStart(h.id); showTest = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0x99000000)),
+                    contentPadding = PaddingValues(horizontal = 14.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.height(42.dp).border(1.dp, CyberPrimary, RoundedCornerShape(10.dp))
+                ) { Text("▶ TRY 8s", color = CyberPrimary, fontFamily = FontFamily.Monospace, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+
+                when {
+                    active -> ActionPill("✔ EQUIPPED", CyberPrimary, CyberBackground)
+                    owned -> Button(onClick = { actions.onEquip(h.id) }, contentPadding = PaddingValues(horizontal = 20.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary), shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.height(42.dp)) {
+                        Text("EQUIP", color = CyberBackground, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                    }
+                    h.earnedOnly -> ActionPill("ANNUAL PRO", Color(0xFFFFD23F), Color.Black)
+                    canBuy -> Button(onClick = { actions.onBuy(h) }, enabled = state.purchaseInFlightId == null,
+                        contentPadding = PaddingValues(horizontal = 18.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary), shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.height(42.dp)) {
+                        Text(if (state.purchaseInFlightId == h.id) "…" else "BUY  $price", color = Color.White,
+                            fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                    }
+                    else -> ActionPill("🔓 ${formatCountdown(msLeft)}", Color(0xFF2A2A44), Color.White)
+                }
             }
+        }
+        // fixed-height info area, same layout on every card
+        Column(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Text(h.tagline, color = CyberOnSurface.copy(alpha = 0.85f), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(6.dp))
+            Text(h.layers.joinToString("  •  "), color = CyberPrimary, fontSize = 11.sp, fontFamily = FontFamily.Monospace,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.weight(1f))
-            when {
-                active -> Badge("EQUIPPED", CyberPrimary)
-                owned -> Button(onClick = { actions.onEquip(h.id) },
-                    colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
-                    shape = RoundedCornerShape(6.dp)) {
-                    Text("EQUIP", color = CyberBackground, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+            if (owned && state.isPro && !h.earnedOnly) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("CHROMA", color = Color(0xFFFFD23F), fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                    val cur = state.chroma[h.id] ?: 0
+                    listOf(0, 1, 2, 3).forEach { v ->
+                        Box(Modifier.size(22.dp).clip(RoundedCornerShape(50))
+                            .background(Color.hsv((v * 90f + 190f) % 360f, 0.8f, 1f))
+                            .border(if (cur == v) 2.dp else 0.dp, Color.White, RoundedCornerShape(50))
+                            .clickable { actions.onSetChroma(h.id, v) })
+                    }
                 }
-                h.earnedOnly -> Text("Annual Pro reward", color = Color(0xFFFFD23F), fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace)
-                canBuy -> Button(
-                    onClick = { actions.onBuy(h) },
-                    enabled = state.purchaseInFlightId == null,
-                    colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary),
-                    shape = RoundedCornerShape(6.dp)
-                ) { Text(if (state.purchaseInFlightId == h.id) "…" else "BUY ${priceLabel(h, state)}",
-                    color = Color.White, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
-                else -> Column(horizontalAlignment = Alignment.End) {
-                    Text("🔓 Public in ${formatCountdown(msLeft)}", color = CyberOnSurface.copy(alpha = 0.8f),
-                        fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                    Text("Go Pro to buy now", color = CyberSecondary, fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace)
+            } else if (owned && !state.isPro && !h.earnedOnly) {
+                Text("🎨 Pro unlocks Chroma recolors", color = CyberOnSurface.copy(alpha = 0.5f), fontSize = 10.sp)
+            } else if (!owned && !h.earnedOnly && !canBuy) {
+                Text("Pro members can buy it now", color = CyberSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+            }
+        }
+    }
+    if (showTest) {
+        FlightTestDialog(h, canBuy && !owned, price, owned,
+            onBuy = { showTest = false; actions.onBuy(h) },
+            onTrialRun = { actions.onArmTrial(h.id) },
+            onDismiss = { showTest = false })
+    }
+}
+
+@Composable
+private fun ActionPill(text: String, bg: Color, fg: Color) {
+    Box(Modifier.height(42.dp).background(bg, RoundedCornerShape(10.dp)).padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+        Text(text, color = fg, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 12.sp)
+    }
+}
+
+/** 8-second flight test: the pilot flies fast with this hull and every reaction layer fires. */
+@Composable
+private fun FlightTestDialog(hull: PremiumHull, canBuy: Boolean, price: String, owned: Boolean,
+                             onBuy: () -> Unit, onTrialRun: () -> Unit, onDismiss: () -> Unit) {
+    val bmp = ImageBitmap.imageResource(id = R.drawable.pilot_run_1)
+    val t = rememberInfiniteTransition(label = "flightTest")
+    val tick by t.animateFloat(0f, 600f, infiniteRepeatable(tween(60000, easing = LinearEasing), RepeatMode.Restart), label = "ft")
+    var left by remember { mutableStateOf(8) }
+    var armed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { while (left > 0) { delay(1000); left-- } }
+    DisposableEffect(Unit) { onDispose { HullFx.reset() } }
+    demoEvents(tick.toInt())
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(CyberBackground)
+            .border(1.5.dp, CyberPrimary, RoundedCornerShape(18.dp)).padding(14.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("${hull.emoji} ${hull.name}", color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(if (left > 0) "FLIGHT TEST ${left}s" else "TEST OVER", color = CyberPrimary, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+            }
+            Spacer(Modifier.height(10.dp))
+            Canvas(Modifier.fillMaxWidth().height(230.dp).clip(RoundedCornerShape(14.dp))) {
+                drawRect(Brush.verticalGradient(listOf(Color(0xFF14083A), Color(0xFF05030F))))
+                val ti = tick.toInt()
+                for (i in 0 until 16) {
+                    val sy = size.height * ((i * 37) % 100) / 100f
+                    val sp = 5f + (i % 4) * 3f
+                    val sx = size.width - ((tick * sp * 3f + i * 91f) % (size.width + 120f))
+                    drawLine(Color.White.copy(alpha = 0.22f), Offset(sx, sy), Offset(sx + 50f + (i % 3) * 30f, sy), 2f)
+                }
+                val hh = size.height * 0.5f
+                val px = size.width * 0.66f
+                val py = size.height / 2f + sin(tick * 0.12f) * size.height * 0.14f
+                drawHullEffect(hull.id, px, py, hh, ti, 9)
+                val pw = hh * bmp.width / bmp.height
+                drawImage(bmp, dstOffset = IntOffset((px - pw / 2f).roundToInt(), (py - hh / 2f).roundToInt()),
+                    dstSize = IntSize(pw.roundToInt(), hh.roundToInt()))
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { onTrialRun(); armed = true }, enabled = !armed, modifier = Modifier.weight(1f).height(44.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CyberSurface), shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Text(if (armed) "✔ Start a run" else "Try in a real run", color = CyberPrimary, fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace, maxLines = 1)
+                }
+                if (canBuy) Button(onClick = onBuy, modifier = Modifier.weight(1f).height(44.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary), shape = RoundedCornerShape(10.dp)) {
+                    Text("BUY  $price", color = Color.White, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
+                }
+                else Button(onClick = onDismiss, modifier = Modifier.weight(1f).height(44.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary), shape = RoundedCornerShape(10.dp)) {
+                    Text(if (owned) "DONE" else "CLOSE", color = CyberBackground, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
                 }
             }
+            if (armed) Text("Your next run starts with this hull for 8 seconds.", color = CyberOnSurface.copy(alpha = 0.7f),
+                fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
         }
     }
 }
@@ -328,26 +409,27 @@ internal fun formatCountdown(ms: Long): String {
  * Large animated preview. Fires the same HullFx events a run would, on a loop, so reaction layers
  * (close-call ripple, gem burst, zone pulse, boss roar, revive) are visible in the shop.
  */
+/** Fires the same HullFx events a run would, so reaction layers are visible (tick runs ~8-10/s). */
+internal fun demoEvents(ti: Int) {
+    when (ti % 40) {
+        4 -> HullFx.closeCallTick = ti
+        12 -> HullFx.gemTick = ti
+        20 -> { HullFx.zoneTick = ti; HullFx.zone = (HullFx.zone + 1) % 12 }
+        28 -> HullFx.bossTick = ti
+        36 -> HullFx.reviveTick = ti
+    }
+}
+
 @Composable
-internal fun HangarPreview(hullId: String, reactions: Boolean) {
+internal fun HangarPreview(hullId: String, reactions: Boolean, height: Dp = 110.dp) {
     val t = rememberInfiniteTransition(label = "hangarPreview")
     val tick by t.animateFloat(
         initialValue = 0f, targetValue = 600f,
         animationSpec = infiniteRepeatable(tween(75000, easing = LinearEasing), RepeatMode.Restart),
         label = "hangarTick"
     )
-    val ti = tick.toInt()
-    if (reactions) {
-        // staggered fake events, ~every 4 seconds of tick time (tick runs ~8/s)
-        when (ti % 40) {
-            4 -> HullFx.closeCallTick = ti
-            12 -> HullFx.gemTick = ti
-            20 -> { HullFx.zoneTick = ti; HullFx.zone = (HullFx.zone + 1) % 12 }
-            28 -> HullFx.bossTick = ti
-            36 -> HullFx.reviveTick = ti
-        }
-    }
-    HullPreview(hullId, Modifier.fillMaxWidth().height(110.dp))
+    if (reactions) demoEvents(tick.toInt())
+    HullPreview(hullId, Modifier.fillMaxWidth().height(height))
 }
 
 // ---------------------------------------------------------------- loadout
@@ -441,20 +523,23 @@ private fun VaultPanel(state: HangarUiState, actions: HangarActions) {
         }
         past.forEach { h ->
             val owned = h.id in state.ownedHullIds
-            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp).background(CyberSurface, RoundedCornerShape(8.dp))
-                .padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(h.emoji, fontSize = 22.sp, modifier = Modifier.padding(end = 10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(h.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    Text(h.layers.joinToString(" · "), color = CyberOnSurface.copy(alpha = 0.6f), fontSize = 10.sp)
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp).height(64.dp).background(CyberSurface, RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(h.emoji, fontSize = 24.sp, modifier = Modifier.width(40.dp))
+                Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(h.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(h.layers.joinToString(" · "), color = CyberOnSurface.copy(alpha = 0.6f), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                if (owned) Badge("OWNED", CyberPrimary)
-                else Button(onClick = { actions.onBuy(h) },
-                    enabled = state.purchaseInFlightId == null &&
-                        HullCatalog.canBuyNow(state.isPro, state.releaseAtMs[h.id] ?: 0L, now),
-                    colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary),
-                    shape = RoundedCornerShape(6.dp)) {
-                    Text(priceLabel(h, state), color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                Box(Modifier.width(92.dp), contentAlignment = Alignment.CenterEnd) {
+                    if (owned) Badge("OWNED", CyberPrimary)
+                    else Button(onClick = { actions.onBuy(h) },
+                        enabled = state.purchaseInFlightId == null &&
+                            HullCatalog.canBuyNow(state.isPro, state.releaseAtMs[h.id] ?: 0L, now),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary),
+                        shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth().height(38.dp)) {
+                        Text(priceLabel(h, state), color = Color.White, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
                 }
             }
         }
