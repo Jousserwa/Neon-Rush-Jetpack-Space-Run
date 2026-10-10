@@ -30,6 +30,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
@@ -563,6 +565,48 @@ private fun HullCelebration(hullId: String, onDismiss: () -> Unit) {
             Text("Equipped and added to your rotation.", color = CyberOnSurface, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
             Spacer(Modifier.height(14.dp))
             Text("tap to continue", color = CyberOnSurface.copy(alpha = 0.5f), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+        }
+    }
+}
+
+
+// ---------------------------------------------------------------- separate page + entry button
+
+/** The only hull thing that stays on the Skins page: one tidy button-card that opens the Hangar page. */
+@Composable
+fun HangarEntryCard(activeHullId: String, owned: Int, total: Int, onOpen: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { onOpen() }
+            .background(Brush.verticalGradient(listOf(Color(0xFF1B0B4A), CyberSurface)))
+            .border(1.5.dp, CyberTertiary.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
+    ) {
+        HullPreview(activeHullId, Modifier.fillMaxWidth().height(96.dp))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("🛸 SHIP HULLS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp, fontFamily = FontFamily.Monospace)
+                Text("$owned/$total collected  ·  new hulls every month", color = CyberOnSurface.copy(alpha = 0.7f), fontSize = 11.sp)
+            }
+            Box(Modifier.background(CyberPrimary, RoundedCornerShape(10.dp)).padding(horizontal = 14.dp, vertical = 10.dp)) {
+                Text("OPEN ›", color = CyberBackground, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+/** Full-screen Hangar page with its own top bar and Back. System back also closes it. */
+@Composable
+fun HangarFullScreen(onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    Dialog(onDismissRequest = onBack, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Column(Modifier.fillMaxSize().background(CyberBackground).statusBarsPadding().navigationBarsPadding()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.clip(RoundedCornerShape(10.dp)).background(CyberSurface).clickable { onBack() }
+                    .padding(horizontal = 14.dp, vertical = 8.dp)) {
+                    Text("‹ BACK", color = CyberPrimary, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+                Spacer(Modifier.width(12.dp))
+                Text("SHIP HULLS", color = Color.White, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 16.sp)
+            }
+            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp), content = content)
         }
     }
 }
