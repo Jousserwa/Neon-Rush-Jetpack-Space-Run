@@ -274,6 +274,64 @@ object Worlds {
             endingText = "The signal goes silent. For the first time since this all began, so does your mind.",
             requiresPro = false,
             environmentIds = listOf(17) // Apex Signal (dedicated new environment)
+        ),
+
+        // ---- Six more mission-unlocked Special worlds (tiers 4-9). No new art: each remixes
+        // ---- existing layers with a hue shift, donor sky/foreground, code-drawn weather and its
+        // ---- own difficulty personality (see WorldVariants + WorldFlavors).
+        World(
+            id = 27, title = "SPORE GARDEN", subtitle = "Overgrown Relay",
+            startZone = 1, endZone = 999,
+            openingText = "A relay tower was swallowed by something that blooms. Every spore carries a piece of the signal.",
+            midRunText = "The air glows green. The plants are listening.",
+            bossIntroText = "The garden's heart unfolds, and it has been feeding on the signal for years.",
+            endingText = "You burn a path out as the spores settle. The relay is quiet.",
+            requiresPro = false, environmentIds = listOf(22)
+        ),
+        World(
+            id = 28, title = "STORM CORRIDOR", subtitle = "Lightning Lanes",
+            startZone = 1, endZone = 999,
+            openingText = "A weather grid gone rogue. Every lane is a conductor and every cloud holds a charge.",
+            midRunText = "Thunder rolls through the comms. Somebody is steering the storm.",
+            bossIntroText = "The storm condenses into a single hunting shape, and it strikes where you were.",
+            endingText = "You break out of the corridor, hair standing on end. The sky exhales.",
+            requiresPro = false, environmentIds = listOf(23)
+        ),
+        World(
+            id = 29, title = "CRIMSON FOUNDRY", subtitle = "Molten Assembly",
+            startZone = 1, endZone = 999,
+            openingText = "A foundry that never shut down keeps building hunters. Tonight you are the order.",
+            midRunText = "Molten rivers cross the track. The presses keep time with your pulse.",
+            bossIntroText = "The foreman rises from the slag, built from every machine that failed to stop you.",
+            endingText = "The furnaces cool behind you. For once, nothing new rolls off the line.",
+            requiresPro = false, environmentIds = listOf(24)
+        ),
+        World(
+            id = 30, title = "ABYSS TIDE", subtitle = "Sunken Signal",
+            startZone = 1, endZone = 999,
+            openingText = "The signal sank with the old city. Down here the pressure bends the data and the dark has teeth.",
+            midRunText = "Sonar pings answer from below. Something large is following the beat.",
+            bossIntroText = "The deep opens its jaw. The tide itself is the boss.",
+            endingText = "You surface into daylight, gasping. The tide pulls back, patient.",
+            requiresPro = false, environmentIds = listOf(25)
+        ),
+        World(
+            id = 31, title = "SOLAR CATHEDRAL", subtitle = "Radiant Siege",
+            startZone = 1, endZone = 999,
+            openingText = "A cathedral of mirrors focuses the sun into a weapon. Pilgrims do not return from its nave.",
+            midRunText = "Light bends into blades. The choir is a firing solution.",
+            bossIntroText = "The Archon steps out of the glare, and it never blinks.",
+            endingText = "You leave the nave as the glass shatters behind you. The sun is just the sun again.",
+            requiresPro = false, environmentIds = listOf(26)
+        ),
+        World(
+            id = 32, title = "NULL HORIZON", subtitle = "Edge of the Map",
+            startZone = 1, endZone = 999,
+            openingText = "Past the last mapped zone the track forgets itself. This is the hardest run the signal can build.",
+            midRunText = "Geometry stutters. The horizon is no longer where it was.",
+            bossIntroText = "Nothing steps forward, and then everything does.",
+            endingText = "You cross the horizon that was never there. The map has a new edge, and it is you.",
+            requiresPro = false, environmentIds = listOf(27)
         )
     )
 
@@ -331,9 +389,13 @@ object Worlds {
             1 -> SPECIAL_WORLDS.getOrNull(0)
             2 -> SPECIAL_WORLDS.getOrNull(1)
             3 -> SPECIAL_WORLDS.getOrNull(2)
+            in 4..SPECIAL_TIER_COUNT -> SPECIAL_WORLDS.getOrNull(tier - 1)
             else -> null
         }
     }
+
+    /** Tiers 1-3 are the original Special worlds; 4-9 are the six newer ones. */
+    const val SPECIAL_TIER_COUNT = 9
 
     fun newGamePlusWorldForTier(tier: Int): World? {
         return when (tier) {
