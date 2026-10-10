@@ -143,3 +143,11 @@ fun PilotCardDialog(d: PilotCardData, onDismiss: () -> Unit) {
         }
     }
 }
+
+
+/** Until the player picks their own, show the best unlocked title and the first 3 unlocked badges. */
+fun PilotIdentity.autoTitleId(s: PilotStats): String =
+    if (s.isLegend) "legend" else TITLES.lastOrNull { it.unlocked(s) }?.id ?: "rookie"
+
+fun PilotIdentity.autoBadgeIds(s: PilotStats): List<String> =
+    BADGES.filter { it.unlocked(s) }.take(MAX_BADGES).map { it.id }
