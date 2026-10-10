@@ -24,7 +24,9 @@ class HangarStore(private val dbProvider: () -> SQLiteDatabase) {
         // keys
         const val K_OWNED = "owned_premium_csv"       // premium hull ids owned (source of truth, restored from store)
         const val K_ROTATION = "rotation_csv"         // ids included in rotation
-        const val K_LOCK = "lock_hull_id"             // "" = no lock
+        const val K_LOCK = "lock_hull_id"             // (legacy, unused)
+        const val K_FREE_RIDE = "free_ride"           // "1" = rotate hulls each sector; default OFF = equipped hull stays on
+        const val K_ROTATION_OUT = "rotation_out_csv" // owned hulls the player excluded from Free Ride
         const val K_LAST_PICKED = "last_picked_id"
         const val K_SECTOR_HULL = "current_sector_hull"
         const val K_FIRST_BUY_SEEN = "first_buy_offer_seen"
