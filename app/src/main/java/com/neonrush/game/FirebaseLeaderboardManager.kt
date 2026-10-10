@@ -54,12 +54,17 @@ class FirebaseLeaderboardManager(context: Context) {
         )
     }
 
-    suspend fun submitScore(username: String, score: Int, activeSkinId: String) {
+    suspend fun submitScore(username: String, score: Int, activeSkinId: String,
+                            auraRank: String = "NONE", legend: Boolean = false, titleId: String = "rookie", badges: String = "") {
         try {
             val data = hashMapOf(
                 "username" to username,
                 "bestScore" to score,
                 "activeSkinId" to activeSkinId,
+                "auraRank" to auraRank,
+                "legend" to legend,
+                "titleId" to titleId,
+                "badges" to badges,
                 "timestamp" to System.currentTimeMillis()
             )
             // Firestore queues this write on the device and sends it when the connection
@@ -89,7 +94,11 @@ class FirebaseLeaderboardManager(context: Context) {
                     activeSkinId = doc.getString("activeSkinId") ?: "cyan_diamond",
                     isFollowed = false,
                     isBot = false,
-                    challengeId = ""
+                    challengeId = "",
+                    auraRank = doc.getString("auraRank") ?: "NONE",
+                    isLegend = doc.getBoolean("legend") ?: false,
+                    titleId = doc.getString("titleId") ?: "rookie",
+                    badgeIds = (doc.getString("badges") ?: "").split(",").filter { it.isNotBlank() }
                 )
             }
             if (pilots.isNotEmpty()) {
@@ -111,8 +120,9 @@ class FirebaseLeaderboardManager(context: Context) {
             instance = FirebaseLeaderboardManager(context)
         }
         
-        suspend fun submitScore(username: String, score: Int, activeSkinId: String) {
-            instance.submitScore(username, score, activeSkinId)
+        suspend fun submitScore(username: String, score: Int, activeSkinId: String,
+                                auraRank: String = "NONE", legend: Boolean = false, titleId: String = "rookie", badges: String = "") {
+            instance.submitScore(username, score, activeSkinId, auraRank, legend, titleId, badges)
         }
         
         suspend fun fetchTopScores() {
