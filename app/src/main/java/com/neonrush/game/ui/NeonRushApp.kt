@@ -2874,7 +2874,18 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile) {
             }
         }
 
+        var showHangarPage by remember { mutableStateOf(false) }
         if (selectedTab == "ships") {
+            val entryState by viewModel.hangar.ui.collectAsState()
+            HangarEntryCard(
+                activeHullId = profile.activeSkinId,
+                owned = entryState?.ownedHullCount ?: 0,
+                total = entryState?.totalHullCount ?: 0,
+                onOpen = { showHangarPage = true }
+            )
+        }
+        if (showHangarPage) {
+            HangarFullScreen(onBack = { showHangarPage = false }) {
         val hangarState by viewModel.hangar.ui.collectAsState()
         val passState by viewModel.seasonPass.state.collectAsState()
         val progState by viewModel.progression.state.collectAsState()
@@ -3039,6 +3050,7 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile) {
                 }
             }
         }
+            }
         }
 
         Spacer(modifier = Modifier.height(20.dp))
