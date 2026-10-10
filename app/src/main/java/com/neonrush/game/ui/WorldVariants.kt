@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neonrush.game.World
+import com.neonrush.game.WorldFlavors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.PI
@@ -53,7 +54,7 @@ import kotlin.math.sin
  * weather effect. Variants only exist beyond zone 40 / in Phase 2-4 worlds,
  * which are Pro content, so this is automatically a Pro-tier feature.
  */
-enum class Weather { NONE, EMBERS, RAIN, SNOW, FOG, GLITCH }
+enum class Weather { NONE, EMBERS, RAIN, SNOW, FOG, GLITCH, LIGHTNING, WARP, AURORA, PULSE, SPORES, SCAN }
 
 data class WorldVariant(
     val key: String,          // changes whenever a "new world" begins (drives the entry card)
@@ -95,7 +96,28 @@ object WorldVariants {
         Palette("VOID BLOOM",     60f, 1.00f, Weather.GLITCH, Color(0xFFC060FF)),
         Palette("AURORA SECTOR", 150f, 1.05f, Weather.SNOW,   Color(0xFF3AFFC8)),
         Palette("BLOOD MOON",   -140f, 0.95f, Weather.RAIN,   Color(0xFFFF2B4D)),
-        Palette("GHOST GRID",    230f, 0.90f, Weather.RAIN,   Color(0xFF9AA8FF))
+        Palette("GHOST GRID",    230f, 0.90f, Weather.RAIN,   Color(0xFF9AA8FF)),
+        Palette("THUNDER BELT",  200f, 1.00f, Weather.LIGHTNING, Color(0xFFBFE9FF)),
+        Palette("HYPERLANE",     -40f, 1.10f, Weather.WARP,   Color(0xFFFFB347)),
+        Palette("POLAR CHOIR",   170f, 1.05f, Weather.AURORA, Color(0xFF6BFFB0)),
+        Palette("HEARTBEAT",    -160f, 0.95f, Weather.PULSE,  Color(0xFFFF2B6E)),
+        Palette("SPORE TIDE",     95f, 1.00f, Weather.SPORES, Color(0xFFB6FF4A)),
+        Palette("DATA RAIN",     130f, 0.95f, Weather.SCAN,   Color(0xFF3DFF8A)),
+        Palette("STATIC HALO",   280f, 1.00f, Weather.LIGHTNING, Color(0xFFD9A6FF)),
+        Palette("COMET RUN",      30f, 1.10f, Weather.WARP,   Color(0xFFFFE066))
+    )
+
+    private data class SpecialLook(val family: Int, val suffix: String, val hue: Float, val bright: Float,
+                                   val weather: Weather, val accent: Color, val skyDonor: Int, val frontDonor: Int)
+
+    // Look of Special worlds 27-32 (reuse existing world art, no new files).
+    private val specialLooks = mapOf(
+        27 to SpecialLook(4, "SPORE GARDEN",   40f, 1.05f, Weather.SPORES,    Color(0xFF9CFF3A), 3, 6),
+        28 to SpecialLook(5, "STORM CORRIDOR", 190f, 0.95f, Weather.LIGHTNING, Color(0xFFBFE9FF), 2, 3),
+        29 to SpecialLook(4, "CRIMSON FOUNDRY", -150f, 1.05f, Weather.EMBERS,  Color(0xFFFF5A1F), 5, 3),
+        30 to SpecialLook(2, "ABYSS TIDE",     200f, 0.90f, Weather.RAIN,      Color(0xFF3A8BFF), 5, 7),
+        31 to SpecialLook(7, "SOLAR CATHEDRAL", -110f, 1.10f, Weather.PULSE,   Color(0xFFFFD23F), 3, 6),
+        32 to SpecialLook(6, "NULL HORIZON",   260f, 0.95f, Weather.SCAN,      Color(0xFFFF2BD6), 4, 7)
     )
 
     // Free tier gets 3 of the 8 looks, no weather, and only free-world art (1-3).
@@ -110,8 +132,34 @@ object WorldVariants {
      * inside the Phase 2-4 worlds.
      */
     fun variantFor(world: World, zone: Int, isPro: Boolean): WorldVariant? {
-        // Special-mission / New Game+ worlds (ids 6-11) have their own art.
-        if (world.id in 6..11) return null
+        // New Game+ worlds (ids 9-11) keep their own look.
+        if (world.id in 9..11) return null
+        // The six newer Special worlds (27-32) are built from remixed existing art, always on.
+        specialLooks[world.id]?.let { l ->
+            val b = WorldFlavors.block(zone)
+            // Past zone 40 the look keeps evolving: hue drifts every block so it never goes stale.
+            val drift = if (b >= 0) (b * 23f) % 360f else 0f
+            return WorldVariant(
+                key = if (b >= 0) "sp${world.id}b$b" else "sp${world.id}",
+                baseFamily = l.family, suffix = l.suffix, hueDegrees = l.hue + drift,
+                brightness = l.bright, weather = l.weather, accent = l.accent,
+                skyDonor = l.skyDonor, frontDonor = l.frontDonor,
+                isRift = b >= 0, riftNumber = (b + 1).coerceAtLeast(1)
+            )
+        }
+        // Original Special worlds 6-8: normal look until zone 40, then they evolve block by block too.
+        if (world.id in 6..8) {
+            if (zone < FIRST_RIFT_ZONE) return null
+            val b = (zone - FIRST_RIFT_ZONE) / RIFT_BLOCK
+            val pal = palettes[(b + world.id) % palettes.size]
+            val pool = (2..5).toList()
+            return WorldVariant(
+                key = "sp${world.id}b$b", baseFamily = world.id, suffix = pal.suffix,
+                hueDegrees = pal.hue, brightness = pal.bright, weather = pal.weather, accent = pal.accent,
+                skyDonor = pool[(b + world.id) % pool.size], frontDonor = pool[(b * 2 + world.id + 1) % pool.size],
+                isRift = true, riftNumber = b + 1
+            )
+        }
         val inGap = zone >= FIRST_RIFT_ZONE && zone !in world.startZone..world.endZone
         if (!inGap && world.phase < 2) return null
         // Phase 2-4 worlds are Pro-only; a free player only sees the 4-second
@@ -207,6 +255,56 @@ fun WorldWeatherOverlay(weather: Weather, accent: Color, modifier: Modifier = Mo
                         )
                     }
                 }
+            }
+            Weather.LIGHTNING -> {
+                val step = (t * 14).toInt()
+                if (rnd(step, 5) > 0.88f) {
+                    drawRect(accent.copy(alpha = 0.22f), size = Size(w, h))
+                    var x = w * (0.2f + 0.6f * rnd(step, 6)); var y = 0f
+                    repeat(7) { k ->
+                        val nx = x + (rnd(step, 10 + k) - 0.5f) * 90f; val ny = y + h / 7f
+                        drawLine(Color.White.copy(alpha = 0.9f), Offset(x, y), Offset(nx, ny), strokeWidth = 3f)
+                        x = nx; y = ny
+                    }
+                }
+            }
+            Weather.WARP -> repeat(34) { i ->
+                val k = 2 + (rnd(i, 3) * 3).toInt()
+                val x = w - ((rnd(i, 2) + t * k) % 1f) * (w + 160f)
+                val y = rnd(i, 1) * h
+                drawLine(accent.copy(alpha = 0.45f), Offset(x, y), Offset(x + 40f + rnd(i, 4) * 120f, y), strokeWidth = 2f)
+            }
+            Weather.AURORA -> repeat(4) { i ->
+                val a = 0.10f + 0.08f * sin(twoPi * (t + i / 4f))
+                val x = w * (i / 4f) + sin(twoPi * (t + i * 0.25f)) * 40f
+                drawRect(
+                    brush = Brush.verticalGradient(listOf(accent.copy(alpha = a), Color.Transparent), startY = 0f, endY = h * 0.7f),
+                    topLeft = Offset(x, 0f), size = Size(w / 3f, h * 0.7f)
+                )
+            }
+            Weather.PULSE -> {
+                val a = 0.12f + 0.16f * (0.5f + 0.5f * sin(twoPi * t * 2f))
+                drawRect(
+                    brush = Brush.radialGradient(listOf(Color.Transparent, accent.copy(alpha = a)),
+                        center = Offset(w / 2f, h / 2f), radius = maxOf(w, h) * 0.75f),
+                    size = Size(w, h)
+                )
+            }
+            Weather.SPORES -> repeat(26) { i ->
+                val y = h - ((rnd(i, 2) + t) % 1f) * h
+                val x = rnd(i, 1) * w + sin(twoPi * t * (1 + i % 2) + i) * 26f
+                val r = 4f + rnd(i, 4) * 7f
+                drawCircle(accent.copy(alpha = 0.12f), radius = r * 2.2f, center = Offset(x, y))
+                drawCircle(accent.copy(alpha = 0.55f), radius = r, center = Offset(x, y))
+            }
+            Weather.SCAN -> {
+                var y = 0f
+                while (y < h) { drawLine(accent.copy(alpha = 0.06f), Offset(0f, y), Offset(w, y), strokeWidth = 1f); y += 14f }
+                val by = ((t * 2f) % 1f) * h
+                drawRect(
+                    brush = Brush.verticalGradient(listOf(Color.Transparent, accent.copy(alpha = 0.22f), Color.Transparent), startY = by - 40f, endY = by + 40f),
+                    topLeft = Offset(0f, by - 40f), size = Size(w, 80f)
+                )
             }
             Weather.NONE -> Unit
         }
