@@ -1,6 +1,10 @@
 package com.neonrush.game.ui
 
 import android.app.Activity
+import androidx.compose.ui.window.Popup
+import com.neonrush.game.HullCatalog
+import com.neonrush.game.HullPurchases
+import com.neonrush.game.HangarAnalytics
 import android.graphics.Bitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.google.zxing.BarcodeFormat
@@ -2871,6 +2875,26 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile) {
         }
 
         if (selectedTab == "ships") {
+        val hangarState by viewModel.hangar.ui.collectAsState()
+        val passState by viewModel.seasonPass.state.collectAsState()
+        val progState by viewModel.progression.state.collectAsState()
+        val hangarActions = remember(activity) { viewModel.hangar.actions { activity } }
+        LaunchedEffect(Unit) {
+            HullPurchases.loadPrices(); viewModel.proPerks.refresh(); viewModel.seasonPass.refresh()
+            HangarAnalytics.hangarOpened(viewModel.hangar.ui.value?.ownedHullCount ?: 0, profile.subscriptionPro)
+        }
+        hangarState?.let { st ->
+            val trioOwned = HullCatalog.BUNDLE_APEX_IDS.count { it in st.ownedHullIds }
+            val bundlePrice = st.storePrices[HullCatalog.BUNDLE_APEX_PRODUCT] ?: HullCatalog.BUNDLE_APEX_FALLBACK_PRICE
+            HangarScreen(
+                st, hangarActions,
+                passContent = { SeasonPassScreen(passState, onBuy = { activity?.let { viewModel.seasonPass.buy(it) } },
+                    onClaim = { t, track -> viewModel.seasonPass.claim(t, track) }) },
+                goalsContent = { GoalsPanel(progState, { viewModel.progression.claimMission(it) }, { viewModel.progression.claimSet(it) }) },
+                bundleBanner = { ApexBundleBanner(trioOwned, bundlePrice) { activity?.let { hangarActions.onBuyBundle(it) } } }
+            )
+        }
+        Spacer(modifier = Modifier.height(16.dp))
         Text(
             text = "🎨 SHIP CUSTOMIZATION DECK",
             fontSize = 16.sp,
@@ -3215,6 +3239,16 @@ fun RacingSimulatorScreen(
     val tiltAngle = (simState.userYPos - previousUserYPos).toFloat().coerceIn(-10f, 10f) * 1.8f
     SideEffect { previousUserYPos = simState.userYPos }
     val activity = LocalContext.current as? Activity
+    val sectorHull by viewModel.hangar.sectorHullId.collectAsState()
+    val hullToast by viewModel.hangar.toast.collectAsState()
+    LaunchedEffect(hullToast) { if (hullToast != null) { kotlinx.coroutines.delay(1800); viewModel.hangar.consumeToast() } }
+    if (hullToast != null) {
+        Popup(alignment = Alignment.TopCenter) {
+            Box(Modifier.padding(top = 90.dp).background(Color(0xCC000000), RoundedCornerShape(20.dp)).padding(horizontal = 14.dp, vertical = 6.dp)) {
+                Text(hullToast ?: "", color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
 
     if (simState.proGateActive && !simState.proGateTriggered) {
         val ticksLeft = (simState.proGateGraceUntilTick - simState.tickIndex).coerceAtLeast(0)
@@ -4207,7 +4241,7 @@ val bossImagesByWorld = mapOf(
                         val displayWidth = displayHeight * aspect
 
                         // Equipped ship hull: thruster trail + aura behind the pilot.
-                        drawHullEffect(profile.activeSkinId, userX, userY, displayHeight, simState.tickIndex, afterburnerLevel)
+                        drawHullEffect(sectorHull ?: profile.activeSkinId, userX, userY, displayHeight, simState.tickIndex, afterburnerLevel)
 
                         rotate(degrees = tiltAngle, pivot = Offset(userX, userY)) {
                             // Equipped pilot suit: colour grade + aura/particles on the shared frames.
@@ -4500,7 +4534,9 @@ fun GameOverOverlayScreen(
                 val isNewPB = simState.score > 0 && simState.score >= profile.bestScore
                 Button(
                     onClick = {
-                        ShareCard.share(
+                        val hs = viewModel.hangar.ui.value
+                        val ps = viewModel.proPerks.snapshot.value
+                        ShareCardPlus.share(
                             shareContext,
                             ShareCardData(
                                 pilotName = profile.username,
@@ -4511,6 +4547,13 @@ fun GameOverOverlayScreen(
                                 isPro = isPro,
                                 storeUrl = PLAY_STORE_URL,
                                 masteryLevel = RunGoals.level(profile.masteryPoints)
+                            ),
+                            ShareCardExtras(
+                                hullId = viewModel.hangar.sectorHullId.value ?: profile.activeSkinId,
+                                rank = ps.rank, isLegend = ps.isLegend,
+                                ownedHullIds = hs?.ownedHullIds ?: emptySet(), totalHulls = hs?.totalHullCount ?: 0,
+                                zoneReached = simState.currentZoneNumber,
+                                challengeCode = simState.activeGhost?.challengeId ?: ""
                             )
                         )
                     },
@@ -4776,7 +4819,7 @@ fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
         }
 
         Button(
-            onClick = { RevenueCatManager.restorePurchases {} },
+            onClick = { RevenueCatManager.restorePurchases {}; viewModel.hangar.actions { null }.onRestore(); viewModel.proPerks.refresh() },
             colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
             shape = RoundedCornerShape(8.dp),
             modifier = Modifier
