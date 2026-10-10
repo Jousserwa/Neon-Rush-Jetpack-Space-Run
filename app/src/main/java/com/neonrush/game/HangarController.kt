@@ -24,7 +24,8 @@ class HangarController(
     private val dao: GameDao,
     private val store: HangarStore,
     private val scope: CoroutineScope,
-    private val totalGemHullCount: Int
+    private val totalGemHullCount: Int,
+    private val gemHulls: List<Pair<String, String>> = emptyList()   // (id, name) of the gem-priced hulls
 ) {
     /** Set by the ViewModel: perks.setChroma / perks.claimStipend. */
     var onChroma: (String, Int) -> Unit = { _, _ -> }
@@ -43,7 +44,8 @@ class HangarController(
     fun consumeToast() { _toast.value = null }
 
     private var owned: Set<String> = emptySet()
-    private var rotation: List<String> = emptyList()
+    private var rotationOut: Set<String> = emptySet()   // owned hulls excluded from Free Ride
+    private var freeRide = false                          // default OFF: the equipped hull stays on permanently
     private var locked: String? = null
     private var lastPicked: String? = null
     private var nextRoll: String? = null
@@ -74,7 +76,8 @@ class HangarController(
     fun start() = scope.launch {
         store.ensureTable()
         owned = store.getList(HangarStore.K_OWNED).toSet()
-        rotation = store.getList(HangarStore.K_ROTATION)
+        rotationOut = store.getList(HangarStore.K_ROTATION_OUT).toSet()
+        freeRide = store.get(HangarStore.K_FREE_RIDE) == "1"
         locked = store.get(HangarStore.K_LOCK).ifBlank { null }
         lastPicked = store.get(HangarStore.K_LAST_PICKED).ifBlank { null }
         reconcileWithStore()
@@ -107,26 +110,32 @@ class HangarController(
             p.copy(unlockedSkinsCsv = set.joinToString(","),
                 activeSkinId = if (equip) ids.last() else p.activeSkinId)
         }
-        ids.filter { it !in rotation }.forEach { rotation = rotation + it }
-        store.putList(HangarStore.K_ROTATION, rotation)
         if (equip) { lastPicked = ids.last(); store.put(HangarStore.K_LAST_PICKED, lastPicked!!) }
         progression?.refresh()
     }
 
     private fun isPro() = RevenueCatManager.isPro.value
 
+    /** Hulls that take part in Free Ride: everything the player owns (bought or earned) except what they switched off. */
+    private fun pool(): List<String> {
+        val unlocked = (dao.getProfileFlow().value?.unlockedSkinsCsv ?: "").split(",").filter { it.isNotBlank() }
+        val gemIds = gemHulls.map { it.first }.filter { it in unlocked }
+        return (owned.toList() + gemIds).distinct().filter { it !in rotationOut }
+    }
+
     private suspend fun publish() {
         val p = dao.getProfileFlow().value ?: return
         val activeId = p.activeSkinId
         val ownedAll = (p.unlockedSkinsCsv.split(",").filter { it.isNotBlank() } + owned).toSet()
         val withLoaner = if (pro.isPro && pro.loanerHullId != null) ownedAll + pro.loanerHullId!! else ownedAll
-        if (nextRoll == null) nextRoll = HullRotation.preRoll(rotation.filter { it in owned }, _sectorHullId.value ?: activeId, lastPicked, locked)
+        if (nextRoll == null) nextRoll = HullRotation.preRoll(pool(), _sectorHullId.value ?: activeId, lastPicked, if (freeRide) null else activeId)
         _ui.value = HangarUiState(
             ownedHullIds = withLoaner,
             activeHullId = activeId,
-            lockedHullId = locked,
-            rotationIds = rotation,
-            nextRotationId = if (locked == null && rotation.count { it in owned } > 1) nextRoll else null,
+            lockedHullId = if (freeRide) null else activeId,
+            hullLabels = gemHulls.associate { it.first to "🛸 ${it.second}" } + HullCatalog.ALL.associate { it.id to "${it.emoji} ${it.name}" },
+            rotationIds = pool(),
+            nextRotationId = if (freeRide && pool().size > 1) nextRoll else null,
             storePrices = HullPurchases.prices.value,
             isPro = isPro(),
             serverNowMs = ServerClock.nowMs(),
@@ -162,17 +171,17 @@ class HangarController(
         onEquip = { id -> scope.launch {
             dao.updateProfile { it.copy(activeSkinId = id) }
             lastPicked = id; store.put(HangarStore.K_LAST_PICKED, id)
-            if (locked != null) { locked = id; store.put(HangarStore.K_LOCK, id) }   // lock follows the pick
             _sectorHullId.value = null; nextRoll = null
             HangarAnalytics.hullEquipped(id); publish()
         } },
         onToggleRotation = { id, on -> scope.launch {
-            rotation = if (on) (rotation + id).distinct() else rotation - id
-            store.putList(HangarStore.K_ROTATION, rotation); nextRoll = null
+            rotationOut = if (on) rotationOut - id else rotationOut + id
+            store.putList(HangarStore.K_ROTATION_OUT, rotationOut.toList()); nextRoll = null
             HangarAnalytics.rotationToggled(id, on); publish()
         } },
         onSetLock = { id -> scope.launch {
-            locked = id; store.put(HangarStore.K_LOCK, id ?: ""); nextRoll = null
+            freeRide = (id == null); store.put(HangarStore.K_FREE_RIDE, if (freeRide) "1" else "0"); nextRoll = null
+            _sectorHullId.value = null
             HangarAnalytics.lockChanged(id ?: "", id != null); publish()
         } },
         onSetChroma = { id, v -> onChroma(id, v) },
@@ -211,8 +220,8 @@ class HangarController(
         if (sectorNumber <= 1 || sectorNumber == currentSector) return
         currentSector = sectorNumber
         progression?.creditDistance(currentHull(equippedId), distanceM - lastMarkM); lastMarkM = distanceM
-        val pool = rotation.filter { it in owned }
-        if (locked != null || pool.size < 2) return
+        val pool = pool()
+        if (!freeRide || pool.size < 2) return
         val next = nextRoll ?: HullRotation.pickNext(pool, _sectorHullId.value ?: equippedId, lastPicked, null) ?: return
         _sectorHullId.value = next
         _toast.value = "🔄 ${HullCatalog.byId(next)?.name ?: next.replace('_', ' ')}"
