@@ -1192,6 +1192,28 @@ fun GhostRacerTab(viewModel: NeonRushViewModel, onBack: () -> Unit, onRequireTut
             }
         }
 
+        // Ghost Hull Spotlight: each rival "flies" a premium hull the player can preview / buy.
+        run {
+            val hs by viewModel.hangar.ui.collectAsState()
+            val spotAct = LocalContext.current.findActivity()
+            val spotActions = remember(spotAct) { viewModel.hangar.actions { spotAct } }
+            val sold = HullCatalog.SOLD
+            val spotHull = sold.getOrNull(when (selectedPlayerId) { "ghost_retro" -> 0; "ghost_zeroglitch" -> 4; else -> 7 } % sold.size.coerceAtLeast(1))
+            val spotName = when (selectedPlayerId) { "ghost_retro" -> "RetroWave"; "ghost_zeroglitch" -> "ZeroGlitch"; else -> "CyberRunner" }
+            val st = hs
+            if (st != null && spotHull != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                GhostHullSpotlight(
+                    ghostName = spotName,
+                    hull = spotHull,
+                    owned = spotHull.id in st.ownedHullIds,
+                    priceLabel = st.storePrices[spotHull.productId] ?: spotHull.tier?.fallbackPrice ?: "",
+                    canBuy = HullCatalog.canBuyNow(st.isPro, st.releaseAtMs[spotHull.id] ?: 0L, st.serverNowMs),
+                    onBuy = { spotActions.onBuy(spotHull) }
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
 
         Button(
@@ -1307,6 +1329,46 @@ fun SpecialModeTab(profile: GameProfile, viewModel: NeonRushViewModel, onStartSp
                     ) {
                         Text("ENTER", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
+                }
+            }
+        }
+
+        // ── NEW GAME+ (post-ending prestige worlds): Pro + World 8 (Apex Signal) completed ──
+        Spacer(modifier = Modifier.height(18.dp))
+        Text("🌀 NEW GAME+", fontSize = 16.sp, fontWeight = FontWeight.Black, color = Color(0xFFFFD54F), fontFamily = FontFamily.Monospace)
+        Text("Beat Apex Signal (World 8) to open the prestige worlds. Pro only.",
+            fontSize = 11.sp, color = CyberOnSurface.copy(alpha = 0.6f))
+        val doneWorlds = remember(profile.completedWorldsCsv) {
+            profile.completedWorldsCsv.split(",").mapNotNull { it.toIntOrNull() }.toSet()
+        }
+        val proNow = profile.subscriptionPro || TESTING_DISABLE_PRO_GATE
+        (1..3).forEach { n ->
+            val w = Worlds.newGamePlusWorldForTier(n) ?: return@forEach
+            val open = Worlds.isWorldUnlocked(w, proNow, doneWorlds)
+            val why = when {
+                8 !in doneWorlds -> "Defeat the boss of Apex Signal first"
+                !proNow -> "Neon Rush Pro required"
+                else -> w.subtitle
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (open) Color(0xFFFFD54F).copy(alpha = 0.12f) else CyberSurface)
+                    .border(1.dp, if (open) Color(0xFFFFD54F) else CyberOnSurface.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                    .padding(14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text((if (open) "✅ " else "🔒 ") + w.title, fontWeight = FontWeight.Bold, color = Color.White, fontFamily = FontFamily.Monospace)
+                    Text(why, fontSize = 11.sp, color = CyberOnSurface.copy(alpha = 0.6f))
+                }
+                if (open) {
+                    Button(
+                        onClick = { onStartSpecialMode(100 + n) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFD54F)),
+                        shape = RoundedCornerShape(4.dp)
+                    ) { Text("ENTER", color = Color.Black, fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 }
             }
         }
@@ -4412,6 +4474,7 @@ val bossImagesByWorld = mapOf(
 )
 }
 }
+        StoryBannerHost(viewModel.storyEvent, Modifier.align(Alignment.BottomCenter))
 }
 }
  @Composable
