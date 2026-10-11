@@ -36,7 +36,9 @@ import kotlinx.coroutines.delay
 data class PilotStats(
     val bestScore: Int = 0, val bestZone: Int = 1, val streak: Int = 0, val totalRuns: Int = 0,
     val masteryLevel: Int = 0, val hullsOwned: Int = 0, val proMonths: Int = 0,
-    val isLegend: Boolean = false, val rank: AuraRank = AuraRank.NONE
+    val isLegend: Boolean = false, val rank: AuraRank = AuraRank.NONE,
+    /** Cosmetics earned on the Season Pass (title names, badge ids, backdrop ids). */
+    val passCosmetics: Set<String> = emptySet()
 )
 
 data class PilotTitle(val id: String, val text: String, val hint: String, val unlocked: (PilotStats) -> Boolean)
@@ -52,9 +54,19 @@ object PilotIdentity {
         PilotTitle("collector", "Hull Collector", "Own 8 hulls") { it.hullsOwned >= 8 },
         PilotTitle("baron", "Hull Baron", "Own 15 hulls") { it.hullsOwned >= 15 },
         PilotTitle("aura", "Aura Bearer", "Reach Silver Pro") { it.rank.ordinal >= AuraRank.SILVER.ordinal },
+        PilotTitle("season_racer", "Season Racer", "Season Pass tier 15") { "Season Racer" in it.passCosmetics },
+        PilotTitle("season_champion", "Season Champion", "Finish a Season Pass") { "Season Champion" in it.passCosmetics },
+        PilotTitle("pro_elite", "Pro Elite", "Season Pass Pro bonus") { "Pro Elite" in it.passCosmetics },
         PilotTitle("legend", "LEGEND", "Annual Pro / Year Edition") { it.isLegend }
     )
-    val BADGES = listOf(
+    private val SEASON_EMOJI = listOf("🌠", "🛰️", "☄️", "🪐", "🌙", "⚡", "🚀", "🏁")
+    /** Season Pass badges: tier-10 free badge + the odd-numbered premium tiers (see SeasonPass.buildTiers). */
+    private val SEASON_BADGES: List<PilotBadge> =
+        listOf(PilotBadge("pass_badge", "🎖️", "Season finisher") { "pass_badge" in it.passCosmetics }) +
+        listOf(1, 3, 7, 9, 11, 13, 17, 19).mapIndexed { i, t ->
+            PilotBadge("season_badge_$t", SEASON_EMOJI[i % SEASON_EMOJI.size], "Season badge $t") { "season_badge_$t" in it.passCosmetics }
+        }
+    val BADGES = SEASON_BADGES + listOf(
         PilotBadge("flame", "🔥", "7-day streak") { it.streak >= 7 },
         PilotBadge("zone", "🌀", "Zone 10+") { it.bestZone >= 10 },
         PilotBadge("star", "⭐", "Mastery 5") { it.masteryLevel >= 5 },
@@ -76,13 +88,25 @@ object WorldBackdrops {
         listOf(Color(0xFF1A0A24), Color(0xFF5C0B5A)), listOf(Color(0xFF05050F), Color(0xFF2A2A5C))
     )
     fun forZone(zone: Int): List<Color> = PALETTE[((zone - 1).coerceAtLeast(0) / 10) % PALETTE.size]
+
+    /** Season Pass backdrops (best owned wins). Returns null if none earned, so callers fall back to [forZone]. */
+    private val SEASON = listOf(
+        "pro_bonus_22" to listOf(Color(0xFF1A001F), Color(0xFFD100A0)),
+        "pro_bonus_21" to listOf(Color(0xFF001A1F), Color(0xFF00B3A0)),
+        "season_bd_20" to listOf(Color(0xFF1F1500), Color(0xFFE0A800)),
+        "season_bd_15" to listOf(Color(0xFF2A0F00), Color(0xFFB5560A)),
+        "season_bd_10" to listOf(Color(0xFF1B0A2E), Color(0xFF6B1FA8)),
+        "season_bd_5" to listOf(Color(0xFF04141F), Color(0xFF0E5A6B))
+    )
+    fun forCosmetics(owned: Set<String>): List<Color>? = SEASON.firstOrNull { it.first in owned }?.second
 }
 
 /** What a leaderboard row / ghost / profile needs to render the full pilot. */
 data class PilotCardData(
     val name: String, val hullId: String, val bestScore: Int, val bestZone: Int,
     val rank: AuraRank = AuraRank.NONE, val isLegend: Boolean = false,
-    val titleId: String = "rookie", val badgeIds: List<String> = emptyList(), val isPro: Boolean = false
+    val titleId: String = "rookie", val badgeIds: List<String> = emptyList(), val isPro: Boolean = false,
+    val backdrop: List<Color>? = null
 )
 
 /** Tiny hull thumbnail for leaderboard rows and ghost chips. */
@@ -102,7 +126,7 @@ fun PilotCardDialog(d: PilotCardData, onDismiss: () -> Unit) {
 
     Dialog(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
-            .background(Brush.verticalGradient(WorldBackdrops.forZone(d.bestZone)))
+            .background(Brush.verticalGradient(d.backdrop ?: WorldBackdrops.forZone(d.bestZone)))
             .border(1.5.dp, if (d.rank == AuraRank.NONE) Color(0xFF00E5FF) else Color(0xFFFFD23F), RoundedCornerShape(18.dp))
             .padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(Modifier.fillMaxWidth().height(if (preview) 150.dp else 100.dp), contentAlignment = Alignment.Center) {
