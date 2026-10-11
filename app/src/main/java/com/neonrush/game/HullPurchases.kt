@@ -27,7 +27,7 @@ object HullPurchases {
     /** productId -> price string, from the store. Call once at startup / when Hangar opens. */
     fun loadPrices() {
         val wanted = HullCatalog.SOLD.map { it.productId } + HullCatalog.BUNDLE_APEX_PRODUCT +
-            SeasonPass.PRODUCT + SeasonPass.PRODUCT_PRO
+            SeasonPass.PRODUCT + SeasonPass.PRODUCT_PRO + SeasonPass.PRODUCT_SKIP + SeasonPass.PRODUCT_BUNDLE
         try {
             Purchases.sharedInstance.getOfferings(object : ReceiveOfferingsCallback {
                 override fun onReceived(offerings: com.revenuecat.purchases.Offerings) {
@@ -69,7 +69,7 @@ object HullPurchases {
     fun ownedFrom(info: CustomerInfo): List<String> {
         val ids = info.allPurchasedProductIds.map { it.substringBefore(':') }
         val single = HullCatalog.SOLD.filter { it.productId in ids }.map { it.id }
-        val bundle = if (HullCatalog.BUNDLE_APEX_PRODUCT in ids) HullCatalog.BUNDLE_APEX_IDS else emptyList()
+        val bundle = if (HullCatalog.BUNDLE_APEX_PRODUCT in ids || SeasonPass.PRODUCT_BUNDLE in ids) HullCatalog.BUNDLE_APEX_IDS else emptyList()
         return (single + bundle).distinct()
     }
 
@@ -77,7 +77,7 @@ object HullPurchases {
     fun ownedFromProductIds(productIds: Collection<String>): List<String> {
         val ids = productIds.map { it.substringBefore(':') }
         val single = HullCatalog.SOLD.filter { it.productId in ids }.map { it.id }
-        val bundle = if (HullCatalog.BUNDLE_APEX_PRODUCT in ids) HullCatalog.BUNDLE_APEX_IDS else emptyList()
+        val bundle = if (HullCatalog.BUNDLE_APEX_PRODUCT in ids || SeasonPass.PRODUCT_BUNDLE in ids) HullCatalog.BUNDLE_APEX_IDS else emptyList()
         return (single + bundle).distinct()
     }
 
