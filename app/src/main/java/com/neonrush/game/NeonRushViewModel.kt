@@ -269,6 +269,7 @@ class NeonRushViewModel(
         if (success) {
             viewModelScope.launch {
                 gameDao.updateProfile { prof -> prof.copy(gems = prof.gems + gemAmount) }
+                PurchaseLedger.markDeliveredByProduct(productId)
                 soundEngine.playUnlockSkin()
             }
         } else {
@@ -276,6 +277,36 @@ class NeonRushViewModel(
         }
     }
 }
+    /**
+     * Mirrors purchases into the game. Runs on launch (from the offline ledger, no network needed), after every purchase,
+     * restore and background store update, and when internet returns (OfflineSync). Everything here is idempotent.
+     */
+    private suspend fun reconcileEntitlements() {
+        val owned = RevenueCatManager.ownedProducts.value
+        // Pilot suits (non-consumable "neonrush_skin_<id>"): were previously only unlocked in the purchase callback,
+        // so a reinstall / new phone / killed app lost them.
+        owned.filter { it.startsWith("neonrush_skin_") }.map { it.removePrefix("neonrush_skin_") }
+            .forEach { unlockPilotSkinFromStory(it) }
+        // Pro + ads-removed: profile.subscriptionPro / adsRemoved were never written from the store before.
+        val pro = RevenueCatManager.isPro.value
+        val ads = RevenueCatManager.isAdsRemoved.value
+        gameDao.updateProfile { p ->
+            if (p.subscriptionPro != pro || (ads && !p.adsRemoved)) p.copy(subscriptionPro = pro, adsRemoved = p.adsRemoved || ads) else p
+        }
+        hangar.reconcileFromLedger()
+    }
+
+    /** Gem packs the store charged for but the game never granted (app killed mid-purchase). Delivered exactly once. */
+    private suspend fun deliverPendingPurchases() {
+        PurchaseLedger.undelivered().forEach { p ->
+            if (p.gems > 0) {
+                gameDao.updateProfile { prof -> prof.copy(gems = prof.gems + p.gems) }
+                PurchaseLedger.markDelivered(p.tx)
+                _purchaseErrorEvent.tryEmit("Restored your purchase: +${p.gems} 💎")
+            }
+        }
+    }
+
     fun recordAdWatched() {
     viewModelScope.launch {
         gameDao.updateProfile { prof -> MissionManager.recordAdWatched(prof) }
@@ -350,6 +381,7 @@ class NeonRushViewModel(
         if (success) {
             viewModelScope.launch {
                 gameDao.updateProfile { prof -> prof.copy(gems = prof.gems + RevenueCatManager.STARTER_PACK_GEMS_AMOUNT) }
+                PurchaseLedger.markDeliveredByProduct(RevenueCatManager.PRODUCT_ID_STARTER_PACK)
                 soundEngine.playUnlockSkin()
             }
         } else {
@@ -728,6 +760,14 @@ fun freezeStreak() {
         }
         viewModelScope.launch {
             RevenueCatManager.isPro.collect { proPerks.refresh(); seasonPass.refresh() }
+        }
+        // ── Offline purchase sync ──────────────────────────────────────────────────
+        // Whenever the store (or the encrypted local ledger) reports entitlements, mirror them into the game.
+        RevenueCatManager.onInfoApplied = { viewModelScope.launch { reconcileEntitlements() } }
+        viewModelScope.launch {
+            deliverPendingPurchases()      // paid-but-not-granted gem packs from a previous session
+            reconcileEntitlements()        // works from the ledger even with no internet
+            RevenueCatManager.syncNow()    // and refresh from the store if we are online right now
         }
         loadSocialComments()
         prepopulateSampleGhostChallenges()
