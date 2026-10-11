@@ -60,6 +60,36 @@ object Skins {
             unlockWorldId = 4
         ),
         Skin(
+            id = "echo_drift",
+            name = "Echo Drift",
+            description = "Your reflection moves a half-second late. Earned by clearing Ghost Protocol (New Game+).",
+            previewImageRes = R.drawable.pilot_run_1, // placeholder
+            priceUsd = "Free (story reward)",
+            requiresPro = true,
+            unlockWorldId = 9,
+            purchasable = false
+        ),
+        Skin(
+            id = "relic_core",
+            name = "Relic Core",
+            description = "Salvaged from the vault's last clean backup. Earned by clearing Deep Archive (New Game+).",
+            previewImageRes = R.drawable.pilot_run_1, // placeholder
+            priceUsd = "Free (story reward)",
+            requiresPro = true,
+            unlockWorldId = 10,
+            purchasable = false
+        ),
+        Skin(
+            id = "signal_zero",
+            name = "Signal Zero",
+            description = "Worn by whoever answered the final transmission. Earned by clearing Last Transmission (New Game+).",
+            previewImageRes = R.drawable.pilot_run_1, // placeholder
+            priceUsd = "Free (story reward)",
+            requiresPro = true,
+            unlockWorldId = 11,
+            purchasable = false
+        ),
+        Skin(
             id = "chrome_reaper",
             name = "Chrome Reaper",
             description = "No story behind this one. Just looks incredible.",
