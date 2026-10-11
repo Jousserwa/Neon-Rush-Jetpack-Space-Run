@@ -80,11 +80,20 @@ class HangarController(
         freeRide = store.get(HangarStore.K_FREE_RIDE) == "1"
         locked = store.get(HangarStore.K_LOCK).ifBlank { null }
         lastPicked = store.get(HangarStore.K_LAST_PICKED).ifBlank { null }
+        reconcileFromLedger()       // offline-safe: paid hulls come back even with no internet
         reconcileWithStore()
         loadSchedule()
         enforceEquipped()
         publish()
         while (true) { delay(30_000); publish() }      // keeps countdowns fresh
+    }
+
+    /** Grant hulls the secure local ledger says were bought (works with zero connectivity). Idempotent and silent. */
+    fun reconcileFromLedger() {
+        scope.launch {
+            val ids = HullPurchases.ownedFromProductIds(PurchaseLedger.ownedProducts())
+            if (ids.isNotEmpty()) { grant(ids, equip = false); publish() }
+        }
     }
 
     /** Pull ownership from RevenueCat so reinstall / new device / refunds are handled. */
