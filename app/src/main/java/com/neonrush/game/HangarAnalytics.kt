@@ -22,5 +22,7 @@ object HangarAnalytics {
     fun lockChanged(id: String, on: Boolean) = log("hull_lock_changed", "hull_id" to id, "on" to on)
     fun rotationSwitched(id: String, sector: Int) = log("hull_rotation_switched", "hull_id" to id, "sector" to sector)
     fun earlyAccessBlocked(id: String, isPro: Boolean) = log("hull_early_access_blocked", "hull_id" to id, "is_pro" to isPro)
+    fun passOffer(kind: String, shown: Boolean) = log(if (shown) "pass_offer_shown" else "pass_offer_tapped", "kind" to kind)
+    fun passSkip(kind: String) = log("pass_skip", "kind" to kind)
     fun hullsRestored(count: Int) = log("hulls_restored", "count" to count)
 }
