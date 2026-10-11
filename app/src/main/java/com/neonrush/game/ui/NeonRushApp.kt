@@ -3764,6 +3764,7 @@ val bossImagesByWorld = mapOf(
                         for (elem in simState.activeTrackElements) {
                             val x = cw * elem.xOffsetFraction
                             val y = ch * (elem.yMatchPos / 100f)
+                            if (drawThreat(elem, x, y, cw, ch, simState.tickIndex, pilotFrames[(simState.tickIndex / 3) % pilotFrames.size])) continue
                             
                             when (elem.type) {
                                 "gem" -> {
