@@ -155,7 +155,7 @@ val isAdsRemoved: StateFlow<Boolean> = _isAdsRemoved.asStateFlow()
                 try {
                     val pid = storeTransaction.productIds.firstOrNull()?.substringBefore(':')
                     val gems = pid?.let { GEMS_BY_PRODUCT[it] } ?: 0
-                    if (pid != null && gems > 0) PurchaseLedger.recordPending(storeTransaction.orderId ?: storeTransaction.purchaseToken, pid, gems)
+                    if (pid != null && (gems > 0 || pid.startsWith("neonrush_pass_") || pid.startsWith("neonrush_bundle_pass"))) PurchaseLedger.recordPending(storeTransaction.orderId ?: storeTransaction.purchaseToken, pid, gems)
                 } catch (e: Exception) { Log.w(TAG, "ledger pending: ${e.message}") }
                 applyInfo(customerInfo)
                 onOk(customerInfo); finishOk(onResult)
