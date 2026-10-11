@@ -1113,6 +1113,17 @@ private fun hintTickDelayMs(): Long =
 fun startSpecialModeRun(ghost: GhostChallengeEntity, tier: Int? = null) {
     viewModelScope.launch {
         val prof = gameDao.getProfileDirect() ?: GameProfile()
+        // New Game+ worlds (tiers 101..103): Pro + World 8 completed (Worlds.isWorldUnlocked).
+        if (tier != null && tier in 101..103) {
+            val ngWorld = Worlds.newGamePlusWorldForTier(tier - 100)
+            val done = prof.completedWorldsCsv.split(",").mapNotNull { it.toIntOrNull() }.toSet()
+            val isProNow = prof.subscriptionPro || TESTING_DISABLE_PRO_GATE
+            val env = ngWorld?.environmentIds?.firstOrNull()
+            if (ngWorld != null && env != null && Worlds.isWorldUnlocked(ngWorld, isProNow, done)) {
+                startRacingSimulation(ghost, specialWorldId = env)
+            }
+            return@launch
+        }
         // Any unlocked world can be chosen; never allow a tier above what is unlocked.
         val chosenTier = (tier ?: prof.specialWorldTier).coerceIn(1, maxOf(1, prof.specialWorldTier))
         val world = Worlds.specialWorldForTier(chosenTier)
@@ -1159,7 +1170,7 @@ fun startFromCheckpoint(checkpointZone: Int) {
 
 fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = null, startFromZone: Int = 1) {
     simJob?.cancel()
-    HullFx.reset(); hangar.onRunStart(profile.value?.activeSkinId ?: "cyan_diamond"); ThreatDirector.reset()
+    HullFx.reset(); hangar.onRunStart(profile.value?.activeSkinId ?: "cyan_diamond"); ThreatDirector.reset(); resetStoryProgress()
     var startupDna = ZoneGenerator.generateZone(startFromZone, 42)
     if (specialWorldId != null) startupDna = overrideEnvironment(startupDna, specialWorldId)
     val todayMutation = DailyMutations.getActiveMutation()
@@ -1298,6 +1309,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     soundEngine.playTone(660f, 300, "sawtooth")
                     updatedMsg = "ENTERING: ${activeDna.environmentName} ${activeDna.environmentEmoji}"
                     HullFx.zoneTick = tick; HullFx.zone = nextZoneNumber
+                    if (state.specialWorldId == null) { checkWorldEndingBeat(state.currentZoneNumber, nextZoneNumber); checkStoryBeats(nextZoneNumber, false) }
 
                     // Sector transition: every 2 zones is a "sector" with a
                     // guaranteed-different obstacle set/mechanics/environment
@@ -1407,6 +1419,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                 }
                 val hasBossZone = nextZoneNumber % 5 == 0 && ((tick % 40) >= 24 || isSaturdayBoss)
+                if (state.specialWorldId == null && hasBossZone && !state.bossActive) checkStoryBeats(nextZoneNumber, true)
                 updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, flavor?.spacingMul ?: 1f, assistStrength(tick)))
                 var bossHealthState = state.bossHealth
                 var bossYState = state.bossY
@@ -2028,6 +2041,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     soundEngine.playTone(660f, 300, "sawtooth")
                     updatedMsg = "ENTERING: ${activeDna.environmentName} ${activeDna.environmentEmoji}"
                     HullFx.zoneTick = tick; HullFx.zone = nextZoneNumber
+                    if (state.specialWorldId == null) { checkWorldEndingBeat(state.currentZoneNumber, nextZoneNumber); checkStoryBeats(nextZoneNumber, false) }
 
                     // Sector transition: same as loop 1 — every 2 zones is a
                     // "sector" with a guaranteed-different obstacle
@@ -2138,6 +2152,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                 }
                 val hasBossZone = nextZoneNumber % 5 == 0 && ((tick % 40) >= 24 || isSaturdayBoss)
+                if (state.specialWorldId == null && hasBossZone && !state.bossActive) checkStoryBeats(nextZoneNumber, true)
                 updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, flavor?.spacingMul ?: 1f, assistStrength(tick)))
                 var bossHealthState = state.bossHealth
                 var bossYState = state.bossY
