@@ -73,6 +73,14 @@ object HullPurchases {
         return (single + bundle).distinct()
     }
 
+    /** Same as [ownedFrom] but from plain product ids (used with the offline ledger, no network needed). */
+    fun ownedFromProductIds(productIds: Collection<String>): List<String> {
+        val ids = productIds.map { it.substringBefore(':') }
+        val single = HullCatalog.SOLD.filter { it.productId in ids }.map { it.id }
+        val bundle = if (HullCatalog.BUNDLE_APEX_PRODUCT in ids) HullCatalog.BUNDLE_APEX_IDS else emptyList()
+        return (single + bundle).distinct()
+    }
+
     fun buyApexBundle(activity: Activity, onResult: (Boolean) -> Unit) {
         HangarAnalytics.hullBuyTapped("bundle_apex")
         RevenueCatManager.purchaseGemPack(activity, HullCatalog.BUNDLE_APEX_PRODUCT) { ok ->
