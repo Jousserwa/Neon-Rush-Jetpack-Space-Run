@@ -1159,7 +1159,7 @@ fun startFromCheckpoint(checkpointZone: Int) {
 
 fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = null, startFromZone: Int = 1) {
     simJob?.cancel()
-    HullFx.reset(); hangar.onRunStart(profile.value?.activeSkinId ?: "cyan_diamond")
+    HullFx.reset(); hangar.onRunStart(profile.value?.activeSkinId ?: "cyan_diamond"); ThreatDirector.reset()
     var startupDna = ZoneGenerator.generateZone(startFromZone, 42)
     if (specialWorldId != null) startupDna = overrideEnvironment(startupDna, specialWorldId)
     val todayMutation = DailyMutations.getActiveMutation()
@@ -1383,7 +1383,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         val diffY = userY - actualY
                         actualY += (diffY * 0.06f).toInt()
                     }
-                    updatedElements.add(elem.copy(xOffsetFraction = nextX, yMatchPos = actualY))
+                    val (fx, fy) = ThreatDirector.advance(elem, nextX, actualY, userY, tick, updatedElements)
+                    updatedElements.add(elem.copy(xOffsetFraction = fx, yMatchPos = fy))
                 }
                 if (tick % (10 / spacingBias).coerceIn(4f, 25f).toInt() == 0 && !activeDna.mechanicIds.contains(19)) {
                     val gridX = 1.2f
@@ -1406,6 +1407,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                 }
                 val hasBossZone = nextZoneNumber % 5 == 0 && ((tick % 40) >= 24 || isSaturdayBoss)
+                updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, flavor?.spacingMul ?: 1f, assistStrength(tick)))
                 var bossHealthState = state.bossHealth
                 var bossYState = state.bossY
                 if (hasBossZone) {
@@ -1417,9 +1419,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                     val trackingYBias = userY - bossYState
                     bossYState += (trackingYBias * 0.05f * (flavor?.bossAggro ?: 1f)).toInt()
-                    if (tick % (Upgrades.bossBulletInterval(activeUpgradesCsv, 9) / (flavor?.bossAggro ?: 1f)).toInt().coerceAtLeast(2) == 0) {
-                        updatedElements.add(VisualTrackElement("bullet_${tick}", 1.15f, bossYState + random.nextInt(-18, 18), "bullet"))
-                    }
+                    ThreatDirector.bossFire(tick, (Upgrades.bossBulletInterval(activeUpgradesCsv, 9) / (flavor?.bossAggro ?: 1f)).toInt(), bossYState, random, updatedElements)
                     bossHealthState -= 0.04f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
                     if (bossHealthState <= 0f) {
                         var wasNewlyRewarded = false
@@ -2114,7 +2114,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         val diffY = userY - actualY
                         actualY += (diffY * 0.06f).toInt()
                     }
-                    updatedElements.add(elem.copy(xOffsetFraction = nextX, yMatchPos = actualY))
+                    val (fx, fy) = ThreatDirector.advance(elem, nextX, actualY, userY, tick, updatedElements)
+                    updatedElements.add(elem.copy(xOffsetFraction = fx, yMatchPos = fy))
                 }
                 if (tick % 10 == 0 && !activeDna.mechanicIds.contains(19)) {
                     val gridX = 1.2f
@@ -2137,6 +2138,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                 }
                 val hasBossZone = nextZoneNumber % 5 == 0 && ((tick % 40) >= 24 || isSaturdayBoss)
+                updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, flavor?.spacingMul ?: 1f, assistStrength(tick)))
                 var bossHealthState = state.bossHealth
                 var bossYState = state.bossY
                 if (hasBossZone) {
@@ -2148,9 +2150,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                     val trackingYBias = userY - bossYState
                     bossYState += (trackingYBias * 0.12f * (flavor?.bossAggro ?: 1f)).toInt()
-                    if (tick % (Upgrades.bossBulletInterval(activeUpgradesCsv, 6) / (flavor?.bossAggro ?: 1f)).toInt().coerceAtLeast(2) == 0) {
-                        updatedElements.add(VisualTrackElement("bullet_${tick}", 1.15f, bossYState + random.nextInt(-5, 5), "bullet"))
-                    }
+                    ThreatDirector.bossFire(tick, (Upgrades.bossBulletInterval(activeUpgradesCsv, 6) / (flavor?.bossAggro ?: 1f)).toInt(), bossYState, random, updatedElements)
                     bossHealthState -= 0.04f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
                     if (bossHealthState <= 0f) {
                         soundEngine.playTone(990f, 400, "sine")
