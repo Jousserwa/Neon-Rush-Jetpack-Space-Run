@@ -189,7 +189,7 @@ class HangarController(
         onClaimStipend = { onStipend() },
         onBuyBundle = { act -> HullPurchases.buyApexBundle(act) { ok -> if (ok) scope.launch { reconcileWithStore(); progression?.refresh() } } },
         onArmTrial = { id -> pendingTrial = id },
-        onTryStart = { HangarAnalytics.hullTryStarted(it) },
+        onTryStart = { HangarAnalytics.hullViewed(it); HangarAnalytics.hullTryStarted(it) },
         onDismissCelebration = { celebrate = null; scope.launch { publish() } },
         onRestore = {
             HullPurchases.restoreAll { ok, ids -> scope.launch {
