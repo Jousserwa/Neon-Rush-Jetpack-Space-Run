@@ -252,6 +252,11 @@ fun currentMonthlyMissions(rerollCount: Int = 0): List<MissionTemplate> = select
             val key = when (tier) { MissionTier.DAILY -> "d"; MissionTier.WEEKLY -> "w"; MissionTier.MONTHLY -> "m" }
             counters[key] = (counters[key] ?: 0) + 1
             updated = updated.copy(specialProgressCsv = specialCountersToCsv(counters))
+            // Monthly set complete -> Zenith Circuit suit (listed as "Monthly Mission Reward" in Skins).
+            if (tier == MissionTier.MONTHLY) {
+                val suits = updated.unlockedPilotSkinsCsv.split(",").filter { it.isNotEmpty() }
+                if ("zenith_circuit" !in suits) updated = updated.copy(unlockedPilotSkinsCsv = (suits + "zenith_circuit").joinToString(","))
+            }
         }
         return updated to template.rewardGems
     }
