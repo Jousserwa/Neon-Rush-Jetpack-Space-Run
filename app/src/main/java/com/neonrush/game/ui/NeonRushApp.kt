@@ -879,10 +879,12 @@ fun HeaderProfileDeck(profile: GameProfile, viewModel: NeonRushViewModel) {
                     val tickNow by rememberUpdatedState(menuTick)
                     val perks by viewModel.proPerks.snapshot.collectAsState()
                     val hangarSt by viewModel.hangar.ui.collectAsState()
+                    val passSt by viewModel.seasonPass.state.collectAsState()
                     val pilotStats = PilotStats(
                         bestScore = profile.bestScore, bestZone = profile.bestZoneReached, streak = profile.currentStreak,
                         totalRuns = profile.totalRuns, masteryLevel = RunGoals.level(profile.masteryPoints),
-                        hullsOwned = hangarSt?.ownedHullCount ?: 0, proMonths = perks.months, isLegend = perks.isLegend, rank = perks.rank
+                        hullsOwned = hangarSt?.ownedHullCount ?: 0, proMonths = perks.months, isLegend = perks.isLegend, rank = perks.rank,
+                        passCosmetics = passSt.cosmetics
                     )
                     var showPilotCard by remember { mutableStateOf(false) }
                     LaunchedEffect(Unit) { while (true) { hudDelay(5000); HullFx.gemTick = tickNow } }
@@ -892,7 +894,8 @@ fun HeaderProfileDeck(profile: GameProfile, viewModel: NeonRushViewModel) {
                     if (showPilotCard) {
                         PilotCardDialog(
                             PilotCardData(profile.username, profile.activeSkinId, profile.bestScore, profile.bestZoneReached,
-                                perks.rank, perks.isLegend, PilotIdentity.autoTitleId(pilotStats), PilotIdentity.autoBadgeIds(pilotStats), perks.isPro),
+                                perks.rank, perks.isLegend, PilotIdentity.autoTitleId(pilotStats), PilotIdentity.autoBadgeIds(pilotStats), perks.isPro,
+                                WorldBackdrops.forCosmetics(passSt.cosmetics)),
                             onDismiss = { showPilotCard = false })
                     }
                     Column {
@@ -1460,6 +1463,8 @@ fun ArcadeHomeView(
     PromoPopup(onNavigate = { tab ->
         if (tab == "skins") onNavigateToSkins() else onNavigateToSocial()
     })
+    val homePass by viewModel.seasonPass.state.collectAsState()
+    SeasonReminderBanner(homePass, onOpen = onNavigateToSkins)
 
     Row(
             modifier = Modifier
@@ -3022,7 +3027,10 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile) {
             HangarScreen(
                 st, hangarActions,
                 passContent = { SeasonPassScreen(passState, onBuy = { activity?.let { viewModel.seasonPass.buy(it) } },
-                    onClaim = { t, track -> viewModel.seasonPass.claim(t, track) }) },
+                    onClaim = { t, track -> viewModel.seasonPass.claim(t, track) },
+                    onSkipPay = { activity?.let { viewModel.seasonPass.skipWithMoney(it) } },
+                    onBuyBundle = { activity?.let { viewModel.seasonPass.buyBundle(it) } },
+                    hideBundle = trioOwned >= HullCatalog.BUNDLE_APEX_IDS.size) },
                 goalsContent = { GoalsPanel(progState, { viewModel.progression.claimMission(it) }, { viewModel.progression.claimSet(it) }) },
                 bundleBanner = { ApexBundleBanner(trioOwned, bundlePrice) { activity?.let { hangarActions.onBuyBundle(it) } } }
             )
@@ -3390,6 +3398,15 @@ fun RacingSimulatorScreen(
                 Image(painterResource(R.drawable.pilot_run_1), null,
                     Modifier.size(38.dp).clip(CircleShape).background(Color(0x66000000)))
             }
+        }
+    }
+
+    // Season Tokens collected this run (banked into the Season Pass when the run ends).
+    val runTokens by viewModel.seasonPass.runTokens.collectAsState()
+    Popup(alignment = Alignment.TopStart) {
+        Box(Modifier.padding(start = 8.dp, top = 184.dp)
+            .background(Color(0x66000000), RoundedCornerShape(12.dp)).padding(horizontal = 8.dp, vertical = 3.dp)) {
+            Text("🎟 $runTokens", color = Color(0xFFFFD23F), fontSize = 12.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
         }
     }
 
@@ -3791,6 +3808,15 @@ val bossImagesByWorld = mapOf(
                             }
                         }
                 ) {
+                    // Smooth 30 fps effects clock (flames, smoke, warnings). Read inside the draw block only,
+                    // so it redraws the canvas without recomposing anything.
+                    val fxClock = remember { mutableStateOf(0f) }
+                    LaunchedEffect(Unit) {
+                        var last = 0L
+                        while (true) withFrameNanos { n ->
+                            if (n - last >= 33_000_000L) { last = n; fxClock.value = ((n / 1_000_000L) % 600_000L) / 1000f }
+                        }
+                    }
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         val cw = size.width
                         val ch = size.height
@@ -3826,7 +3852,7 @@ val bossImagesByWorld = mapOf(
                         for (elem in simState.activeTrackElements) {
                             val x = cw * elem.xOffsetFraction
                             val y = ch * (elem.yMatchPos / 100f)
-                            if (drawThreat(elem, x, y, cw, ch, simState.tickIndex, pilotFrames[(simState.tickIndex / 3) % pilotFrames.size])) continue
+                            if (drawThreat(elem, x, y, cw, ch, simState.tickIndex, pilotFrames[(simState.tickIndex / 3) % pilotFrames.size], fxClock.value)) continue
                             
                             when (elem.type) {
                                 "gem" -> {
@@ -4656,6 +4682,11 @@ fun GameOverOverlayScreen(
                     fontFamily = FontFamily.Monospace
                 )
                 RunGoalsSummary(simState, profile)
+                run {
+                    val offerPass by viewModel.seasonPass.state.collectAsState()
+                    val offerAct = LocalContext.current.findActivity()
+                    PassOfferCard(offerPass, onBuy = { offerAct?.let { viewModel.seasonPass.buy(it) } })
+                }
                 if (simState.dailyBonusLabel.isNotEmpty()) {
                     Text(
                         text = simState.dailyBonusLabel,
