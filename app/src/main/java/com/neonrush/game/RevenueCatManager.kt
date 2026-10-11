@@ -8,6 +8,7 @@ import com.revenuecat.purchases.PurchasesConfiguration
 import com.revenuecat.purchases.PurchasesError
 import com.revenuecat.purchases.interfaces.ReceiveCustomerInfoCallback
 import com.revenuecat.purchases.interfaces.ReceiveOfferingsCallback
+import com.revenuecat.purchases.interfaces.UpdatedCustomerInfoListener
 import com.revenuecat.purchases.interfaces.PurchaseCallback
 import com.revenuecat.purchases.models.StoreTransaction
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,17 +49,62 @@ const val STARTER_PACK_GEMS_AMOUNT = 250
     private val _isAdsRemoved = MutableStateFlow(false)
 val isAdsRemoved: StateFlow<Boolean> = _isAdsRemoved.asStateFlow()
 
+    private val _ownedProducts = MutableStateFlow<Set<String>>(emptySet())
+    /** Base store product ids the player owns (survives offline: mirrored in the encrypted [PurchaseLedger]). */
+    val ownedProducts: StateFlow<Set<String>> = _ownedProducts.asStateFlow()
+
+    /** Set by the ViewModel: called after every fresh/cached entitlement update so hulls, suits, Pro and ads state can be mirrored. */
+    @Volatile var onInfoApplied: (() -> Unit)? = null
+
+    /** Gems granted by each consumable product (used to recover a paid-but-undelivered purchase after a crash). */
+    val GEMS_BY_PRODUCT: Map<String, Int> = mapOf(
+        PRODUCT_ID_GEMS_SMALL to GEMS_SMALL_AMOUNT,
+        PRODUCT_ID_GEMS_MEDIUM to GEMS_MEDIUM_AMOUNT,
+        PRODUCT_ID_GEMS_LARGE to GEMS_LARGE_AMOUNT,
+        PRODUCT_ID_STARTER_PACK to STARTER_PACK_GEMS_AMOUNT
+    )
+
     private var isInitialized = false
     private var appCtx: Context? = null
 
+    /** Single place where store state enters the game: updates flows AND the secure offline ledger. */
+    private fun applyInfo(info: com.revenuecat.purchases.CustomerInfo) {
+        PurchaseLedger.onCustomerInfo(info)
+        _isPro.value = info.entitlements.active.containsKey("Neon Rush Pro")
+        _isAdsRemoved.value = PurchaseLedger.isAdsRemovedCached()
+        _ownedProducts.value = PurchaseLedger.ownedProducts()
+        Log.d(TAG, "Pro=${_isPro.value} AdsRemoved=${_isAdsRemoved.value} owned=${_ownedProducts.value.size}")
+        onInfoApplied?.invoke()
+    }
+
+    /** Re-post unsynced receipts and refresh entitlements. Called on launch-online and whenever internet returns. */
+    fun syncNow(onResult: ((Boolean) -> Unit)? = null) {
+        if (!isInitialized) { onResult?.invoke(false); return }
+        try {
+            Purchases.sharedInstance.restorePurchases(object : ReceiveCustomerInfoCallback {
+                override fun onReceived(customerInfo: com.revenuecat.purchases.CustomerInfo) { applyInfo(customerInfo); onResult?.invoke(true) }
+                override fun onError(error: PurchasesError) { Log.w(TAG, "sync deferred (offline?): ${error.message}"); onResult?.invoke(false) }
+            })
+        } catch (e: Exception) { onResult?.invoke(false) }
+    }
+
     fun initialize(context: Context) {
         appCtx = context.applicationContext
+        // Offline-first: load the encrypted ledger BEFORE touching the network, so Pro / ads-removed / owned items
+        // are correct from the very first frame even with no internet.
+        PurchaseLedger.init(context)
+        _isPro.value = PurchaseLedger.isProCached()
+        _isAdsRemoved.value = PurchaseLedger.isAdsRemovedCached()
+        _ownedProducts.value = PurchaseLedger.ownedProducts()
         if (isInitialized) return
         try {
             val configuration = PurchasesConfiguration.Builder(context, REVENUECAT_API_KEY).build()
             Purchases.configure(configuration)
             isInitialized = true
             Log.d(TAG, "RevenueCat initialized successfully")
+            // Background entitlement updates (renewals, refunds, other device) land here automatically.
+            Purchases.sharedInstance.updatedCustomerInfoListener = UpdatedCustomerInfoListener { info -> applyInfo(info) }
+            OfflineSync.start(context)
             
             // Check subscription status
             checkSubscriptionStatus()
@@ -71,16 +117,11 @@ val isAdsRemoved: StateFlow<Boolean> = _isAdsRemoved.asStateFlow()
     try {
         Purchases.sharedInstance.getCustomerInfo(
             object : ReceiveCustomerInfoCallback {
-                override fun onReceived(customerInfo: com.revenuecat.purchases.CustomerInfo) {
-                    val hasPro = customerInfo.entitlements.active.containsKey("Neon Rush Pro")
-                    _isPro.value = hasPro
-                    val hasAdsRemoved = customerInfo.entitlements.active.containsKey("remove_ads")
-                    _isAdsRemoved.value = hasAdsRemoved
-                    Log.d(TAG, "Pro status: $hasPro, AdsRemoved: $hasAdsRemoved")
-                }
+                override fun onReceived(customerInfo: com.revenuecat.purchases.CustomerInfo) { applyInfo(customerInfo) }
 
                 override fun onError(error: PurchasesError) {
-                    Log.e(TAG, "Error fetching customer info: ${error.message}")
+                    // Offline / store unreachable: keep the cached state from the secure ledger. Never downgrade here.
+                    Log.w(TAG, "customer info unavailable, using offline ledger: ${error.message}")
                 }
             }
         )
@@ -109,6 +150,14 @@ val isAdsRemoved: StateFlow<Boolean> = _isAdsRemoved.asStateFlow()
     ) {
         Purchases.sharedInstance.purchase(params, object : PurchaseCallback {
             override fun onCompleted(storeTransaction: StoreTransaction, customerInfo: com.revenuecat.purchases.CustomerInfo) {
+                // Save the receipt result securely FIRST. Consumables go into the pending list before any gem is granted,
+                // so a crash / kill between "paid" and "granted" is recovered on next launch.
+                try {
+                    val pid = storeTransaction.productIds.firstOrNull()?.substringBefore(':')
+                    val gems = pid?.let { GEMS_BY_PRODUCT[it] } ?: 0
+                    if (pid != null && gems > 0) PurchaseLedger.recordPending(storeTransaction.orderId ?: storeTransaction.purchaseToken, pid, gems)
+                } catch (e: Exception) { Log.w(TAG, "ledger pending: ${e.message}") }
+                applyInfo(customerInfo)
                 onOk(customerInfo); finishOk(onResult)
             }
             override fun onError(error: PurchasesError, userCancelled: Boolean) {
@@ -216,10 +265,7 @@ fun purchaseStarterPack(activity: Activity, onResult: (Boolean) -> Unit) {
         Purchases.sharedInstance.restorePurchases(
             object : ReceiveCustomerInfoCallback {
                 override fun onReceived(customerInfo: com.revenuecat.purchases.CustomerInfo) {
-                    val hasPro = customerInfo.entitlements.active.containsKey("Neon Rush Pro")
-                    _isPro.value = hasPro
-                    val hasAdsRemoved = customerInfo.entitlements.active.containsKey("remove_ads")
-                    _isAdsRemoved.value = hasAdsRemoved
+                    applyInfo(customerInfo)
                     onResult(true)
                 }
 
