@@ -415,6 +415,30 @@ class NeonSoundEngine {
         triggerHaptic(longArrayOf(0, 50, 25, 80, 25, 200))
     }
 
+    // ---- Combat sounds (boss telegraph + new threats). Respect the same FX / volume / haptics settings. ----
+    fun playBossCharge() {
+        activeVoices.add(BossChargeVoice())
+        triggerHaptic(longArrayOf(0, 15, 40, 20, 40, 30, 30, 45))
+    }
+
+    fun playBossFire() {
+        activeVoices.add(BossFireVoice())
+        triggerHaptic(40)
+    }
+
+    fun playThreatWarn() {
+        activeVoices.add(ThreatWarnVoice())
+        triggerHaptic(longArrayOf(0, 20, 60, 20))
+    }
+
+    fun playShadowWhoosh() {
+        activeVoices.add(WhooshVoice())
+    }
+
+    fun playZap() {
+        activeVoices.add(ZapVoice())
+    }
+
     // Interactive updates to track game adaptive metrics
     fun updateGameTelemetries(speed: Float, score: Int) {
         currentSpeed = speed
@@ -938,6 +962,118 @@ class NeonSoundEngine {
                 
                 bufferLeft[i] += value
                 bufferRight[i] += value
+                sampleIdx++
+            }
+        }
+    }
+
+    /** Boss powering up: rising whine with a fast tremolo, getting louder until it fires (~0.6 s). */
+    class BossChargeVoice : AudioVoice {
+        private var sampleIdx = 0
+        private val totalSamples = (600 * SAMPLE_RATE / 1000f).toInt()
+        private var phase = 0.0f
+        override fun isActive() = sampleIdx < totalSamples
+        override fun render(bufferLeft: FloatArray, bufferRight: FloatArray, sampleCount: Int) {
+            for (i in 0 until sampleCount) {
+                if (sampleIdx >= totalSamples) break
+                val u = sampleIdx.toFloat() / totalSamples
+                val t = sampleIdx.toFloat() / SAMPLE_RATE
+                val freq = 200f + 900f * u * u
+                phase += (2.0 * Math.PI * freq / SAMPLE_RATE).toFloat()
+                if (phase > 2f * Math.PI.toFloat()) phase -= 2f * Math.PI.toFloat()
+                val tail = if (u > 0.94f) (1f - u) / 0.06f else 1f
+                val env = u.pow(1.2f) * tail
+                val trem = 0.75f + 0.25f * sin(2.0 * Math.PI * 28.0 * t).toFloat()
+                val v = (sin(phase) * 0.35f + sin(2f * phase) * 0.15f + (Random.nextFloat() - 0.5f) * 0.08f) * env * trem
+                bufferLeft[i] += v
+                bufferRight[i] += v
+                sampleIdx++
+            }
+        }
+    }
+
+    /** Gunshot: noise crack, low thump that drops in pitch, and a short rumble body (~0.4 s). */
+    class BossFireVoice : AudioVoice {
+        private var sampleIdx = 0
+        private val totalSamples = (400 * SAMPLE_RATE / 1000f).toInt()
+        private var lp = 0f
+        override fun isActive() = sampleIdx < totalSamples
+        override fun render(bufferLeft: FloatArray, bufferRight: FloatArray, sampleCount: Int) {
+            for (i in 0 until sampleCount) {
+                if (sampleIdx >= totalSamples) break
+                val t = sampleIdx.toFloat() / SAMPLE_RATE
+                val noise = Random.nextFloat() * 2f - 1f
+                lp += 0.33f * (noise - lp)
+                val crack = noise * kotlin.math.exp(-t * 70f)
+                val body = lp * kotlin.math.exp(-t * 13f)
+                val thump = sin(2.0 * Math.PI * (95.0 - 55.0 * t) * t).toFloat() * kotlin.math.exp(-t * 11f)
+                val raw = 0.7f * crack + 0.9f * body + 0.95f * thump
+                val v = kotlin.math.tanh(1.7f * raw) * 0.8f
+                bufferLeft[i] += v
+                bufferRight[i] += v
+                sampleIdx++
+            }
+        }
+    }
+
+    /** Two short alarm beeps: something is about to appear. */
+    class ThreatWarnVoice : AudioVoice {
+        private var sampleIdx = 0
+        private val totalSamples = (320 * SAMPLE_RATE / 1000f).toInt()
+        override fun isActive() = sampleIdx < totalSamples
+        override fun render(bufferLeft: FloatArray, bufferRight: FloatArray, sampleCount: Int) {
+            for (i in 0 until sampleCount) {
+                if (sampleIdx >= totalSamples) break
+                val t = sampleIdx.toFloat() / SAMPLE_RATE
+                val on = t < 0.09f || (t >= 0.16f && t < 0.25f)
+                if (on) {
+                    val lt = if (t < 0.09f) t else t - 0.16f
+                    val env = (1f - lt / 0.09f).coerceIn(0f, 1f)
+                    val sn = sin(2.0 * Math.PI * 1000.0 * t).toFloat()
+                    val v = (if (sn > 0f) 0.2f else -0.2f) + sn * 0.18f
+                    bufferLeft[i] += v * env
+                    bufferRight[i] += v * env
+                }
+                sampleIdx++
+            }
+        }
+    }
+
+    /** Shadow clone slipping in: filtered noise sweeping up, panning right to left. */
+    class WhooshVoice : AudioVoice {
+        private var sampleIdx = 0
+        private val totalSamples = (380 * SAMPLE_RATE / 1000f).toInt()
+        private val biquad = BiquadFilter()
+        override fun isActive() = sampleIdx < totalSamples
+        override fun render(bufferLeft: FloatArray, bufferRight: FloatArray, sampleCount: Int) {
+            for (i in 0 until sampleCount) {
+                if (sampleIdx >= totalSamples) break
+                val u = sampleIdx.toFloat() / totalSamples
+                biquad.setBandpass(300f + 2400f * u, SAMPLE_RATE.toFloat(), 1.4f)
+                val env = sin(Math.PI * u).toFloat()
+                val v = biquad.process((Random.nextFloat() * 2f - 1f) * 0.9f) * env
+                val pan = 1.0 - 2.0 * u
+                bufferLeft[i] += v * cos((pan + 1.0) * Math.PI / 4.0).toFloat()
+                bufferRight[i] += v * sin((pan + 1.0) * Math.PI / 4.0).toFloat()
+                sampleIdx++
+            }
+        }
+    }
+
+    /** Small energy bolt: fast downward ping. */
+    class ZapVoice : AudioVoice {
+        private var sampleIdx = 0
+        private val totalSamples = (140 * SAMPLE_RATE / 1000f).toInt()
+        private var phase = 0.0f
+        override fun isActive() = sampleIdx < totalSamples
+        override fun render(bufferLeft: FloatArray, bufferRight: FloatArray, sampleCount: Int) {
+            for (i in 0 until sampleCount) {
+                if (sampleIdx >= totalSamples) break
+                val t = sampleIdx.toFloat() / SAMPLE_RATE
+                phase += (2.0 * Math.PI * (1900.0 - 9000.0 * t).coerceAtLeast(300.0) / SAMPLE_RATE).toFloat()
+                val v = sin(phase) * kotlin.math.exp(-t * 22f) * 0.45f
+                bufferLeft[i] += v
+                bufferRight[i] += v
                 sampleIdx++
             }
         }
