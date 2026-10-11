@@ -14,6 +14,7 @@ import kotlin.random.Random
  */
 object ThreatDirector {
     private const val WARN_TICKS = 5
+    private const val LONG_WARN_TICKS = 8          // fire / lava / mountains get a longer, clearer warning (~1 s)
     private const val BASE_X = 1.2f
     private const val STRAFER_X = 0.72f
     private const val STRAFER_HOLD = 26
@@ -82,14 +83,17 @@ object ThreatDirector {
         val elems = mutableListOf<VisualTrackElement>()
         var warnY = userY
         var delay = WARN_TICKS
+        var tag = kind
         when (kind) {
             "fire" -> {
+                delay = LONG_WARN_TICKS
                 val gc = (userY + rand.nextInt(-14, 15)).coerceIn(30, 70); warnY = gc
                 listOf(-54, -40, -26, 26, 40, 54).map { gc + it }.filter { it in 6..94 }.forEachIndexed { i, y ->
                     elems += VisualTrackElement("obs_${tick + delay}_f${n}_$i", BASE_X, y, "obstacle", "FIRE_WALL")
                 }
             }
             "lava" -> {
+                delay = LONG_WARN_TICKS
                 val base = (userY + rand.nextInt(-12, 13)).coerceIn(28, 72); warnY = base
                 val count = if (zone >= 12) 3 else 2
                 for (i in 0 until count) {
@@ -98,7 +102,9 @@ object ThreatDirector {
                 }
             }
             "mountain" -> {
+                delay = LONG_WARN_TICKS
                 val bottom = rand.nextBoolean()
+                tag = if (bottom) "mtnb" else "mtnt"
                 if (bottom) { val p = rand.nextInt(62, 75); warnY = p
                     listOf(p, p + 14, p + 28).filter { it <= 96 }.forEachIndexed { i, y -> elems += VisualTrackElement("obs_${tick + delay}_mb${n}_$i", BASE_X, y, "obstacle", "MOUNTAIN_BOTTOM") }
                 } else { val q = rand.nextInt(26, 39); warnY = q
@@ -106,6 +112,7 @@ object ThreatDirector {
                 }
             }
             "ridges" -> {
+                delay = LONG_WARN_TICKS
                 warnY = 50
                 listOf(72, 86).forEachIndexed { i, y -> elems += VisualTrackElement("obs_${tick + delay}_rb${n}_$i", BASE_X, y, "obstacle", "MOUNTAIN_BOTTOM") }
                 listOf(28, 14).forEachIndexed { i, y -> elems += VisualTrackElement("obs_${tick + delay}_rt${n}_$i", BASE_X, y, "obstacle", "MOUNTAIN_TOP") }
@@ -130,7 +137,7 @@ object ThreatDirector {
                 elems += VisualTrackElement("obs_${tick + delay}_str$n", BASE_X, userY, "obstacle", "SHADOW_STRAFER")
             }
         }
-        out += VisualTrackElement("wrn_${tick}_$n", 0.96f, warnY, "fx", "WARN")
+        out += VisualTrackElement("wrn_${tick}_${n}_${tag}_$delay", 0.96f, warnY, "fx", "WARN")
         BossSfx.warn()
         if (kind == "mirror" || kind == "charger" || kind == "swarm" || kind == "strafer") BossSfx.whoosh()
         pending += Pending(tick + delay, elems)
@@ -146,7 +153,7 @@ object ThreatDirector {
         when (elem.type) {
             "fx" -> {
                 val age = tick - idTick(elem.id)
-                val dead = when (elem.subType) { "WARN" -> age > WARN_TICKS; "BOSS_CHARGE" -> age >= 1; else -> false }
+                val dead = when (elem.subType) { "WARN" -> age > (elem.id.split("_").getOrNull(4)?.toIntOrNull() ?: WARN_TICKS); "BOSS_CHARGE" -> age >= 1; else -> false }
                 return (if (dead) -0.5f else elem.xOffsetFraction) to elem.yMatchPos
             }
         }
