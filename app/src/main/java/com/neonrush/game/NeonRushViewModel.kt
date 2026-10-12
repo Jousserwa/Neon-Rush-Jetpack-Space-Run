@@ -174,6 +174,13 @@ class NeonRushViewModel(
         Triple("matrix_grid", "Hex Grid Cyber-Fighter", 3100)
     )
 
+    // Difficulty state lives ABOVE every init block: init launches coroutines that read it immediately.
+    var selectedDifficulty: DifficultyTier = DifficultyTier.MEDIUM
+    private val _difficulty = MutableStateFlow(DifficultyTier.MEDIUM)
+    val difficultyFlow: StateFlow<DifficultyTier> = _difficulty
+    private val _boardTier = MutableStateFlow(DifficultyTier.MEDIUM)
+    val boardTier: StateFlow<DifficultyTier> = _boardTier
+
     // ---- Hull system (Hangar, Pro perks, progression, season pass)
     private val hangarStore = HangarStore { gameDao.db() }
     val hangar = HangarController(gameDao, hangarStore, viewModelScope, shopSkins.size, shopSkins.map { it.first to it.second })
@@ -945,10 +952,7 @@ fun freezeStreak() {
         fun pressure(zone: Int): Float = startMult * (1f + growthPer10 * (zone - 1).coerceAtLeast(0) / 10f)
     }
 
-    var selectedDifficulty: DifficultyTier = DifficultyTier.MEDIUM
-    private val _difficulty = MutableStateFlow(DifficultyTier.MEDIUM)
     /** Observe this in the UI so the buttons recompose when the tier changes. */
-    val difficultyFlow: StateFlow<DifficultyTier> = _difficulty
 
     /** Player choice sticks (also across app restarts) until they tap another tier. */
     fun setDifficulty(tier: DifficultyTier) {
@@ -960,9 +964,7 @@ fun freezeStreak() {
         viewModelScope.launch { try { hangarStore.put("difficulty_tier", tier.name) } catch (_: Exception) {} }
     }
 
-    private val _boardTier = MutableStateFlow(DifficultyTier.MEDIUM)
     /** Which tier's leaderboard the Leaderboards tab is showing. */
-    val boardTier: StateFlow<DifficultyTier> = _boardTier
     fun setBoardTier(tier: DifficultyTier) {
         _boardTier.value = tier
         viewModelScope.launch { FirebaseLeaderboardManager.fetchTopScores(tier.boardKey) }
