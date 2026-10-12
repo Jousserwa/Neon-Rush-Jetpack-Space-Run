@@ -2,6 +2,7 @@ package com.neonrush.game
 
 import com.neonrush.game.db.GameDao
 import android.app.Activity
+import android.content.Context
 import com.google.firebase.firestore.FirebaseFirestore
 import com.neonrush.game.ui.HangarActions
 import com.neonrush.game.ui.HangarUiState
@@ -83,6 +84,11 @@ class HangarController(
         reconcileFromLedger()       // offline-safe: paid hulls come back even with no internet
         reconcileWithStore()
         loadSchedule()
+        loadAlertSeen()
+        notifyOn = store.get("drop_notify") == "1"
+        val dsRaw = store.get("dot_seen_csv")
+        dotSeen = if (dsRaw.isBlank()) alertSeen else dsRaw.split(",").filter { it.isNotBlank() }.toSet()
+        if (dsRaw.isBlank()) store.put("dot_seen_csv", (dotSeen + "init").joinToString(","))
         enforceEquipped()
         publish()
         while (true) { delay(30_000); publish() }      // keeps countdowns fresh
@@ -107,6 +113,93 @@ class HangarController(
             releaseAt = m
             nextDropAt = doc.getLong("nextDropAt") ?: 0L
         } catch (_: Exception) { /* offline: launch set only */ }
+    }
+
+    /** Remote override + built-in monthly calendar (so future hulls stay locked even when offline). */
+    private fun releaseMap(): Map<String, Long> = HullCatalog.releaseMap(releaseAt)
+
+    /** Apex Trio bundle is only sellable once all three hulls are sellable to this player. */
+    fun bundleBuyable(): Boolean =
+        HullCatalog.canBuyNow(isPro(), HullCatalog.bundleReleaseMs(releaseMap()), ServerClock.bestNowMs())
+
+    /** Set by the ViewModel so drop notifications can be scheduled. */
+    var appContext: Context? = null
+    private var notifyOn = false
+    private var dotSeen: Set<String> = emptySet()
+
+    private fun nowMs() = ServerClock.bestNowMs()
+
+    fun founderBuyable(ownedAll: Set<String> = (dao.getProfileFlow().value?.unlockedSkinsCsv ?: "").split(",").filter { it.isNotBlank() }.toSet() + owned): Boolean =
+        HullCatalog.founderOpen(nowMs(), ownedAll)
+
+    /** Hulls on sale for this player that they have not looked at in the Hangar yet (drives the NEW dot). */
+    private fun newHullIds(ownedAll: Set<String>): List<String> {
+        val now = nowMs(); val rel = releaseMap()
+        return HullCatalog.SOLD.filter { it.id !in dotSeen && it.id !in ownedAll && HullCatalog.canBuyNow(isPro(), rel[it.id] ?: 0L, now) }.map { it.id }
+    }
+
+    /** Call when the Hangar page opens: clears the NEW dot. */
+    fun markHangarSeen() {
+        val ownedAll = (dao.getProfileFlow().value?.unlockedSkinsCsv ?: "").split(",").filter { it.isNotBlank() }.toSet() + owned
+        val fresh = newHullIds(ownedAll)
+        if (fresh.isEmpty()) return
+        dotSeen = dotSeen + fresh
+        scope.launch { store.put("dot_seen_csv", (dotSeen + "init").joinToString(",")); publish() }
+    }
+
+    private fun scheduleNotifications(ownedAll: Set<String>) {
+        val ctx = appContext ?: return
+        if (!notifyOn) { try { DropNotifier.clear(ctx) } catch (_: Exception) {}; return }
+        val now = nowMs(); val rel = releaseMap(); val pro = isPro()
+        val nowWall = System.currentTimeMillis()
+        val entries = HullCatalog.SOLD.filter { it.id !in ownedAll && (rel[it.id] ?: 0L) > 0L }.mapNotNull { h ->
+            val at = HullCatalog.buyableAtMs(pro, rel[h.id] ?: 0L)
+            if (at <= now) null else DropEntry(h.id, h.name, h.emoji, nowWall + (at - now), pro)
+        }
+        try { DropNotifier.sync(ctx, entries) } catch (_: Exception) {}
+    }
+
+    fun setDropNotify(on: Boolean) {
+        notifyOn = on
+        scope.launch { store.put("drop_notify", if (on) "1" else "0"); publish() }
+    }
+
+    // ---- "new hull is ready" alert -------------------------------------------------------------------------
+    data class DropAlert(val hullIds: List<String>, val proEarly: Boolean)
+    private val _dropAlert = MutableStateFlow<DropAlert?>(null)
+    val dropAlert: StateFlow<DropAlert?> = _dropAlert.asStateFlow()
+    private var alertSeen: Set<String> = emptySet()
+    private var alertInit = false
+
+    private suspend fun loadAlertSeen() {
+        val raw = store.get("drop_seen_csv")
+        if (raw.isBlank()) {
+            // first run on this install: everything already on sale is "old news", only future drops alert
+            val now = ServerClock.bestNowMs()
+            alertSeen = HullCatalog.SOLD.filter { HullCatalog.canBuyNow(isPro(), releaseMap()[it.id] ?: 0L, now) }.map { it.id }.toSet()
+            store.put("drop_seen_csv", (alertSeen + "init").joinToString(","))
+        } else alertSeen = raw.split(",").filter { it.isNotBlank() }.toSet()
+        alertInit = true
+    }
+
+    private fun checkDropAlert(ownedAll: Set<String>) {
+        if (!alertInit) return
+        val now = ServerClock.bestNowMs()
+        val rel = releaseMap()
+        val fresh = HullCatalog.SOLD.filter {
+            it.id !in alertSeen && it.id !in ownedAll && HullCatalog.canBuyNow(isPro(), rel[it.id] ?: 0L, now)
+        }
+        if (fresh.isEmpty()) { if (_dropAlert.value != null && _dropAlert.value!!.hullIds.none { it !in alertSeen }) _dropAlert.value = null; return }
+        val early = isPro() && fresh.any { (rel[it.id] ?: 0L) + HullCatalog.earlyAccessMillis() > now }
+        val ids = fresh.map { it.id }
+        if (_dropAlert.value?.hullIds != ids) _dropAlert.value = DropAlert(ids, early)
+    }
+
+    fun dismissDropAlert() {
+        val a = _dropAlert.value ?: return
+        _dropAlert.value = null
+        alertSeen = alertSeen + a.hullIds
+        scope.launch { store.put("drop_seen_csv", (alertSeen + "init").joinToString(",")) }
     }
 
     private suspend fun grant(ids: List<String>, equip: Boolean) {
@@ -139,6 +232,8 @@ class HangarController(
         val ownedAll = (p.unlockedSkinsCsv.split(",").filter { it.isNotBlank() } + owned).toSet()
         val withLoaner = if (pro.isPro && pro.loanerHullId != null) ownedAll + pro.loanerHullId!! else ownedAll
         if (nextRoll == null) nextRoll = HullRotation.preRoll(pool(), _sectorHullId.value ?: activeId, lastPicked, if (freeRide) null else activeId)
+        checkDropAlert(ownedAll)
+        scheduleNotifications(ownedAll)
         _ui.value = HangarUiState(
             ownedHullIds = withLoaner,
             activeHullId = activeId,
@@ -148,9 +243,12 @@ class HangarController(
             nextRotationId = if (freeRide && pool().size > 1) nextRoll else null,
             storePrices = HullPurchases.prices.value,
             isPro = isPro(),
-            serverNowMs = ServerClock.nowMs(),
-            releaseAtMs = releaseAt,
-            nextDropAtMs = nextDropAt,
+            serverNowMs = ServerClock.bestNowMs(),
+            bundleBuyable = bundleBuyable(),
+            founderBuyable = founderBuyable(ownedAll), founderEndsMs = HullCatalog.founderEndsMs(),
+            newHullCount = newHullIds(ownedAll).size, dropNotify = notifyOn,
+            releaseAtMs = releaseMap(),
+            nextDropAtMs = nextDropAt.takeIf { it > ServerClock.bestNowMs() } ?: (releaseMap().values.filter { it > ServerClock.bestNowMs() }.minOrNull() ?: 0L),
             totalHullCount = totalGemHullCount + HullCatalog.ALL.size,
             ownedHullCount = ownedAll.size.coerceAtMost(totalGemHullCount + HullCatalog.ALL.size),
             purchaseInFlightId = inFlight,
@@ -165,8 +263,8 @@ class HangarController(
         onBuy = { hull ->
             val act = activity() ?: return@HangarActions
             // Server-time gate. Non-Pro cannot buy during the Pro window even if the UI was bypassed.
-            val rel = releaseAt[hull.id] ?: 0L
-            if (!HullCatalog.canBuyNow(isPro(), rel, ServerClock.nowMs())) {
+            val rel = releaseMap()[hull.id] ?: 0L
+            if (!HullCatalog.canBuyNow(isPro(), rel, ServerClock.bestNowMs())) {
                 HangarAnalytics.earlyAccessBlocked(hull.id, isPro()); return@HangarActions
             }
             inFlight = hull.id; scope.launch { publish() }
@@ -196,7 +294,9 @@ class HangarController(
         } },
         onSetChroma = { id, v -> onChroma(id, v) },
         onClaimStipend = { onStipend() },
-        onBuyBundle = { act -> HullPurchases.buyApexBundle(act) { ok -> if (ok) scope.launch { reconcileWithStore(); progression?.refresh() } } },
+        onBuyBundle = { act -> if (bundleBuyable()) HullPurchases.buyApexBundle(act) { ok -> if (ok) scope.launch { reconcileWithStore(); progression?.refresh() } } },
+        onBuyFounder = { act -> if (founderBuyable()) HullPurchases.buyFounderBundle(act) { ok -> if (ok) scope.launch { reconcileWithStore(); progression?.refresh() } } },
+        onSetDropNotify = { on -> setDropNotify(on) },
         onArmTrial = { id -> pendingTrial = id },
         onTryStart = { HangarAnalytics.hullViewed(it); HangarAnalytics.hullTryStarted(it) },
         onDismissCelebration = { celebrate = null; scope.launch { publish() } },
