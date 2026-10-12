@@ -54,7 +54,9 @@ data class ShareCardExtras(
     val zoneReached: Int = 1,
     val challengeCode: String = "",       // ghost id for "Beat my ghost"
     val hullLevel: Int = 0,
-    val title: String = ""
+    val title: String = "",
+    val tierLabel: String = "",
+    val tierColor: Int = 0xFF00F0FF.toInt()
 )
 
 object ShareCardPlus {
@@ -114,6 +116,8 @@ object ShareCardPlus {
         val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 7f; color = rarity.argb }
         c.drawRoundRect(RectF(W - 260f - tw / 2 - 24f, 520f, W - 260f + tw / 2 + 24f, 586f), 12f, 12f, stroke)
         c.drawText(rarity.label, W - 260f, 566f, sp2); c.restore()
+
+        if (x.tierLabel.isNotBlank()) c.drawText("${x.tierLabel} MODE", W - 260f, 640f, paint(x.tierColor, 36f, Paint.Align.CENTER))
 
         // ---- stats (left aligned so the QR can sit right)
         val lx = 90f
