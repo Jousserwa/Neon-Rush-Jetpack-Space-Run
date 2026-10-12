@@ -1,5 +1,12 @@
 package com.neonrush.game.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -84,7 +91,12 @@ data class HangarUiState(
     val isAnnual: Boolean = false,
     val chroma: Map<String, Int> = emptyMap(),
     val stipendClaimable: Boolean = false,
-    val hullLabels: Map<String, String> = emptyMap()   // id -> "emoji name" for every hull (gem + premium)
+    val hullLabels: Map<String, String> = emptyMap(),  // id -> "emoji name" for every hull (gem + premium)
+    val bundleBuyable: Boolean = true,                // Apex Trio only sells once all three hulls have dropped
+    val founderBuyable: Boolean = false,              // Founder Duo launch offer is open and not owned
+    val founderEndsMs: Long = 0L,
+    val newHullCount: Int = 0,                        // hulls on sale the player has not seen yet (NEW dot)
+    val dropNotify: Boolean = false                   // player turned drop notifications on
 )
 
 data class HangarActions(
@@ -98,6 +110,8 @@ data class HangarActions(
     val onSetChroma: (String, Int) -> Unit = { _, _ -> },
     val onClaimStipend: () -> Unit = {},
     val onBuyBundle: (android.app.Activity) -> Unit = {},
+    val onBuyFounder: (android.app.Activity) -> Unit = {},
+    val onSetDropNotify: (Boolean) -> Unit = {},
     val onArmTrial: (String) -> Unit = {}     // fly this hull for 8s at the start of the next real run
 )
 
@@ -132,7 +146,7 @@ fun HangarScreen(
             }
             Spacer(Modifier.height(12.dp))
             when (tab) {
-                HangarTab.HULLS -> { bundleBanner?.let { it(); Spacer(Modifier.height(10.dp)) }; HullCarousel(state, actions, HullCatalog.ALL) }
+                HangarTab.HULLS -> { if (state.founderBuyable) { FounderBanner(state, actions); Spacer(Modifier.height(10.dp)) }; bundleBanner?.let { it(); Spacer(Modifier.height(10.dp)) }; HullCarousel(state, actions, HullCatalog.ALL.sortedWith(compareBy({ it.earnedOnly }, { HullCatalog.buyableAtMs(state.isPro, state.releaseAtMs[it.id] ?: 0L) }))) }
                 HangarTab.LOADOUT -> LoadoutPanel(state, actions)
                 HangarTab.VAULT -> VaultPanel(state, actions)
                 HangarTab.PASS -> passContent?.invoke()
@@ -229,7 +243,12 @@ private fun HullCard(h: PremiumHull, state: HangarUiState, actions: HangarAction
     val release = state.releaseAtMs[h.id] ?: 0L
     val canBuy = !h.earnedOnly && HullCatalog.canBuyNow(state.isPro, release, state.serverNowMs)
     val msLeft = HullCatalog.millisUntilPublic(release, state.serverNowMs)
-    val proEarly = !h.earnedOnly && state.isPro && msLeft > 0
+    val now = state.serverNowMs
+    val upcoming = !h.earnedOnly && release > now                                   // nobody can buy yet
+    val proWindow = !h.earnedOnly && release in 1..now && now < release + HullCatalog.earlyAccessMillis()
+    val proEarly = proWindow && state.isPro                                          // Pro can buy, public cannot yet
+    val buyAt = HullCatalog.buyableAtMs(state.isPro, release)
+    val dateFmt = remember { java.text.SimpleDateFormat("MMM d", java.util.Locale.getDefault()) }
     var showTest by remember(h.id) { mutableStateOf(false) }
     val price = priceLabel(h, state)
 
@@ -253,8 +272,10 @@ private fun HullCard(h: PremiumHull, state: HangarUiState, actions: HangarAction
                 when {
                     h.earnedOnly -> Badge("EARNED ONLY", Color(0xFFFFD23F))
                     h.id == state.loanerHullId -> Badge("PRO LOANER", Color(0xFFFFD23F))
-                    proEarly -> Badge("PRO EARLY", CyberSecondary)
                     owned -> Badge("OWNED", CyberPrimary)
+                    upcoming -> Badge("COMING ${dateFmt.format(java.util.Date(release)).uppercase()}", Color(0xFFFF9100))
+                    proEarly -> Badge("PRO EARLY ACCESS", CyberSecondary)
+                    proWindow -> Badge("PRO FIRST", Color(0xFF9C6BFF))
                 }
             }
             // bottom bar: TRY on the left, price / action on the right, all on top of the animation
@@ -283,7 +304,7 @@ private fun HullCard(h: PremiumHull, state: HangarUiState, actions: HangarAction
                         Text(if (state.purchaseInFlightId == h.id) "…" else "BUY  $price", color = Color.White,
                             fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 14.sp)
                     }
-                    else -> ActionPill("🔓 ${formatCountdown(msLeft)}", Color(0xFF2A2A44), Color.White)
+                    else -> ActionPill("🔓 ${formatCountdown((buyAt - now).coerceAtLeast(0L))}", Color(0xFF2A2A44), Color.White)
                 }
             }
         }
@@ -293,6 +314,14 @@ private fun HullCard(h: PremiumHull, state: HangarUiState, actions: HangarAction
             Spacer(Modifier.height(6.dp))
             Text(h.layers.joinToString("  •  "), color = CyberPrimary, fontSize = 11.sp, fontFamily = FontFamily.Monospace,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if ((upcoming || proWindow) && !owned && !h.earnedOnly) {
+                Spacer(Modifier.height(6.dp))
+                val proDay = dateFmt.format(java.util.Date(release))
+                val pubDay = dateFmt.format(java.util.Date(release + HullCatalog.earlyAccessMillis()))
+                Text(if (state.isPro) "⭐ Pro early access $proDay · everyone $pubDay"
+                     else "⭐ Pro members can buy on $proDay · you on $pubDay",
+                    color = Color(0xFFFFD23F), fontSize = 11.sp, fontFamily = FontFamily.Monospace, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
             Spacer(Modifier.weight(1f))
             if (owned && state.isPro && !h.earnedOnly) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -500,6 +529,17 @@ private fun VaultPanel(state: HangarUiState, actions: HangarActions) {
                     color = Color.White.copy(alpha = 0.85f), fontSize = 11.sp)
             }
         }
+        val requestNotify = rememberNotifyRequester { granted -> actions.onSetDropNotify(granted) }
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth().background(CyberSurface, RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("🔔 Notify me on drop day", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text(if (state.isPro) "You are alerted when Pro early access opens." else "You are alerted when a new hull is ready to buy.",
+                    color = CyberOnSurface.copy(alpha = 0.6f), fontSize = 10.sp)
+            }
+            Switch(checked = state.dropNotify, onCheckedChange = { requestNotify(it) })
+        }
         if (state.isPro) {
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth().background(CyberSurface, RoundedCornerShape(10.dp)).padding(12.dp),
@@ -548,6 +588,97 @@ private fun VaultPanel(state: HangarUiState, actions: HangarActions) {
     }
 }
 
+// ---------------------------------------------------------------- founder offer + notification opt-in
+
+@Composable
+private fun FounderBanner(state: HangarUiState, actions: HangarActions) {
+    val activity = run {
+        var c: android.content.Context = LocalContext.current
+        var found: android.app.Activity? = null
+        while (found == null && c is android.content.ContextWrapper) { if (c is android.app.Activity) found = c else c = c.baseContext }
+        found
+    }
+    val price = state.storePrices[HullCatalog.FOUNDER_PRODUCT] ?: HullCatalog.FOUNDER_FALLBACK_PRICE
+    val left = (state.founderEndsMs - state.serverNowMs).coerceAtLeast(0L)
+    val names = HullCatalog.FOUNDER_IDS.mapNotNull { HullCatalog.byId(it) }
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+        .background(Brush.horizontalGradient(listOf(Color(0xFFFFD23F).copy(alpha = 0.30f), CyberSecondary.copy(alpha = 0.25f))))
+        .border(1.dp, Color(0xFFFFD23F).copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+        .padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("🎖️ FOUNDER DUO", color = Color.White, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
+            Text(names.joinToString(" + ") { it.name } + ". Launch offer, one time.", color = Color.White.copy(alpha = 0.9f), fontSize = 11.sp)
+            Text("Ends in ${formatCountdown(left)}", color = Color(0xFFFFD23F), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+        }
+        Button(onClick = { activity?.let { actions.onBuyFounder(it) } }, enabled = state.purchaseInFlightId == null,
+            shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFD23F))) {
+            Text(price, color = Color.Black, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 13.sp)
+        }
+    }
+}
+
+/** Returns a function: request(true) asks for the notification permission when needed (Android 13+), then reports the result. */
+@Composable
+private fun rememberNotifyRequester(onResult: (Boolean) -> Unit): (Boolean) -> Unit {
+    val ctx = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> onResult(granted) }
+    return { on ->
+        if (!on) onResult(false)
+        else if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        else onResult(true)
+    }
+}
+
+// ---------------------------------------------------------------- new-drop alert
+
+/** Pops up once when a new hull becomes buyable for this player. Host it once on the home screen. */
+@Composable
+fun DropAlertHost(
+    alert: com.neonrush.game.HangarController.DropAlert?, onOpenHangar: () -> Unit, onDismiss: () -> Unit,
+    notifyOn: Boolean = true, onSetNotify: (Boolean) -> Unit = {}
+) {
+    val requestNotify = rememberNotifyRequester { granted -> onSetNotify(granted) }
+    val a = alert ?: return
+    val hulls = a.hullIds.mapNotNull { HullCatalog.byId(it) }
+    if (hulls.isEmpty()) { onDismiss(); return }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.padding(horizontal = 24.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp))
+                .background(Brush.verticalGradient(listOf(Color(0xFF1B0B4A), Color(0xFF08070F))))
+                .border(1.5.dp, if (a.proEarly) Color(0xFFFFD23F) else CyberPrimary, RoundedCornerShape(20.dp))
+                .padding(18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(if (a.proEarly) "⭐ PRO EARLY ACCESS" else "🚀 NEW HULL DROP", color = if (a.proEarly) Color(0xFFFFD23F) else CyberPrimary,
+                fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 14.sp)
+            Spacer(Modifier.height(8.dp))
+            hulls.forEach { h ->
+                Box(Modifier.fillMaxWidth().height(150.dp)) { HangarPreview(h.id, reactions = true, height = 150.dp) }
+                Text("${h.emoji} ${h.name}", color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                Text(h.tagline, color = CyberOnSurface.copy(alpha = 0.85f), fontSize = 12.sp, modifier = Modifier.padding(vertical = 4.dp))
+            }
+            Text(
+                if (a.proEarly) "It is yours to buy now — everyone else gets it in ${HullCatalog.EARLY_ACCESS_HOURS / 24} days."
+                else "It is ready to buy in the Hangar.",
+                color = Color.White, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(onClick = onDismiss, colors = ButtonDefaults.buttonColors(containerColor = CyberSurface), shape = RoundedCornerShape(10.dp)) {
+                    Text("LATER", color = Color.White, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                }
+                Button(onClick = { onDismiss(); onOpenHangar() }, colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary), shape = RoundedCornerShape(10.dp)) {
+                    Text("SEE IT", color = Color.White, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black)
+                }
+            }
+            if (!notifyOn) {
+                Text("🔔 Tell me when the next hull drops", color = CyberPrimary, fontSize = 12.sp, fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(top = 12.dp).clickable { requestNotify(true) }.padding(6.dp))
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------- celebration
 
 @Composable
@@ -574,7 +705,7 @@ private fun HullCelebration(hullId: String, onDismiss: () -> Unit) {
 
 /** The only hull thing that stays on the Skins page: one tidy button-card that opens the Hangar page. */
 @Composable
-fun HangarEntryCard(activeHullId: String, owned: Int, total: Int, onOpen: () -> Unit) {
+fun HangarEntryCard(activeHullId: String, owned: Int, total: Int, onOpen: () -> Unit, newHulls: Int = 0) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { onOpen() }
             .background(Brush.verticalGradient(listOf(Color(0xFF1B0B4A), CyberSurface)))
@@ -585,6 +716,7 @@ fun HangarEntryCard(activeHullId: String, owned: Int, total: Int, onOpen: () -> 
             Column(Modifier.weight(1f)) {
                 Text("🛸 SHIP HULLS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp, fontFamily = FontFamily.Monospace)
                 Text("$owned/$total collected  ·  new hulls every month", color = CyberOnSurface.copy(alpha = 0.7f), fontSize = 11.sp)
+                if (newHulls > 0) Text("● $newHulls NEW ON SALE", color = Color(0xFFFF5252), fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
             }
             Box(Modifier.background(CyberPrimary, RoundedCornerShape(10.dp)).padding(horizontal = 14.dp, vertical = 10.dp)) {
                 Text("OPEN ›", color = CyberBackground, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
