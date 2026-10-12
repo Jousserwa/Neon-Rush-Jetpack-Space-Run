@@ -335,9 +335,9 @@ class HangarController(
         pendingTrial?.let { t ->
             pendingTrial = null
             _sectorHullId.value = t
-            _toast.value = "🧪 Trying ${HullCatalog.byId(t)?.name ?: t} for 8s"
+            _toast.value = "🧪 Trying ${HullCatalog.byId(t)?.name ?: t} for 20s"
             scope.launch {
-                delay(8000)
+                delay(20000)
                 if (_sectorHullId.value == t) { _sectorHullId.value = null; _toast.value = "Trial over. Buy it in the Hangar" }
             }
         }
