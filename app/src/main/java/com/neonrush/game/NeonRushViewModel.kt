@@ -162,16 +162,16 @@ class NeonRushViewModel(
 
     val shopSkins = listOf(
         Triple("cyan_diamond", "Cyan Diamond", 0),
-        Triple("purple_square", "Purple Square", 150),
-        Triple("green_triangle", "Green Triangle", 350),
-        Triple("solar_comet", "Solar Comet", 450),
-        Triple("ice_shard", "Ice Shard", 600),
-        Triple("magenta_pulse", "Magenta Pulse Racer", 750),
-        Triple("static_storm", "Static Storm", 1100),
-        Triple("vaporwave_wave", "Vaporwave Wave", 1400),
-        Triple("gold_transcendence", "Gold Transcendence Vessel", 1800),
-        Triple("phantom_echo", "Phantom Echo", 2400),
-        Triple("matrix_grid", "Hex Grid Cyber-Fighter", 3000)
+        Triple("purple_square", "Purple Square", 250),
+        Triple("green_triangle", "Green Triangle", 450),
+        Triple("solar_comet", "Solar Comet", 550),
+        Triple("ice_shard", "Ice Shard", 700),
+        Triple("magenta_pulse", "Magenta Pulse Racer", 850),
+        Triple("static_storm", "Static Storm", 1200),
+        Triple("vaporwave_wave", "Vaporwave Wave", 1500),
+        Triple("gold_transcendence", "Gold Transcendence Vessel", 1900),
+        Triple("phantom_echo", "Phantom Echo", 2500),
+        Triple("matrix_grid", "Hex Grid Cyber-Fighter", 3100)
     )
 
     // ---- Hull system (Hangar, Pro perks, progression, season pass)
@@ -182,6 +182,7 @@ class NeonRushViewModel(
     val seasonPass = SeasonPass(gameDao, hangarStore, viewModelScope, hangar) { RevenueCatManager.isPro.value }
     init {
         hangar.progression = progression
+        hangar.appContext = context.applicationContext
         hangar.onChroma = { id, v -> proPerks.setChroma(id, v) }
         hangar.onStipend = { proPerks.claimStipend() }
     }
@@ -750,17 +751,19 @@ fun freezeStreak() {
         }
         hangar.start(); progression.start()
         HullPurchases.loadPrices()
+        seasonPass.start()   // offline-first: must NOT wait for the network sign-in below
         viewModelScope.launch {
             try {
                 val auth = FirebaseAuth.getInstance()
                 val uid = auth.currentUser?.uid ?: auth.signInAnonymously().await().user?.uid
                 if (uid != null) ServerClock.sync(uid)
             } catch (_: Exception) {}
-            seasonPass.start(); proPerks.refresh(); hangar.reconcileWithStore()
+            proPerks.refresh(); hangar.reconcileWithStore(); seasonPass.refresh()
         }
         viewModelScope.launch {
             RevenueCatManager.isPro.collect { proPerks.refresh(); seasonPass.refresh() }
         }
+        restoreDifficulty()
         // ── Offline purchase sync ──────────────────────────────────────────────────
         // Whenever the store (or the encrypted local ledger) reports entitlements, mirror them into the game.
         RevenueCatManager.onInfoApplied = { viewModelScope.launch { reconcileEntitlements() } }
@@ -772,7 +775,7 @@ fun freezeStreak() {
         loadSocialComments()
         prepopulateSampleGhostChallenges()
         viewModelScope.launch {
-            FirebaseLeaderboardManager.fetchTopScores()
+            FirebaseLeaderboardManager.fetchTopScores(_boardTier.value.boardKey)
         }
     }
 
@@ -810,7 +813,7 @@ fun freezeStreak() {
 
     private fun loadDefaultLeaderboard() {
         viewModelScope.launch {
-            FirebaseLeaderboardManager.fetchTopScores()
+            FirebaseLeaderboardManager.fetchTopScores(_boardTier.value.boardKey)
         }
     }
 
@@ -919,17 +922,61 @@ fun freezeStreak() {
     var avgZoneReached: Float = 10f
     var frustrationIndex: Float = 0.5f
 
-    enum class DifficultyTier(val speedMultiplier: Float, val spacingMultiplier: Float, val label: String) {
-        EASY(0.75f, 1.35f, "EASY"),
-        MEDIUM(1.0f, 1.0f, "MEDIUM"),
-        HARD(1.2f, 0.8f, "HARD"),
-        LEGENDARY(1.4f, 0.65f, "LEGENDARY")
+    /**
+     * Pressure grows with the zone: pressure(zone) = startMult * (1 + growthPer10 * (zone - 1) / 10).
+     * It drives belt speed, obstacle density, threat frequency and boss fire rate together.
+     * EASY +3% / 10 zones, MEDIUM +6%, HARD +11%, LEGENDARY +13%.
+     * startMult makes zone 1 already feel different per tier (tweak freely).
+     */
+    enum class DifficultyTier(
+        val growthPer10: Float, val startMult: Float, val label: String,
+        val warnDelta: Int,       // telegraph time vs normal, in 120 ms ticks
+        val gemMult: Float,       // gem reward multiplier
+        val powerupMul: Float,    // power-up drop-rate multiplier
+        val tokenMult: Float,     // Season Pass token multiplier
+        val colorArgb: Long,      // tier colour for HUD / share card
+        val boardKey: String      // Firestore collection suffix ("" = legacy global board)
+    ) {
+        EASY(0.03f, 0.85f, "EASY", +3, 0.80f, 1.25f, 1.00f, 0xFF69F0AE, "_easy"),
+        MEDIUM(0.06f, 1.00f, "MEDIUM", 0, 1.00f, 1.00f, 1.00f, 0xFF00F0FF, ""),
+        HARD(0.11f, 1.10f, "HARD", -1, 1.25f, 0.80f, 1.15f, 0xFFFF9100, "_hard"),
+        LEGENDARY(0.13f, 1.22f, "LEGENDARY", -2, 1.60f, 0.65f, 1.30f, 0xFFFFD23F, "_legendary");
+
+        fun pressure(zone: Int): Float = startMult * (1f + growthPer10 * (zone - 1).coerceAtLeast(0) / 10f)
     }
 
     var selectedDifficulty: DifficultyTier = DifficultyTier.MEDIUM
+    private val _difficulty = MutableStateFlow(DifficultyTier.MEDIUM)
+    /** Observe this in the UI so the buttons recompose when the tier changes. */
+    val difficultyFlow: StateFlow<DifficultyTier> = _difficulty
 
+    /** Player choice sticks (also across app restarts) until they tap another tier. */
     fun setDifficulty(tier: DifficultyTier) {
+        if (tier == DifficultyTier.LEGENDARY && !RevenueCatManager.isPro.value) return
         selectedDifficulty = tier
+        _difficulty.value = tier
+        _boardTier.value = tier
+        viewModelScope.launch { FirebaseLeaderboardManager.fetchTopScores(tier.boardKey) }
+        viewModelScope.launch { try { hangarStore.put("difficulty_tier", tier.name) } catch (_: Exception) {} }
+    }
+
+    private val _boardTier = MutableStateFlow(DifficultyTier.MEDIUM)
+    /** Which tier's leaderboard the Leaderboards tab is showing. */
+    val boardTier: StateFlow<DifficultyTier> = _boardTier
+    fun setBoardTier(tier: DifficultyTier) {
+        _boardTier.value = tier
+        viewModelScope.launch { FirebaseLeaderboardManager.fetchTopScores(tier.boardKey) }
+    }
+
+    private fun restoreDifficulty() {
+        viewModelScope.launch {
+            try {
+                val saved = DifficultyTier.values().firstOrNull { it.name == hangarStore.get("difficulty_tier") } ?: DifficultyTier.MEDIUM
+                val tier = if (saved == DifficultyTier.LEGENDARY && !RevenueCatManager.isPro.value) DifficultyTier.MEDIUM else saved
+                selectedDifficulty = tier; _difficulty.value = tier; _boardTier.value = tier
+                FirebaseLeaderboardManager.fetchTopScores(tier.boardKey)
+            } catch (_: Exception) {}
+        }
     }
 
     var deathTimes: MutableList<Long> = mutableListOf()
@@ -1210,7 +1257,7 @@ fun startFromCheckpoint(checkpointZone: Int) {
 
 fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = null, startFromZone: Int = 1) {
     simJob?.cancel()
-    HullFx.reset(); hangar.onRunStart(profile.value?.activeSkinId ?: "cyan_diamond"); ThreatDirector.reset(); resetStoryProgress()
+    HullFx.reset(); hangar.onRunStart(profile.value?.activeSkinId ?: "cyan_diamond"); ThreatDirector.reset(); resetStoryProgress(); seasonPass.tierTokenMult = selectedDifficulty.tokenMult; seasonPass.onRunStart()
     var startupDna = ZoneGenerator.generateZone(startFromZone, 42)
     if (specialWorldId != null) startupDna = overrideEnvironment(startupDna, specialWorldId)
     val todayMutation = DailyMutations.getActiveMutation()
@@ -1232,7 +1279,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
         currentZoneNumber = startFromZone,
         zoneDNA = startupDna,
         activeTrackElements = emptyList(),
-        activePowerupDurations = emptyMap(),
+        // EASY: starts every run with a free shield (absorbs the first hit)
+        activePowerupDurations = if (selectedDifficulty == DifficultyTier.EASY) mapOf("PU1" to 900) else emptyMap(),
         currentMutationName = todayMutation.title,
         specialWorldId = specialWorldId
     )
@@ -1269,7 +1317,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             // mechanics), so it keeps nudging upward for a very long time
             // without ever hard-capping, and totalRuns=0 gives exactly 1.0x
             // (brand-new players see zero change from this).
-            val metaDifficultyMultiplier = 1f + 0.4f * (1f - kotlin.math.exp(-prof.totalRuns / 250f))
+            val metaDifficultyMultiplier = 1f + 0.15f * (1f - kotlin.math.exp(-prof.totalRuns / 250f))
             val spacingBias = (if (currentFrustration > 3.0f) 0.85f else if (avgZoneReached > 15f) 1.10f else 1.0f) * metaDifficultyMultiplier
             val isLuckyActive = isFirstLucky
             var liveDifficultyMultiplier = 1.0f
@@ -1287,7 +1335,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 val isFridayGolden = activeMutation == MutationDay.FRIDAY
                 val isSaturdayBoss = activeMutation == MutationDay.SATURDAY
                 val isSundayLegendary = activeMutation == MutationDay.SUNDAY
-                val baseSpeedVal = ZoneGenerator.calculateSpeed(state.currentZoneNumber)
+                val tierPressure = selectedDifficulty.pressure(state.currentZoneNumber)
+                val baseSpeedVal = ZoneGenerator.calculateSpeed(1) * tierPressure
                 val prestigeSpeedBoost = prof.transcendenceCount * 0.2f
                 var speedInPx = baseSpeedVal + prestigeSpeedBoost
                 if (isTuesdaySpeed) {
@@ -1301,7 +1350,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (hasHyperdrive) {
                     speedInPx *= 2.0f
                 }
-                speedInPx *= liveDifficultyMultiplier * selectedDifficulty.speedMultiplier * metaDifficultyMultiplier
+                speedInPx *= liveDifficultyMultiplier * metaDifficultyMultiplier
                 val tickDistanceOffset = speedInPx * 3.6f
                 var nextDistance = state.distanceMeters + tickDistanceOffset
                 var zoneM = (-776.25 + kotlin.math.sqrt(602564.0625 + 405.0 * nextDistance)) / 202.5
@@ -1348,7 +1397,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (nextZoneNumber != state.currentZoneNumber) {
                     soundEngine.playTone(660f, 300, "sawtooth")
                     updatedMsg = "ENTERING: ${activeDna.environmentName} ${activeDna.environmentEmoji}"
-                    HullFx.zoneTick = tick; HullFx.zone = nextZoneNumber
+                    HullFx.zoneTick = tick; HullFx.zone = nextZoneNumber; seasonPass.onToken(SeasonPass.TOKENS_ZONE)
                     if (state.specialWorldId == null) { checkWorldEndingBeat(state.currentZoneNumber, nextZoneNumber); checkStoryBeats(nextZoneNumber, false) }
 
                     // Sector transition: every 2 zones is a "sector" with a
@@ -1448,19 +1497,19 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                 }
                 val flavor = flavorFor(state, nextZoneNumber)
-                val spacingVal = ((activeDna.obstacleSpacingAndDensity / (12f * spacingBias * liveDifficultyMultiplier * selectedDifficulty.spacingMultiplier * (flavor?.spacingMul ?: 1f))) * (1f + 0.4f * assist)).coerceAtLeast(4f).toInt()
+                val spacingVal = ((activeDna.obstacleSpacingAndDensity / (12f * spacingBias * liveDifficultyMultiplier * tierPressure * (flavor?.spacingMul ?: 1f))) * (1f + 0.4f * assist)).coerceAtLeast(4f).toInt()
                 if (tick % spacingVal == 0) {
                     val targetGhostY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     val obstacles = spawnObstacleForSet(activeDna.obstacleSetId, tick, random, targetGhostY, nextZoneNumber)
                     updatedElements.addAll(obstacles)
-                    if (random.nextFloat() < activeDna.powerupDensity * (flavor?.powerupMul ?: 1f)) {
+                    if (random.nextFloat() < activeDna.powerupDensity * (flavor?.powerupMul ?: 1f) * selectedDifficulty.powerupMul) {
                         val puType = chooseProceduralPowerupType(random, isSundayLegendary)
                         updatedElements.add(VisualTrackElement("pu_${tick}", 1.22f, targetGhostY + random.nextInt(-10, 10), "powerup", puType))
                     }
                 }
                 val hasBossZone = nextZoneNumber % 5 == 0 && ((tick % 40) >= 24 || isSaturdayBoss)
                 if (state.specialWorldId == null && hasBossZone && !state.bossActive) checkStoryBeats(nextZoneNumber, true)
-                updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, flavor?.spacingMul ?: 1f, assistStrength(tick)))
+                updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, (flavor?.spacingMul ?: 1f) * tierPressure, assistStrength(tick), selectedDifficulty.warnDelta))
                 var bossHealthState = state.bossHealth
                 var bossYState = state.bossY
                 if (hasBossZone) {
@@ -1472,7 +1521,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                     val trackingYBias = userY - bossYState
                     bossYState += (trackingYBias * 0.05f * (flavor?.bossAggro ?: 1f)).toInt()
-                    ThreatDirector.bossFire(tick, (Upgrades.bossBulletInterval(activeUpgradesCsv, 9) / (flavor?.bossAggro ?: 1f)).toInt(), bossYState, random, updatedElements)
+                    ThreatDirector.bossFire(tick, (Upgrades.bossBulletInterval(activeUpgradesCsv, 9) / ((flavor?.bossAggro ?: 1f) * tierPressure)).toInt().coerceAtLeast(4), bossYState, random, updatedElements)
                     bossHealthState -= 0.04f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
                     if (bossHealthState <= 0f) {
                         var wasNewlyRewarded = false
@@ -1492,7 +1541,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         }
                         if (wasNewlyRewarded) {
                             soundEngine.playTone(990f, 400, "sine")
-                            updatedMsg = "BOSS DEFEATED! Prestige Reward Cells gathered!"
+                            updatedMsg = "BOSS DEFEATED! Prestige Reward Cells gathered!"; seasonPass.onToken(SeasonPass.TOKENS_BOSS)
                             _simState.value = _simState.value.copy(bossGemsThisRun = _simState.value.bossGemsThisRun + bossReward)
                         }
                         // Special/prestige worlds (6-11) don't have a real
@@ -1558,7 +1607,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 "gem" -> {
                                     soundEngine.playGemCollect()
                                     gemsGathered += 1
-                                    HullFx.gemTick = tick; hangar.onGem(prof.activeSkinId)
+                                    HullFx.gemTick = tick; hangar.onGem(prof.activeSkinId); seasonPass.onToken(SeasonPass.TOKENS_GEM)
                                       repeat(6) { i ->
                                         activeParticles.add(
                                             Particle(
@@ -1684,7 +1733,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                             verticalDist < collisionRadius + 10 && grazedIds.add(elem.id)) {
                             soundEngine.playNearMiss()
                             updatedMsg = "CLOSE CALL!"
-                            HullFx.closeCallTick = tick; hangar.onCloseCall(prof.activeSkinId)
+                            HullFx.closeCallTick = tick; hangar.onCloseCall(prof.activeSkinId); seasonPass.onToken(SeasonPass.TOKENS_CLOSE_CALL)
                             if (assist > 0f && assistGemsGiven < 8) { // first run only: small gem reward
                                 assistGemsGiven++
                                 gemsGathered += 1
@@ -1870,7 +1919,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             bonusGems = 55
         }
         val GEM_ECONOMY_RATE = (1f / 3f)
-        val gemsEarnedTotalSoFar = (((finalState.collectedGemsCount + bonusGems + FridayBonus) * valMultiplier) * GEM_ECONOMY_RATE * Upgrades.gemMultiplier(activeUpgradesCsv)).toInt()
+        val gemsEarnedTotalSoFar = (((finalState.collectedGemsCount + bonusGems + FridayBonus) * valMultiplier) * GEM_ECONOMY_RATE * Upgrades.gemMultiplier(activeUpgradesCsv) * seasonPass.runGemMult * selectedDifficulty.gemMult).toInt()
         var gemsToCreditNow = 0
 
         gameDao.updateProfile { prof ->
@@ -1968,13 +2017,17 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             if (!adsRemovedResult) {
                 AdMobManager.incrementGameOver()
             }
-            if (isNewPB) {
-                soundEngine.playPersonalBestBroken()
-                // The assisted first run stays off the global board.
-                if (!wasAssisted) run {
+            if (isNewPB) soundEngine.playPersonalBestBroken()
+            // Each tier has its own board and its own personal best. The assisted first run stays off the boards.
+            if (!wasAssisted) run {
+                val tier = selectedDifficulty
+                val key = "best_" + tier.name
+                val tierBest = hangarStore.getLong(key)
+                if (finalState.score > tierBest) {
+                    hangarStore.putLong(key, finalState.score.toLong())
                     val ps = proPerks.snapshot.value
                     FirebaseLeaderboardManager.submitScore(usernameForLeaderboard, finalState.score, activeSkinForLeaderboard,
-                        ps.rank.name, ps.isLegend)
+                        ps.rank.name, ps.isLegend, tierKey = tier.boardKey)
                 }
             }
         }
@@ -2008,7 +2061,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             val prof = gameDao.getProfileDirect() ?: GameProfile()
             // Same meta-difficulty scalar as loop 1 — a revive continues the
             // same run, so its calibration shouldn't reset or diverge.
-            val metaDifficultyMultiplier = 1f + 0.4f * (1f - kotlin.math.exp(-prof.totalRuns / 250f))
+            val metaDifficultyMultiplier = 1f + 0.15f * (1f - kotlin.math.exp(-prof.totalRuns / 250f))
             var tick = currentTick
             while (_simState.value.isStarted && !_simState.value.isCompleted) {
                 delay(hintTickDelayMs())
@@ -2023,7 +2076,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 val isFridayGolden = activeMutation == MutationDay.FRIDAY
                 val isSaturdayBoss = activeMutation == MutationDay.SATURDAY
                 val isSundayLegendary = activeMutation == MutationDay.SUNDAY
-                val baseSpeedVal = ZoneGenerator.calculateSpeed(state.currentZoneNumber)
+                val tierPressure = selectedDifficulty.pressure(state.currentZoneNumber)
+                val baseSpeedVal = ZoneGenerator.calculateSpeed(1) * tierPressure
                 val prestigeSpeedBoost = prof.transcendenceCount * 0.2f
                 var speedInPx = baseSpeedVal + prestigeSpeedBoost
                 if (isTuesdaySpeed) {
@@ -2080,7 +2134,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (nextZoneNumber != state.currentZoneNumber) {
                     soundEngine.playTone(660f, 300, "sawtooth")
                     updatedMsg = "ENTERING: ${activeDna.environmentName} ${activeDna.environmentEmoji}"
-                    HullFx.zoneTick = tick; HullFx.zone = nextZoneNumber
+                    HullFx.zoneTick = tick; HullFx.zone = nextZoneNumber; seasonPass.onToken(SeasonPass.TOKENS_ZONE)
                     if (state.specialWorldId == null) { checkWorldEndingBeat(state.currentZoneNumber, nextZoneNumber); checkStoryBeats(nextZoneNumber, false) }
 
                     // Sector transition: same as loop 1 — every 2 zones is a
@@ -2181,19 +2235,19 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                 }
                 val flavor = flavorFor(state, nextZoneNumber)
-                val spacingVal = (activeDna.obstacleSpacingAndDensity / (12f * metaDifficultyMultiplier * (flavor?.spacingMul ?: 1f))).coerceAtLeast(4f).toInt()
+                val spacingVal = (activeDna.obstacleSpacingAndDensity / (12f * metaDifficultyMultiplier * tierPressure * (flavor?.spacingMul ?: 1f))).coerceAtLeast(4f).toInt()
                 if (tick % spacingVal == 0) {
                     val targetGhostY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     val obstacles = spawnObstacleForSet(activeDna.obstacleSetId, tick, random, targetGhostY, nextZoneNumber)
                     updatedElements.addAll(obstacles)
-                    if (random.nextFloat() < activeDna.powerupDensity * (flavor?.powerupMul ?: 1f)) {
+                    if (random.nextFloat() < activeDna.powerupDensity * (flavor?.powerupMul ?: 1f) * selectedDifficulty.powerupMul) {
                         val puType = chooseProceduralPowerupType(random, isSundayLegendary)
                         updatedElements.add(VisualTrackElement("pu_${tick}", 1.22f, targetGhostY + random.nextInt(-10, 10), "powerup", puType))
                     }
                 }
                 val hasBossZone = nextZoneNumber % 5 == 0 && ((tick % 40) >= 24 || isSaturdayBoss)
                 if (state.specialWorldId == null && hasBossZone && !state.bossActive) checkStoryBeats(nextZoneNumber, true)
-                updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, flavor?.spacingMul ?: 1f, assistStrength(tick)))
+                updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, (flavor?.spacingMul ?: 1f) * tierPressure, assistStrength(tick), selectedDifficulty.warnDelta))
                 var bossHealthState = state.bossHealth
                 var bossYState = state.bossY
                 if (hasBossZone) {
@@ -2205,11 +2259,11 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                     val trackingYBias = userY - bossYState
                     bossYState += (trackingYBias * 0.12f * (flavor?.bossAggro ?: 1f)).toInt()
-                    ThreatDirector.bossFire(tick, (Upgrades.bossBulletInterval(activeUpgradesCsv, 6) / (flavor?.bossAggro ?: 1f)).toInt(), bossYState, random, updatedElements)
+                    ThreatDirector.bossFire(tick, (Upgrades.bossBulletInterval(activeUpgradesCsv, 6) / ((flavor?.bossAggro ?: 1f) * tierPressure)).toInt().coerceAtLeast(4), bossYState, random, updatedElements)
                     bossHealthState -= 0.04f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
                     if (bossHealthState <= 0f) {
                         soundEngine.playTone(990f, 400, "sine")
-                        updatedMsg = "BOSS DEFEATED!"
+                        updatedMsg = "BOSS DEFEATED!"; seasonPass.onToken(SeasonPass.TOKENS_BOSS)
                         // Same completion tracking as the main loop: this is
                         // what marks a special/prestige world "beaten" since
                         // its zone range never naturally ends.
@@ -2271,7 +2325,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 "gem" -> {
                                     soundEngine.playGemCollect()
                                     gemsGathered += 1
-                                    HullFx.gemTick = tick; hangar.onGem(prof.activeSkinId)
+                                    HullFx.gemTick = tick; hangar.onGem(prof.activeSkinId); seasonPass.onToken(SeasonPass.TOKENS_GEM)
                                     repeat(6) { i ->
                                         activeParticles.add(
                                             Particle(
@@ -2391,7 +2445,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                             verticalDist < collisionRadius + 10 && grazedIds.add(elem.id)) {
                             soundEngine.playNearMiss()
                             updatedMsg = "CLOSE CALL!"
-                            HullFx.closeCallTick = tick; hangar.onCloseCall(prof.activeSkinId)
+                            HullFx.closeCallTick = tick; hangar.onCloseCall(prof.activeSkinId); seasonPass.onToken(SeasonPass.TOKENS_CLOSE_CALL)
                             if (assist > 0f && assistGemsGiven < 8) { // first run only: small gem reward
                                 assistGemsGiven++
                                 gemsGathered += 1
