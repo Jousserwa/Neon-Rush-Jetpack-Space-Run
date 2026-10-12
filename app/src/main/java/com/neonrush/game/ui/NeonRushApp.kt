@@ -958,6 +958,7 @@ fun HeaderProfileDeck(profile: GameProfile, viewModel: NeonRushViewModel) {
 @Composable
 fun LeaderboardsTab(viewModel: NeonRushViewModel, playerProfile: GameProfile) {
     val rankingList by viewModel.leaderboard.collectAsState()
+    val boardTier by viewModel.boardTier.collectAsState()
     var selectedPilot by remember { mutableStateOf<LeaderboardPilot?>(null) }
     selectedPilot?.let { sp ->
         PilotCardDialog(
@@ -981,8 +982,28 @@ fun LeaderboardsTab(viewModel: NeonRushViewModel, playerProfile: GameProfile) {
             text = "Follow and challenge ghost trails of active pilots sync'd from the host.",
             color = CyberOnSurface.copy(alpha = 0.7f),
             fontSize = 12.sp,
-            modifier = Modifier.padding(bottom = 12.dp)
+            modifier = Modifier.padding(bottom = 8.dp)
         )
+
+        // One board per difficulty, so Easy scores never sit above Legendary ones.
+        Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            NeonRushViewModel.DifficultyTier.values().forEach { t ->
+                val sel = boardTier == t
+                Box(
+                    Modifier.clip(RoundedCornerShape(8.dp))
+                        .background(if (sel) Color(t.colorArgb) else CyberSurface)
+                        .clickable { viewModel.setBoardTier(t) }
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text(t.label, fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
+                        color = if (sel) Color.Black else Color.White)
+                }
+            }
+        }
+        if (rankingList.isEmpty()) {
+            Text("No pilots on the ${boardTier.label} board yet. Be the first!", color = CyberOnSurface.copy(alpha = 0.7f),
+                fontSize = 12.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(vertical = 12.dp))
+        }
 
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1465,6 +1486,10 @@ fun ArcadeHomeView(
     })
     val homePass by viewModel.seasonPass.state.collectAsState()
     SeasonReminderBanner(homePass, onOpen = onNavigateToSkins)
+    val dropAlert by viewModel.hangar.dropAlert.collectAsState()
+    val dropUi by viewModel.hangar.ui.collectAsState()
+    DropAlertHost(dropAlert, onOpenHangar = onNavigateToSkins, onDismiss = { viewModel.hangar.dismissDropAlert() },
+        notifyOn = dropUi?.dropNotify ?: true, onSetNotify = { viewModel.hangar.setDropNotify(it) })
 
     Row(
             modifier = Modifier
@@ -1690,6 +1715,7 @@ fun ArcadeHomeView(
                 .padding(bottom = 8.dp),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
+            val selectedTier by viewModel.difficultyFlow.collectAsState()
             listOf(
                 NeonRushViewModel.DifficultyTier.EASY,
                 NeonRushViewModel.DifficultyTier.MEDIUM,
@@ -1697,7 +1723,7 @@ fun ArcadeHomeView(
                 NeonRushViewModel.DifficultyTier.LEGENDARY
             ).forEach { tier ->
                 val isLocked = tier == NeonRushViewModel.DifficultyTier.LEGENDARY && !isPro
-                val isSelected = viewModel.selectedDifficulty == tier
+                val isSelected = selectedTier == tier
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
@@ -3008,7 +3034,8 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile) {
                 activeHullId = profile.activeSkinId,
                 owned = entryState?.ownedHullCount ?: 0,
                 total = entryState?.totalHullCount ?: 0,
-                onOpen = { showHangarPage = true }
+                onOpen = { showHangarPage = true },
+                newHulls = entryState?.newHullCount ?: 0
             )
         }
         if (showHangarPage) {
@@ -3020,6 +3047,7 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile) {
         LaunchedEffect(Unit) {
             HullPurchases.loadPrices(); viewModel.proPerks.refresh(); viewModel.seasonPass.refresh()
             HangarAnalytics.hangarOpened(viewModel.hangar.ui.value?.ownedHullCount ?: 0, profile.subscriptionPro)
+            viewModel.hangar.markHangarSeen()
         }
         hangarState?.let { st ->
             val trioOwned = HullCatalog.BUNDLE_APEX_IDS.count { it in st.ownedHullIds }
@@ -3030,9 +3058,9 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile) {
                     onClaim = { t, track -> viewModel.seasonPass.claim(t, track) },
                     onSkipPay = { activity?.let { viewModel.seasonPass.skipWithMoney(it) } },
                     onBuyBundle = { activity?.let { viewModel.seasonPass.buyBundle(it) } },
-                    hideBundle = trioOwned >= HullCatalog.BUNDLE_APEX_IDS.size) },
+                    hideBundle = trioOwned >= HullCatalog.BUNDLE_APEX_IDS.size || !st.bundleBuyable) },
                 goalsContent = { GoalsPanel(progState, { viewModel.progression.claimMission(it) }, { viewModel.progression.claimSet(it) }) },
-                bundleBanner = { ApexBundleBanner(trioOwned, bundlePrice) { activity?.let { hangarActions.onBuyBundle(it) } } }
+                bundleBanner = { if (st.bundleBuyable) ApexBundleBanner(trioOwned, bundlePrice) { activity?.let { hangarActions.onBuyBundle(it) } } }
             )
         }
         Spacer(modifier = Modifier.height(16.dp))
@@ -3406,7 +3434,12 @@ fun RacingSimulatorScreen(
     Popup(alignment = Alignment.TopStart) {
         Box(Modifier.padding(start = 8.dp, top = 184.dp)
             .background(Color(0x66000000), RoundedCornerShape(12.dp)).padding(horizontal = 8.dp, vertical = 3.dp)) {
-            Text("🎟 $runTokens", color = Color(0xFFFFD23F), fontSize = 12.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+            val hudTier = viewModel.selectedDifficulty
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(hudTier.label.take(3), color = Color(hudTier.colorArgb), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.width(8.dp))
+                Text("🎟 $runTokens", color = Color(0xFFFFD23F), fontSize = 12.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+            }
         }
     }
 
@@ -4749,7 +4782,9 @@ fun GameOverOverlayScreen(
                                 rank = ps.rank, isLegend = ps.isLegend,
                                 ownedHullIds = hs?.ownedHullIds ?: emptySet(), totalHulls = hs?.totalHullCount ?: 0,
                                 zoneReached = simState.currentZoneNumber,
-                                challengeCode = simState.activeGhost?.challengeId ?: ""
+                                challengeCode = simState.activeGhost?.challengeId ?: "",
+                                tierLabel = viewModel.selectedDifficulty.label,
+                                tierColor = viewModel.selectedDifficulty.colorArgb.toInt()
                             )
                         )
                     },
