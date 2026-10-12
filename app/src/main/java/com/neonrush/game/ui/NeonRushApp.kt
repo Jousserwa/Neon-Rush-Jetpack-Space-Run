@@ -722,7 +722,11 @@ if (showStreakFreezeOffer) {
                             }
                             "rankings" -> LeaderboardsTab(viewModel = viewModel, playerProfile = currentProfile)
                             "social" -> DailyChallengeTab(viewModel = viewModel, profile = currentProfile)
-                            "skins" -> SkinsDeckTab(viewModel = viewModel, profile = currentProfile)
+                            "skins" -> SkinsDeckTab(viewModel = viewModel, profile = currentProfile, onStartTrialRun = {
+                                activeTab = "arcade"
+                                viewModel.startRacingSimulation(com.neonrush.game.db.GhostChallengeEntity(
+                                    "ghost_cyberrunner", "CyberRunner", 850, 4, ZoneGenerator.generateTelemetryCsv(850, 111)))
+                            })
                             "special" -> SpecialModeTab(
                                 profile = currentProfile,
                                 viewModel = viewModel,
@@ -2777,7 +2781,7 @@ fun UpgradesPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
 }
 
 @Composable
-fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile) {
+fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTrialRun: () -> Unit = {}) {
     val unlockedSkins = remember(profile.unlockedSkinsCsv) {
         profile.unlockedSkinsCsv.split(",").toSet()
     }
@@ -3053,7 +3057,7 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile) {
             val trioOwned = HullCatalog.BUNDLE_APEX_IDS.count { it in st.ownedHullIds }
             val bundlePrice = st.storePrices[HullCatalog.BUNDLE_APEX_PRODUCT] ?: HullCatalog.BUNDLE_APEX_FALLBACK_PRICE
             HangarScreen(
-                st, hangarActions,
+                st, hangarActions.copy(onStartTrialRun = { showHangarPage = false; onStartTrialRun() }),
                 passContent = { SeasonPassScreen(passState, onBuy = { activity?.let { viewModel.seasonPass.buy(it) } },
                     onClaim = { t, track -> viewModel.seasonPass.claim(t, track) },
                     onSkipPay = { activity?.let { viewModel.seasonPass.skipWithMoney(it) } },
