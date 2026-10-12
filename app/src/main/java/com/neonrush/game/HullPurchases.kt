@@ -26,7 +26,7 @@ object HullPurchases {
 
     /** productId -> price string, from the store. Call once at startup / when Hangar opens. */
     fun loadPrices() {
-        val wanted = HullCatalog.SOLD.map { it.productId } + HullCatalog.BUNDLE_APEX_PRODUCT +
+        val wanted = HullCatalog.SOLD.map { it.productId } + HullCatalog.BUNDLE_APEX_PRODUCT + HullCatalog.FOUNDER_PRODUCT +
             SeasonPass.PRODUCT + SeasonPass.PRODUCT_PRO + SeasonPass.PRODUCT_SKIP + SeasonPass.PRODUCT_BUNDLE
         try {
             Purchases.sharedInstance.getOfferings(object : ReceiveOfferingsCallback {
@@ -70,7 +70,8 @@ object HullPurchases {
         val ids = info.allPurchasedProductIds.map { it.substringBefore(':') }
         val single = HullCatalog.SOLD.filter { it.productId in ids }.map { it.id }
         val bundle = if (HullCatalog.BUNDLE_APEX_PRODUCT in ids || SeasonPass.PRODUCT_BUNDLE in ids) HullCatalog.BUNDLE_APEX_IDS else emptyList()
-        return (single + bundle).distinct()
+        val founder = if (HullCatalog.FOUNDER_PRODUCT in ids) HullCatalog.FOUNDER_IDS else emptyList()
+        return (single + bundle + founder).distinct()
     }
 
     /** Same as [ownedFrom] but from plain product ids (used with the offline ledger, no network needed). */
@@ -78,13 +79,22 @@ object HullPurchases {
         val ids = productIds.map { it.substringBefore(':') }
         val single = HullCatalog.SOLD.filter { it.productId in ids }.map { it.id }
         val bundle = if (HullCatalog.BUNDLE_APEX_PRODUCT in ids || SeasonPass.PRODUCT_BUNDLE in ids) HullCatalog.BUNDLE_APEX_IDS else emptyList()
-        return (single + bundle).distinct()
+        val founder = if (HullCatalog.FOUNDER_PRODUCT in ids) HullCatalog.FOUNDER_IDS else emptyList()
+        return (single + bundle + founder).distinct()
     }
 
     fun buyApexBundle(activity: Activity, onResult: (Boolean) -> Unit) {
         HangarAnalytics.hullBuyTapped("bundle_apex")
         RevenueCatManager.purchaseGemPack(activity, HullCatalog.BUNDLE_APEX_PRODUCT) { ok ->
             if (ok) HangarAnalytics.hullPurchased("bundle_apex", "BUNDLE") else HangarAnalytics.hullPurchaseFailed("bundle_apex")
+            onResult(ok)
+        }
+    }
+
+    fun buyFounderBundle(activity: Activity, onResult: (Boolean) -> Unit) {
+        HangarAnalytics.hullBuyTapped("bundle_founder")
+        RevenueCatManager.purchaseGemPack(activity, HullCatalog.FOUNDER_PRODUCT) { ok ->
+            if (ok) HangarAnalytics.hullPurchased("bundle_founder", "BUNDLE") else HangarAnalytics.hullPurchaseFailed("bundle_founder")
             onResult(ok)
         }
     }
