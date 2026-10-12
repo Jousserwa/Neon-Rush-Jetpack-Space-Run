@@ -165,6 +165,8 @@ class SeasonPass(
     /** Tokens collected in the CURRENT run (live HUD chip). Banked into the season when the run ends. */
     val runTokens: StateFlow<Int> = _runTokens.asStateFlow()
     @Volatile private var runTokenMult = 1
+    /** Difficulty bonus (Hard 1.15, Legendary 1.3). Set by the ViewModel at run start. */
+    @Volatile var tierTokenMult = 1f
     /** Gem multiplier for the current run (1.25 while a Gem boost is active). Read by the ViewModel at run end. */
     @Volatile var runGemMult = 1f
         private set
@@ -296,7 +298,7 @@ class SeasonPass(
             val c = cfg ?: activeConfig().also { cfg = it }
             val have = store.getLong(k("pass_xp")).toInt()
             val tier = have / TOKENS_PER_TIER
-            val base = runTotal(collected * runTokenMult, distanceM, newPb)
+            val base = (runTotal(collected * runTokenMult, distanceM, newPb) * tierTokenMult).toInt()
             val gain = (base * catchUp(tier, c.startMs, c.endMs, SeasonClock.now())).toInt()
             lastRunBanked = gain
             store.putLong(k("pass_xp"), (have + gain).coerceAtMost((TIERS + PRO_BONUS_TIERS) * TOKENS_PER_TIER).toLong())
@@ -359,6 +361,7 @@ class SeasonPass(
     fun buyBundle(activity: Activity) {
         // Safety net: never sell the bundle to someone who already owns all three hulls (the UI hides it too).
         if (HullCatalog.BUNDLE_APEX_IDS.all { it in hangar.ownedPremium() }) return
+        if (!hangar.bundleBuyable()) return   // trio not fully released yet
         _state.value = _state.value.copy(inFlight = true)
         HangarAnalytics.passSkip("bundle_tap")
         RevenueCatManager.purchaseGemPack(activity, PRODUCT_BUNDLE) { ok ->
