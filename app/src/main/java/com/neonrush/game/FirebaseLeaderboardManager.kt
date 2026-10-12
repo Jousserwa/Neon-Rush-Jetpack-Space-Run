@@ -55,7 +55,8 @@ class FirebaseLeaderboardManager(context: Context) {
     }
 
     suspend fun submitScore(username: String, score: Int, activeSkinId: String,
-                            auraRank: String = "NONE", legend: Boolean = false, titleId: String = "rookie", badges: String = "") {
+                            auraRank: String = "NONE", legend: Boolean = false, titleId: String = "rookie", badges: String = "",
+                            tierKey: String = "") {
         try {
             val data = hashMapOf(
                 "username" to username,
@@ -70,16 +71,16 @@ class FirebaseLeaderboardManager(context: Context) {
             // Firestore queues this write on the device and sends it when the connection
             // returns, but await() would hang offline until the server confirms. Don't wait.
             withTimeoutOrNull(5_000L) {
-                db.collection("leaderboard").document(username).set(data).await()
+                db.collection("leaderboard$tierKey").document(username).set(data).await()
             }
         } catch (e: Exception) {
             // Silently fail — leaderboard is non-critical
         }
     }
 
-    suspend fun fetchTopScores() {
+    suspend fun fetchTopScores(tierKey: String = "") {
         try {
-            val snapshot = db.collection("leaderboard")
+            val snapshot = db.collection("leaderboard$tierKey")
                 .orderBy("bestScore", Query.Direction.DESCENDING)
                 .limit(50)
                 .get()
@@ -101,11 +102,11 @@ class FirebaseLeaderboardManager(context: Context) {
                     badgeIds = (doc.getString("badges") ?: "").split(",").filter { it.isNotBlank() }
                 )
             }
-            if (pilots.isNotEmpty()) {
-                _leaderboard.value = pilots
-            }
+            // An empty tier board is a real answer (nobody has played that tier yet), not a failure.
+            _leaderboard.value = pilots
         } catch (e: Exception) {
-            // Keep mock data if Firebase fails
+            // Keep mock data if Firebase fails (but never show another tier's scores under this tier's name)
+            if (tierKey.isNotEmpty()) _leaderboard.value = emptyList()
         }
     }
 
@@ -121,12 +122,13 @@ class FirebaseLeaderboardManager(context: Context) {
         }
         
         suspend fun submitScore(username: String, score: Int, activeSkinId: String,
-                                auraRank: String = "NONE", legend: Boolean = false, titleId: String = "rookie", badges: String = "") {
-            instance.submitScore(username, score, activeSkinId, auraRank, legend, titleId, badges)
+                                auraRank: String = "NONE", legend: Boolean = false, titleId: String = "rookie", badges: String = "",
+                                tierKey: String = "") {
+            instance.submitScore(username, score, activeSkinId, auraRank, legend, titleId, badges, tierKey)
         }
         
-        suspend fun fetchTopScores() {
-            instance.fetchTopScores()
+        suspend fun fetchTopScores(tierKey: String = "") {
+            instance.fetchTopScores(tierKey)
         }
     }
 }
