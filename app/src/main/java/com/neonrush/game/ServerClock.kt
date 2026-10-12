@@ -22,6 +22,21 @@ object ServerClock {
 
     fun nowMs(): Long = offsetMs?.let { it + SystemClock.elapsedRealtime() } ?: 0L
 
+    @Volatile private var deviceFloorMs = 0L
+
+    /**
+     * Server time when synced, otherwise the device clock (never going backwards within a session) so drop
+     * countdowns and "new hull" alerts still work offline. A tampered device clock can at worst show a purchase
+     * button early; the store product itself stays inactive in Play Console until the real release.
+     */
+    fun bestNowMs(): Long {
+        val server = nowMs()
+        if (server > 0L) return server
+        val dev = System.currentTimeMillis()
+        if (dev > deviceFloorMs) deviceFloorMs = dev
+        return deviceFloorMs
+    }
+
     suspend fun sync(uid: String): Boolean = try {
         val ref = FirebaseFirestore.getInstance().collection("clock").document(uid)
         ref.set(mapOf("t" to FieldValue.serverTimestamp())).await()
