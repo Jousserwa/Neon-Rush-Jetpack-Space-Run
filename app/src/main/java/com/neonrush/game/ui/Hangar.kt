@@ -111,6 +111,7 @@ data class HangarActions(
     val onClaimStipend: () -> Unit = {},
     val onBuyBundle: (android.app.Activity) -> Unit = {},
     val onBuyFounder: (android.app.Activity) -> Unit = {},
+    val onStartTrialRun: () -> Unit = {},      // leave the Hangar and start a real run (trial hull already armed)
     val onSetDropNotify: (Boolean) -> Unit = {},
     val onArmTrial: (String) -> Unit = {}     // fly this hull for 8s at the start of the next real run
 )
@@ -344,7 +345,7 @@ private fun HullCard(h: PremiumHull, state: HangarUiState, actions: HangarAction
     if (showTest) {
         FlightTestDialog(h, canBuy && !owned, price, owned,
             onBuy = { showTest = false; actions.onBuy(h) },
-            onTrialRun = { actions.onArmTrial(h.id) },
+            onTrialRun = { actions.onArmTrial(h.id); showTest = false; actions.onStartTrialRun() },
             onDismiss = { showTest = false })
     }
 }
@@ -364,7 +365,6 @@ private fun FlightTestDialog(hull: PremiumHull, canBuy: Boolean, price: String, 
     val t = rememberInfiniteTransition(label = "flightTest")
     val tick by t.animateFloat(0f, 600f, infiniteRepeatable(tween(60000, easing = LinearEasing), RepeatMode.Restart), label = "ft")
     var left by remember { mutableStateOf(8) }
-    var armed by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { while (left > 0) { delay(1000); left-- } }
     DisposableEffect(Unit) { onDispose { HullFx.reset() } }
     demoEvents(tick.toInt())
@@ -373,7 +373,12 @@ private fun FlightTestDialog(hull: PremiumHull, canBuy: Boolean, price: String, 
             .border(1.5.dp, CyberPrimary, RoundedCornerShape(18.dp)).padding(14.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("${hull.emoji} ${hull.name}", color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp)
-                Text(if (left > 0) "FLIGHT TEST ${left}s" else "TEST OVER", color = CyberPrimary, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(if (left > 0) "PREVIEW ${left}s" else "PREVIEW", color = CyberPrimary, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                    Box(Modifier.size(30.dp).clip(RoundedCornerShape(15.dp)).background(CyberSurface).clickable { onDismiss() }, contentAlignment = Alignment.Center) {
+                        Text("✕", color = Color.White, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                    }
+                }
             }
             Spacer(Modifier.height(10.dp))
             Canvas(Modifier.fillMaxWidth().height(230.dp).clip(RoundedCornerShape(14.dp))) {
@@ -394,24 +399,21 @@ private fun FlightTestDialog(hull: PremiumHull, canBuy: Boolean, price: String, 
                     dstSize = IntSize(pw.roundToInt(), hh.roundToInt()))
             }
             Spacer(Modifier.height(12.dp))
+            Button(onClick = { onTrialRun() }, modifier = Modifier.fillMaxWidth().height(46.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary), shape = RoundedCornerShape(10.dp)) {
+                Text("▶ TEST IN A REAL RUN (20s)", color = CyberBackground, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
+            }
+            Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onTrialRun(); armed = true }, enabled = !armed, modifier = Modifier.weight(1f).height(44.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = CyberSurface), shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Text(if (armed) "✔ Start a run" else "Try in a real run", color = CyberPrimary, fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace, maxLines = 1)
+                Button(onClick = onDismiss, modifier = Modifier.weight(1f).height(44.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CyberSurface), shape = RoundedCornerShape(10.dp)) {
+                    Text("‹ BACK", color = Color.White, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                 }
                 if (canBuy) Button(onClick = onBuy, modifier = Modifier.weight(1f).height(44.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary), shape = RoundedCornerShape(10.dp)) {
                     Text("BUY  $price", color = Color.White, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
                 }
-                else Button(onClick = onDismiss, modifier = Modifier.weight(1f).height(44.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary), shape = RoundedCornerShape(10.dp)) {
-                    Text(if (owned) "DONE" else "CLOSE", color = CyberBackground, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
-                }
             }
-            if (armed) Text("Your next run starts with this hull for 8 seconds.", color = CyberOnSurface.copy(alpha = 0.7f),
-                fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
         }
     }
 }
