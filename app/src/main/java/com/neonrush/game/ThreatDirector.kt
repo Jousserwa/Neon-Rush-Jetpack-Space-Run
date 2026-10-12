@@ -43,7 +43,7 @@ object ThreatDirector {
      */
     fun spawn(
         tick: Int, zone: Int, userY: Int, rand: Random,
-        current: List<VisualTrackElement>, suppress: Boolean, intensity: Float, assist: Float
+        current: List<VisualTrackElement>, suppress: Boolean, intensity: Float, assist: Float, warnDelta: Int = 0
     ): List<VisualTrackElement> {
         val out = mutableListOf<VisualTrackElement>()
         if (current.any { spawnedAt(it.id, tick) }) lastThreatTick = tick
@@ -61,16 +61,16 @@ object ThreatDirector {
         val busy = pending.isNotEmpty()
         if (!busy && !setPieceDone && tick >= setPieceAt) {
             setPieceDone = true
-            schedule(tick, zone, userY, rand, out, big = true)
+            schedule(tick, zone, userY, rand, out, big = true, warnDelta = warnDelta)
         } else if (!busy) {
             // 2.6 s at the start, shrinking to ~1.4 s by zone 40, tighter again with intensity
             val maxGap = ((22 - (zone / 4).coerceAtMost(8)) / intensity.coerceAtLeast(0.7f)).toInt().coerceIn(10, 24)
-            if (tick - lastThreatTick >= maxGap) schedule(tick, zone, userY, rand, out, big = false)
+            if (tick - lastThreatTick >= maxGap) schedule(tick, zone, userY, rand, out, big = false, warnDelta = warnDelta)
         }
         return out
     }
 
-    private fun schedule(tick: Int, zone: Int, userY: Int, rand: Random, out: MutableList<VisualTrackElement>, big: Boolean) {
+    private fun schedule(tick: Int, zone: Int, userY: Int, rand: Random, out: MutableList<VisualTrackElement>, big: Boolean, warnDelta: Int = 0) {
         val kinds = mutableListOf("fire", "fire", "lava", "mountain")
         if (zone >= 4) kinds += "mirror"
         if (zone >= 6) kinds += "charger"
@@ -82,18 +82,18 @@ object ThreatDirector {
         val id = "thr_${tick}_$n"
         val elems = mutableListOf<VisualTrackElement>()
         var warnY = userY
-        var delay = WARN_TICKS
+        var delay = WARN_TICKS + warnDelta
         var tag = kind
         when (kind) {
             "fire" -> {
-                delay = LONG_WARN_TICKS
+                delay = LONG_WARN_TICKS + warnDelta
                 val gc = (userY + rand.nextInt(-14, 15)).coerceIn(30, 70); warnY = gc
                 listOf(-54, -40, -26, 26, 40, 54).map { gc + it }.filter { it in 6..94 }.forEachIndexed { i, y ->
                     elems += VisualTrackElement("obs_${tick + delay}_f${n}_$i", BASE_X, y, "obstacle", "FIRE_WALL")
                 }
             }
             "lava" -> {
-                delay = LONG_WARN_TICKS
+                delay = LONG_WARN_TICKS + warnDelta
                 val base = (userY + rand.nextInt(-12, 13)).coerceIn(28, 72); warnY = base
                 val count = if (zone >= 12) 3 else 2
                 for (i in 0 until count) {
@@ -102,7 +102,7 @@ object ThreatDirector {
                 }
             }
             "mountain" -> {
-                delay = LONG_WARN_TICKS
+                delay = LONG_WARN_TICKS + warnDelta
                 val bottom = rand.nextBoolean()
                 tag = if (bottom) "mtnb" else "mtnt"
                 if (bottom) { val p = rand.nextInt(62, 75); warnY = p
@@ -112,7 +112,7 @@ object ThreatDirector {
                 }
             }
             "ridges" -> {
-                delay = LONG_WARN_TICKS
+                delay = LONG_WARN_TICKS + warnDelta
                 warnY = 50
                 listOf(72, 86).forEachIndexed { i, y -> elems += VisualTrackElement("obs_${tick + delay}_rb${n}_$i", BASE_X, y, "obstacle", "MOUNTAIN_BOTTOM") }
                 listOf(28, 14).forEachIndexed { i, y -> elems += VisualTrackElement("obs_${tick + delay}_rt${n}_$i", BASE_X, y, "obstacle", "MOUNTAIN_TOP") }
@@ -122,7 +122,7 @@ object ThreatDirector {
                 elems += VisualTrackElement("obs_${tick + delay}_mir$n", BASE_X, userY, "obstacle", "SHADOW_MIRROR")
             }
             "charger" -> {
-                warnY = userY; delay = WARN_TICKS + 1
+                warnY = userY; delay = WARN_TICKS + 1 + warnDelta
                 elems += VisualTrackElement("obs_${tick + delay}_chg$n", 0.88f, userY, "obstacle", "SHADOW_CHARGER")
             }
             "swarm" -> {
