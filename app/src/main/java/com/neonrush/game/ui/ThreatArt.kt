@@ -23,7 +23,7 @@ import kotlin.math.sin
 import kotlin.math.pow
 
 /**
- * Code-drawn art for the new threats (fire, lava, mountains, boss charge-up, WARN markers) and the
+ * Code-drawn art for the new threats (arc pylons, lava, mountains, boss charge-up, WARN markers) and the
  * SHADOW clones, which re-use the player's own pilot frames (mirrored, tinted, with afterimages).
  * Returns true when it drew [elem]; the caller then skips its normal drawing.
  */
@@ -116,44 +116,73 @@ private class Rng(var s: Int) {
 }
 
 /**
- * Fire column: five flickering tongues in three heat layers (dark red, orange, white-yellow core), additive glow,
- * a lean toward the trailing side, and rising sparks. Pure vector, no assets; driven by the smooth clock.
+ * ARC PYLON (replaces the old fire column): two glowing emitter nodes with a crackling plasma arc between them
+ * and a faint energy field around it. Additive light in the game's own cyan / magenta, so it sits in the
+ * scene like the crystals and neon instead of looking pasted on. Pure vector; driven by the smooth clock.
  */
 private fun DrawScope.drawFlame(x: Float, y: Float, size: Float, time: Float, seed: Int) {
     val ph = (seed and 0xff) / 40f
     val pulse = 0.85f + 0.15f * sin(time * 9f + ph)
-    // wide heat glow
-    drawCircle(Brush.radialGradient(listOf(Color(0xFFFF7A1A).copy(alpha = 0.40f * pulse), Color(0x00FF3B00)), center = Offset(x, y), radius = size * 1.15f),
-        size * 1.15f, Offset(x, y), blendMode = BlendMode.Plus)
+    val cyan = Color(0xFF00E5FF); val mag = Color(0xFFFF2D95); val violet = Color(0xFF7C4DFF)
+    val half = size * 0.78f
+    val top = Offset(x, y - half); val bot = Offset(x, y + half)
 
-    fun tongue(cx: Float, hw: Float, hh: Float, sway: Float, color: Color, plus: Boolean) {
-        val tipX = cx + sway
-        val p = Path().apply {
-            moveTo(cx - hw, y + hh * 0.9f)
-            cubicTo(cx - hw * 1.25f, y + hh * 0.1f, cx - hw * 0.35f + sway * 0.4f, y - hh * 0.45f, tipX, y - hh)
-            cubicTo(cx + hw * 0.35f + sway * 0.4f, y - hh * 0.45f, cx + hw * 1.25f, y + hh * 0.1f, cx + hw, y + hh * 0.9f)
-            close()
+    // energy field: tall soft ellipse of light between the nodes
+    drawOval(Brush.radialGradient(listOf(violet.copy(alpha = 0.34f * pulse), Color.Transparent), center = Offset(x, y), radius = half * 1.25f),
+        topLeft = Offset(x - size * 0.55f, y - half * 1.15f), size = Size(size * 1.1f, half * 2.3f), blendMode = BlendMode.Plus)
+    drawCircle(Brush.radialGradient(listOf(mag.copy(alpha = 0.30f * pulse), Color.Transparent), center = Offset(x, y), radius = size * 0.7f),
+        size * 0.7f, Offset(x, y), blendMode = BlendMode.Plus)
+
+    // lightning: re-rolled ~16 times a second so it crackles; three bolts of different thickness
+    val step = (time * 16f).toInt()
+    for (b in 0 until 3) {
+        val r = Rng(seed * 31 + step * 7 + b * 101)
+        val path = Path().apply {
+            moveTo(top.x, top.y)
+            val segs = 9
+            for (k in 1 until segs) {
+                val f = k / segs.toFloat()
+                val amp = size * (0.10f + 0.16f * sin(f * PI.toFloat())) * (if (b == 0) 1f else 0.7f)
+                lineTo(x + (r.next() - 0.5f) * 2f * amp, top.y + (bot.y - top.y) * f)
+            }
+            lineTo(bot.x, bot.y)
         }
-        drawPath(p, color, blendMode = if (plus) BlendMode.Plus else BlendMode.SrcOver)
+        val a = if (b == 0) 1f else 0.6f
+        drawPath(path, mag.copy(alpha = 0.20f * a), style = Stroke(width = size * 0.16f, cap = StrokeCap.Round), blendMode = BlendMode.Plus)
+        drawPath(path, (if (b == 0) mag else cyan).copy(alpha = 0.85f * a), style = Stroke(width = size * 0.055f, cap = StrokeCap.Round), blendMode = BlendMode.Plus)
+        drawPath(path, Color.White.copy(alpha = 0.95f * a), style = Stroke(width = size * 0.022f, cap = StrokeCap.Round), blendMode = BlendMode.Plus)
     }
-    val heights = floatArrayOf(0.70f, 0.92f, 1.0f, 0.86f, 0.66f)
-    for (layer in 0..2) {
-        val shrink = 1f - layer * 0.30f
-        val color = when (layer) { 0 -> Color(0xFFC81E00).copy(alpha = 0.92f); 1 -> Color(0xFFFF8A00).copy(alpha = 0.85f); else -> Color(0xFFFFEC8A).copy(alpha = 0.90f) }
-        for (k in 0 until 5) {
-            val flick = 1f + 0.16f * sin(time * (8f + k * 1.7f) + ph * 2f + k)
-            val sway = sin(time * (4.2f + k * 0.9f) + ph + k * 1.3f) * size * 0.10f + size * 0.07f   // leans right (trailing)
-            tongue(x + (k - 2) * size * 0.15f, size * 0.20f * shrink, size * 0.62f * heights[k] * shrink * flick, sway, color, plus = layer > 0)
+    // short side crackles jumping off the arc
+    for (k in 0 until 4) {
+        val r = Rng(seed + step * 13 + k * 57)
+        val sy = y + (r.next() - 0.5f) * half * 1.6f
+        val dir = if (r.next() > 0.5f) 1f else -1f
+        val len = size * (0.18f + 0.22f * r.next())
+        val mid = Offset(x + dir * len * 0.5f, sy + (r.next() - 0.5f) * size * 0.12f)
+        val end = Offset(x + dir * len, sy + (r.next() - 0.5f) * size * 0.2f)
+        drawLine(cyan.copy(alpha = 0.8f), Offset(x, sy), mid, strokeWidth = size * 0.03f, blendMode = BlendMode.Plus)
+        drawLine(cyan.copy(alpha = 0.6f), mid, end, strokeWidth = size * 0.022f, blendMode = BlendMode.Plus)
+    }
+
+    // emitter nodes: diamond core, spinning ring with shards, bright bloom
+    for (n in 0..1) {
+        val c = if (n == 0) top else bot
+        drawCircle(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.9f * pulse), cyan.copy(alpha = 0.5f), Color.Transparent), center = c, radius = size * 0.38f),
+            size * 0.38f, c, blendMode = BlendMode.Plus)
+        val rr = size * 0.15f
+        val d = Path().apply { moveTo(c.x, c.y - rr); lineTo(c.x + rr * 0.7f, c.y); lineTo(c.x, c.y + rr); lineTo(c.x - rr * 0.7f, c.y); close() }
+        drawPath(d, Color(0xFF0B1430)); drawPath(d, cyan, style = Stroke(width = size * 0.03f))
+        val spin = time * (n * 2 - 1) * 3f + ph
+        for (k in 0 until 4) {
+            val ang = spin + k * PI.toFloat() / 2f
+            drawCircle(mag.copy(alpha = 0.9f), size * 0.03f, Offset(c.x + cos(ang) * size * 0.26f, c.y + sin(ang) * size * 0.1f), blendMode = BlendMode.Plus)
         }
     }
-    // white-hot heart
-    drawCircle(Color.White.copy(alpha = 0.55f * pulse), size * 0.10f, Offset(x + size * 0.03f, y + size * 0.12f), blendMode = BlendMode.Plus)
-    // rising sparks
-    for (k in 0 until 6) {
-        val p = (time * (0.7f + k * 0.11f) + k * 0.17f + ph) % 1f
-        val sx = x + sin(k * 2.3f + p * 6f) * size * 0.22f + p * size * 0.30f
-        val sy = y - size * 0.15f - p * size * 1.15f
-        drawCircle(Color(0xFFFFC04D).copy(alpha = (1f - p) * 0.9f), size * 0.034f * (1f - p * 0.7f), Offset(sx, sy), blendMode = BlendMode.Plus)
+    // drifting motes
+    for (k in 0 until 5) {
+        val p = (time * (0.6f + k * 0.1f) + k * 0.2f + ph) % 1f
+        drawCircle(cyan.copy(alpha = (1f - p) * 0.8f), size * 0.028f * (1f - p * 0.6f),
+            Offset(x + sin(k * 2.1f + p * 5f) * size * 0.3f + p * size * 0.25f, y + (k - 2) * size * 0.3f), blendMode = BlendMode.Plus)
     }
 }
 
