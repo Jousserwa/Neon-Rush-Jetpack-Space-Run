@@ -40,6 +40,11 @@ import com.neonrush.game.RevenueCatManager
 import com.neonrush.game.ThrusterCatalog
 import com.neonrush.game.ThrusterKind
 import com.neonrush.game.db.GameProfile
+import com.neonrush.game.ui.theme.CyberBackground
+import com.neonrush.game.ui.theme.CyberOnSurface
+import com.neonrush.game.ui.theme.CyberPrimary
+import com.neonrush.game.ui.theme.CyberSecondary
+import com.neonrush.game.ui.theme.CyberSurface
 import kotlin.math.roundToInt
 
 /** Shop > TRAILS: pick the thruster trail for your jetpack. Any trail can be previewed live before it is owned. */
