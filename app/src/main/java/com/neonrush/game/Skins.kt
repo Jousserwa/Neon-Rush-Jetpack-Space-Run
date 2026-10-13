@@ -26,37 +26,37 @@ object Skins {
         Skin(
             id = "blackout_runner",
             name = "Blackout Runner",
-            description = "Salvaged war-front plating. Earned by clearing Blackout Front.",
+            description = "Salvaged war-front plating. Clear Blackout Front to earn the right to buy it.",
             previewImageRes = R.drawable.pilot_run_1, // placeholder — swap when art exists
-            priceUsd = "Free (story reward)",
+            priceUsd = "$2.99",
             requiresPro = false,
             unlockWorldId = 1
         ),
         Skin(
             id = "signal_ghost",
             name = "Signal Ghost",
-            description = "Something from the station clings to this suit. Earned by clearing Derelict Signal.",
+            description = "Something from the station clings to this suit. Clear Derelict Signal without a revive to earn the right to buy it.",
             previewImageRes = R.drawable.pilot_run_1, // placeholder
-            priceUsd = "Free (story reward)",
+            priceUsd = "$3.99",
             requiresPro = false,
             unlockWorldId = 2
         ),
         Skin(
             id = "convict_grey",
             name = "Convict Grey",
-            description = "Prison-issue fatigues, worn since the break. Earned by clearing Cell Block Zero.",
+            description = "Prison-issue fatigues, worn since the break. Clear Cell Block Zero on Medium+ to earn the right to buy it.",
             previewImageRes = R.drawable.pilot_run_1, // placeholder
-            priceUsd = "Free (story reward)",
+            priceUsd = "$2.99",
             requiresPro = false,
             unlockWorldId = 3
         ),
         Skin(
             id = "apex_predator",
             name = "Apex Predator",
-            description = "You outran the thing that was hunting you. Earned by clearing Green Hell.",
+            description = "You outran the thing that was hunting you. Clear Green Hell on Hard+ to earn the right to buy it.",
             previewImageRes = R.drawable.pilot_run_1, // placeholder
-            priceUsd = "Free (story reward)",
-            requiresPro = true,
+            priceUsd = "$3.99",
+            requiresPro = false,
             unlockWorldId = 4
         ),
         Skin(
