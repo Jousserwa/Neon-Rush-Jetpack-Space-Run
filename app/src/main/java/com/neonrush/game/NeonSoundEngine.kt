@@ -186,10 +186,7 @@ class NeonSoundEngine {
                 renderHomeAmbient(left, right)
             }
             
-            // Render wind noise if running fast in-game
-            if (!isHomeScreenActive && currentScore > 200) {
-                renderHyperSpeedWind(left, right)
-            }
+            // (hyper-speed wind noise removed on purpose: it was the constant 'shhh' hiss)
             
             // Dynamics Compressor soft knee limiter & Volume gains
             val stereoInterleaved = FloatArray(BLOCK_SIZE * 2)
@@ -265,23 +262,6 @@ class NeonSoundEngine {
                 val mixedDrone = (s1 + s2 + s3) * breatheVal
                 left[i] += mixedDrone
                 right[i] += mixedDrone * 0.92f
-            }
-        }
-        
-        private var windFilterVal = 0f
-        
-        private fun renderHyperSpeedWind(left: FloatArray, right: FloatArray) {
-            val capSpeed = currentSpeed.coerceAtMost(1000f)
-            val speedDelta = (capSpeed - 200f).coerceAtLeast(0f)
-            val windAmp = (speedDelta / 800f) * 0.12f
-            
-            for (i in 0 until BLOCK_SIZE) {
-                val noise = (Random.nextFloat() * 2f - 1f) * windAmp
-                val filtered = noise - windFilterVal
-                windFilterVal = windFilterVal * 0.95f + noise * 0.05f
-                
-                left[i] += filtered * 0.06f
-                right[i] += filtered * 0.06f
             }
         }
         
