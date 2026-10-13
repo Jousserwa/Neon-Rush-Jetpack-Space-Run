@@ -98,6 +98,7 @@ import com.neonrush.game.ZoneGenerator
 import com.neonrush.game.TESTING_DISABLE_PRO_GATE
 import com.neonrush.game.StoryBannerHost
 import com.neonrush.game.Skins
+import com.neonrush.game.ThrusterCatalog
 import com.neonrush.game.SuitGates
 import com.neonrush.game.SuitRotation
 import com.neonrush.game.Upgrades
@@ -2913,6 +2914,19 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                     .padding(vertical = 10.dp)
             )
             Text(
+                text = "TRAILS",
+                color = if (selectedTab == "trails") CyberBackground else CyberPrimary,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .background(if (selectedTab == "trails") CyberPrimary else Color.Transparent)
+                    .clickable { selectedTab = "trails" }
+                    .padding(vertical = 10.dp)
+            )
+            Text(
                 text = "UPGRADES",
                 color = if (selectedTab == "upgrades") CyberBackground else CyberPrimary,
                 fontFamily = FontFamily.Monospace,
@@ -2928,6 +2942,9 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
         }
         if (selectedTab == "upgrades") {
             UpgradesPanel(viewModel, profile)
+        }
+        if (selectedTab == "trails") {
+            ThrustersPanel(viewModel, profile)
         }
         if (selectedTab == "pilots") {
             val unlockedPilotSkins = remember(profile.unlockedPilotSkinsCsv) {
@@ -3453,6 +3470,7 @@ fun RacingSimulatorScreen(
     val activity = LocalContext.current.findActivity()
     val sectorHull by viewModel.hangar.sectorHullId.collectAsState()
     val suitFreeRide by viewModel.suitFreeRide.collectAsState()
+    val thrusterState by viewModel.thrusters.state.collectAsState()
     val runSuitId = SuitRotation.pick(profile.unlockedPilotSkinsCsv, profile.activePilotSkinId, simState.currentZoneNumber, suitFreeRide)
     val hullToast by viewModel.hangar.toast.collectAsState()
     LaunchedEffect(hullToast) { if (hullToast != null) { kotlinx.coroutines.delay(1800); viewModel.hangar.consumeToast() } }
@@ -4490,6 +4508,7 @@ val bossImagesByWorld = mapOf(
 
                         // Equipped ship hull: thruster trail + aura behind the pilot.
                         drawHullEffect(sectorHull ?: profile.activeSkinId, userX, userY, displayHeight, simState.tickIndex, afterburnerLevel)
+                        drawThruster(if (thrusterState.active.isNotEmpty()) viewModel.thrusters.activeNow() else ThrusterCatalog.DEFAULT, userX, userY, displayHeight, simState.tickIndex, afterburnerLevel)
 
                         rotate(degrees = tiltAngle, pivot = Offset(userX, userY)) {
                             // Equipped pilot suit: colour grade + aura/particles on the shared frames.
