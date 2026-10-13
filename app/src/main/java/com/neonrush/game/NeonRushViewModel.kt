@@ -199,8 +199,12 @@ class NeonRushViewModel(
         _suitFreeRide.value = on
         viewModelScope.launch { try { hangarStore.put(SuitRotation.K_SUIT_FREE_RIDE, if (on) "1" else "0") } catch (_: Exception) {} }
     }
+    // Thruster trail slot (independent of hull and suit). Announcements reuse the suit celebration snackbar.
+    val thrusters = ThrusterLocker(gameDao, hangarStore, viewModelScope, { RevenueCatManager.isPro.value }, { msg -> _suitGateCelebration.tryEmit(msg) })
     private suspend fun loadSuitGates() {
         try { _suitFreeRide.value = hangarStore.get(SuitRotation.K_SUIT_FREE_RIDE) == "1" } catch (_: Exception) {}
+        thrusters.load()
+        try { gameDao.getProfileDirect()?.let { thrusters.evaluate(it) } } catch (_: Exception) {}
         _suitGatesOpen.value = SuitGates.ALL.filter { try { hangarStore.get(SuitGates.key(it.skinId)) == "1" } catch (_: Exception) { false } }
             .map { it.skinId }.toSet()
     }
@@ -818,7 +822,7 @@ fun freezeStreak() {
             proPerks.refresh(); hangar.reconcileWithStore(); seasonPass.refresh()
         }
         viewModelScope.launch {
-            RevenueCatManager.isPro.collect { proPerks.refresh(); seasonPass.refresh() }
+            RevenueCatManager.isPro.collect { proPerks.refresh(); seasonPass.refresh(); try { gameDao.getProfileDirect()?.let { thrusters.evaluate(it) } } catch (_: Exception) {} }
         }
         restoreDifficulty()
         viewModelScope.launch { loadSuitGates() }
@@ -2067,6 +2071,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             )
             hangar.onRunEnd(finalState.distanceMeters.toInt(), activeSkinForLeaderboard)
             seasonPass.onRunEnd(finalState.distanceMeters.toInt(), finalState.currentZoneNumber, isNewPB)
+            gameDao.getProfileDirect()?.let { thrusters.evaluate(it) }
             if (!adsRemovedResult) {
                 AdMobManager.incrementGameOver()
             }
