@@ -106,7 +106,8 @@ data class PilotCardData(
     val name: String, val hullId: String, val bestScore: Int, val bestZone: Int,
     val rank: AuraRank = AuraRank.NONE, val isLegend: Boolean = false,
     val titleId: String = "rookie", val badgeIds: List<String> = emptyList(), val isPro: Boolean = false,
-    val backdrop: List<Color>? = null
+    val backdrop: List<Color>? = null,
+    val suitId: String = "default"
 )
 
 /** Tiny hull thumbnail for leaderboard rows and ghost chips. */
@@ -132,7 +133,7 @@ fun PilotCardDialog(d: PilotCardData, onDismiss: () -> Unit) {
             Box(Modifier.fillMaxWidth().height(if (preview) 150.dp else 100.dp), contentAlignment = Alignment.Center) {
                 HangarPreview(d.hullId, reactions = true)
                 LivingAvatar(tick.toInt(), Modifier.align(Alignment.CenterEnd).padding(end = 28.dp)) {
-                    Image(painterResource(R.drawable.pilot_run_1), null, Modifier.size(64.dp))
+                    SuitAvatar(d.suitId, 64.dp, tick.toInt())
                 }
             }
             Spacer(Modifier.height(8.dp))
