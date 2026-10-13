@@ -187,6 +187,34 @@ class NeonRushViewModel(
     val proPerks = ProPerks(gameDao, hangarStore, viewModelScope, hangar)
     val progression = HullProgression(gameDao, hangarStore, viewModelScope, hangar)
     val seasonPass = SeasonPass(gameDao, hangarStore, viewModelScope, hangar) { RevenueCatManager.isPro.value }
+
+    // Story suits: the RIGHT TO BUY is earned (see SuitGates). Declared above every init block that may read it.
+    private val _suitGatesOpen = MutableStateFlow<Set<String>>(emptySet())
+    val suitGatesOpen: StateFlow<Set<String>> = _suitGatesOpen.asStateFlow()
+    private val _suitGateCelebration = MutableSharedFlow<String>(extraBufferCapacity = 2)
+    val suitGateCelebration: SharedFlow<String> = _suitGateCelebration.asSharedFlow()
+    private val _suitFreeRide = MutableStateFlow(false)
+    val suitFreeRide: StateFlow<Boolean> = _suitFreeRide.asStateFlow()
+    fun setSuitFreeRide(on: Boolean) {
+        _suitFreeRide.value = on
+        viewModelScope.launch { try { hangarStore.put(SuitRotation.K_SUIT_FREE_RIDE, if (on) "1" else "0") } catch (_: Exception) {} }
+    }
+    private suspend fun loadSuitGates() {
+        try { _suitFreeRide.value = hangarStore.get(SuitRotation.K_SUIT_FREE_RIDE) == "1" } catch (_: Exception) {}
+        _suitGatesOpen.value = SuitGates.ALL.filter { try { hangarStore.get(SuitGates.key(it.skinId)) == "1" } catch (_: Exception) { false } }
+            .map { it.skinId }.toSet()
+    }
+    private suspend fun openSuitGate(skinId: String, announce: Boolean) {
+        if (skinId in _suitGatesOpen.value) return
+        try { hangarStore.put(SuitGates.key(skinId), "1") } catch (_: Exception) {}
+        _suitGatesOpen.value = _suitGatesOpen.value + skinId
+        if (announce) {
+            val g = SuitGates.forSkin(skinId)
+            val skin = Skins.ALL.firstOrNull { it.id == skinId }
+            soundEngine.playUnlockSkin()
+            _suitGateCelebration.tryEmit("🔓 SUIT UNLOCKED FOR PURCHASE: ${skin?.name ?: skinId} (${skin?.priceUsd ?: ""}). ${g?.teaser ?: ""} Find it in Hangar > Pilot Suits.")
+        }
+    }
     init {
         hangar.progression = progression
         hangar.appContext = context.applicationContext
@@ -229,14 +257,14 @@ class NeonRushViewModel(
         val world = Worlds.worldForZone(previousZoneNumber)
         if (nextZoneNumber > world.endZone && firedStoryBeats.add(world.id to StoryBeatType.ENDING)) {
             _storyEvent.tryEmit(StoryEvent(world, StoryBeatType.ENDING, world.endingText))
-            val rewardSkinId = when (world.id) {
-                1 -> "blackout_runner"
-                2 -> "signal_ghost"
-                3 -> "convict_grey"
-                4 -> "apex_predator"
-                else -> null
+            // The suits are no longer handed out: clearing the world (under the suit's condition) earns the RIGHT TO BUY it.
+            SuitGates.forWorld(world.id)?.let { g ->
+                if (SuitGates.met(g, selectedDifficulty, _simState.value.reviveCount)) {
+                    viewModelScope.launch { openSuitGate(g.skinId, announce = true) }
+                } else {
+                    _suitGateCelebration.tryEmit("Sector cleared, but the ${Skins.ALL.firstOrNull { it.id == g.skinId }?.name ?: "suit"} is still locked. ${g.requirement}")
+                }
             }
-            rewardSkinId?.let { unlockPilotSkinFromStory(it) }
         }
     }
 
@@ -289,12 +317,30 @@ class NeonRushViewModel(
      * Mirrors purchases into the game. Runs on launch (from the offline ledger, no network needed), after every purchase,
      * restore and background store update, and when internet returns (OfflineSync). Everything here is idempotent.
      */
-    private suspend fun reconcileEntitlements() {
+    private suspend fun reconcileEntitlements(fromStore: Boolean = false) {
         val owned = RevenueCatManager.ownedProducts.value
         // Pilot suits (non-consumable "neonrush_skin_<id>"): were previously only unlocked in the purchase callback,
         // so a reinstall / new phone / killed app lost them.
-        owned.filter { it.startsWith("neonrush_skin_") }.map { it.removePrefix("neonrush_skin_") }
+        owned.map { it.substringBefore(':') }.filter { it.startsWith("neonrush_skin_") }.map { it.removePrefix("neonrush_skin_") }
             .forEach { unlockPilotSkinFromStory(it) }
+        // Only Standard Issue is free. A bought suit stays unlocked only while the store (or the secure ledger) says it is owned.
+        // Runs after a real store sync, so a slow start or no signal can never remove a legitimate purchase.
+        if (fromStore) {
+            val paidSuitIds = Skins.ALL.filter { it.purchasable && it.priceUsd.startsWith("$") }.map { it.id }.toSet()
+            val ownedSuitIds = owned.map { it.substringBefore(':') }.filter { it.startsWith("neonrush_skin_") }.map { it.removePrefix("neonrush_skin_") }.toSet()
+            // Players who already earned a story suit before it became paid keep the right to buy it.
+            gameDao.getProfileDirect()?.unlockedPilotSkinsCsv?.split(",")?.filter { it in paidSuitIds && SuitGates.forSkin(it) != null }
+                ?.forEach { openSuitGate(it, announce = false) }
+            gameDao.updateProfile { p ->
+                val unlocked = p.unlockedPilotSkinsCsv.split(",").filter { it.isNotBlank() }
+                val keep = unlocked.filter { it !in paidSuitIds || it in ownedSuitIds }
+                if (keep.size == unlocked.size) p
+                else p.copy(
+                    unlockedPilotSkinsCsv = keep.joinToString(","),
+                    activePilotSkinId = if (p.activePilotSkinId in unlocked && p.activePilotSkinId !in keep) "default" else p.activePilotSkinId
+                )
+            }
+        }
         // Pro + ads-removed: profile.subscriptionPro / adsRemoved were never written from the store before.
         val pro = RevenueCatManager.isPro.value
         val ads = RevenueCatManager.isAdsRemoved.value
@@ -552,6 +598,10 @@ fun doubleGemsForRun() {
     }
 }
 fun purchasePilotSkin(activity: Activity, skinId: String, productId: String) {
+    if (SuitGates.forSkin(skinId) != null && skinId !in _suitGatesOpen.value) {
+        _purchaseErrorEvent.tryEmit(SuitGates.lockedMessage(skinId))
+        return
+    }
     RevenueCatManager.purchasePilotSuit(activity, productId) { success ->
         if (success) {
             unlockPilotSkinFromStory(skinId)
@@ -771,9 +821,10 @@ fun freezeStreak() {
             RevenueCatManager.isPro.collect { proPerks.refresh(); seasonPass.refresh() }
         }
         restoreDifficulty()
+        viewModelScope.launch { loadSuitGates() }
         // ── Offline purchase sync ──────────────────────────────────────────────────
         // Whenever the store (or the encrypted local ledger) reports entitlements, mirror them into the game.
-        RevenueCatManager.onInfoApplied = { viewModelScope.launch { reconcileEntitlements() } }
+        RevenueCatManager.onInfoApplied = { viewModelScope.launch { reconcileEntitlements(fromStore = true) } }
         viewModelScope.launch {
             deliverPendingPurchases()      // paid-but-not-granted gem packs from a previous session
             reconcileEntitlements()        // works from the ledger even with no internet
