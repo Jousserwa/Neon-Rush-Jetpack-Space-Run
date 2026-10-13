@@ -2,6 +2,7 @@ package com.neonrush.game.ui
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
@@ -44,6 +45,22 @@ private fun DrawScope.pGlow(c: Offset, radius: Float, color: Color, alpha: Float
 }
 
 private fun age(tick: Int, eventTick: Int) = tick - eventTick
+
+/** Additive glow: adds light to the scene instead of painting over it (blends with any background). */
+private fun DrawScope.aGlow(c: Offset, radius: Float, color: Color, alpha: Float) {
+    drawCircle(
+        brush = Brush.radialGradient(listOf(color.copy(alpha = alpha.coerceIn(0f, 1f)), Color.Transparent), center = c, radius = radius),
+        radius = radius, center = c, blendMode = BlendMode.Plus
+    )
+}
+
+/** Neon diamond shard. */
+private fun DrawScope.diamond(c: Offset, r: Float, color: Color, alpha: Float) {
+    val p = Path().apply {
+        moveTo(c.x, c.y - r); lineTo(c.x + r * 0.7f, c.y); lineTo(c.x, c.y + r); lineTo(c.x - r * 0.7f, c.y); close()
+    }
+    drawPath(p, color, alpha = alpha.coerceIn(0f, 1f), blendMode = BlendMode.Plus)
+}
 
 /** Layered flame tongue: outer / mid / hot core, pointing up from [base]. */
 private fun DrawScope.flameSpire(base: Offset, w: Float, tip: Float, sway: Float, outer: Color, mid: Color, core: Color) {
@@ -421,80 +438,67 @@ private fun DrawScope.drawPremiumHullRaw(hullId: String, x: Float, y: Float, h: 
         }
 
         "inferno_sovereign" -> {
+            // PLASMA MANTLE: additive light instead of drawn flames, so it blends with the neon track.
             val boss = age(tick, HullFx.bossTick)
             val cc = age(tick, HullFx.closeCallTick)
             val gem = age(tick, HullFx.gemTick)
-            pGlow(ship, h * 0.75f, Color(0xFFFF6D00), 0.22f + (if (boss in 0..16) 0.3f * (1f - boss / 16f) else 0f))
-            for (k in 0 until 3) { // heat rings
-                val ph = (t * 0.025f + k / 3f) % 1f
-                drawCircle(Color(0xFFFF8A00).copy(alpha = (1f - ph) * 0.35f), h * (0.3f + ph * 0.5f), ship, style = Stroke(2f))
-            }
-            // molten mantle: three flowing ribbons
+            val hot = Color(0xFFFFF3C4); val amber = Color(0xFFFFA000); val mag = Color(0xFFFF2D95)
+            val pulse = 0.88f + 0.12f * sin(t * 0.12f)
+            val bossBoost = if (boss in 0..16) 0.3f * (1f - boss / 16f) else 0f
+            val flare = if (gem in 0..14) 1f + 0.8f * (1f - gem / 14f) else 1f
+            // heat core: three stacked additive glows, white-hot in the middle
+            aGlow(ship, h * 0.85f * pulse, mag, 0.14f + bossBoost)
+            aGlow(ship, h * 0.52f * pulse, amber, 0.26f + bossBoost)
+            aGlow(ship, h * 0.22f, hot, 0.32f)
+            // streaming ribbons trailing behind the ship, longer with speed
             for (rb in 0 until 3) {
-                var prev = Offset(x - h * 0.12f, y + (rb - 1) * u * 1.4f)
-                val m = n + 4
+                var prev = Offset(x - h * 0.1f, y + (rb - 1) * u * 0.9f)
+                val m = n + 6
                 for (i in 1..m) {
                     val f = i / (m + 1f)
-                    val next = Offset(x - h * 0.12f - i * u * 1.7f, y + (rb - 1) * u * (1.4f + f * 2.2f) + sin(t * 0.25f - i * 0.5f + rb * 1.7f) * u * (0.6f + f * 2f))
-                    drawLine(lerp(Color(0xFFFFEB3B), Color(0xFFD50000), f).copy(alpha = 0.85f * (1f - f)), prev, next, strokeWidth = (u * (2.0f - 1.6f * f)).coerceAtLeast(1.5f))
+                    val next = Offset(
+                        x - h * 0.1f - i * u * 1.9f,
+                        y + (rb - 1) * u * 0.9f * (1f + f * 1.8f) + sin(t * 0.22f - i * 0.45f + rb * 2.1f) * u * (0.4f + f * 1.8f)
+                    )
+                    val col = lerp(lerp(hot, amber, (f * 2f).coerceAtMost(1f)), mag, ((f - 0.5f) * 2f).coerceAtLeast(0f))
+                    val w = (u * (1.5f - 1.2f * f)).coerceAtLeast(1.2f)
+                    drawLine(col, prev, next, strokeWidth = w * 2.6f, alpha = (0.16f * (1f - f) * flare).coerceAtMost(1f), blendMode = BlendMode.Plus)
+                    drawLine(col, prev, next, strokeWidth = w, alpha = (0.8f * (1f - f) * flare).coerceAtMost(1f), blendMode = BlendMode.Plus)
                     prev = next
                 }
             }
-            // three fire orbs circling the ship, each with a comet tail
-            for (k in 0 until 3) {
-                val a = t * 0.11f + k * (2f * pi / 3f)
-                for (tr in 1..4) {
-                    val a2 = a - tr * 0.18f
-                    drawCircle(Color(0xFFFF6D00).copy(alpha = 0.5f * (1f - tr / 5f)), u * (0.9f - tr * 0.12f),
-                        ship + Offset(cos(a2) * h * 0.5f, sin(a2) * h * 0.2f))
+            // neon sparks: small diamonds drifting backwards
+            for (k in 0 until 14) {
+                val ph = (t * 0.035f + k / 14f) % 1f
+                val sp = Offset(x - h * 0.15f - ph * h * 1.2f, y + sin(k * 2.7f) * h * 0.28f + sin(t * 0.1f + k) * u)
+                diamond(sp, u * 0.38f * (1f - ph * 0.6f), lerp(hot, mag, ph), (1f - ph) * 0.9f)
+            }
+            // the crown: seven gold shards orbiting above the ship, glowing at the base
+            val crownY = y - h * 0.42f
+            for (pass in 0..1) {            // back half first, then front half
+                for (k in 0 until 7) {
+                    val a = t * 0.04f + k * 2f * pi / 7f
+                    val depth = sin(a)
+                    if ((depth > 0f) != (pass == 1)) continue
+                    val pp = Offset(x + cos(a) * h * 0.34f, crownY + depth * h * 0.07f)
+                    val sz = u * (0.95f + 0.3f * depth)
+                    aGlow(pp, sz * 2.6f, amber, 0.32f + 0.2f * depth)
+                    diamond(pp, sz, Color(0xFFFFD23F), 0.55f + 0.4f * (depth + 1f) / 2f)
+                    diamond(pp, sz * 0.45f, Color.White, 0.9f)
                 }
-                val p = ship + Offset(cos(a) * h * 0.5f, sin(a) * h * 0.2f)
-                pGlow(p, u * 2.4f, Color(0xFFFF6D00), 0.6f)
-                drawCircle(Color(0xFFFFEB3B), u * 0.7f, p)
-                drawCircle(Color.White.copy(alpha = 0.9f), u * 0.3f, p)
             }
-            // the crown: seven layered flame spires on a golden circlet with jewels
-            val crownY = y - h * 0.40f
-            val rise = if (boss in 0..16) 1f + 0.9f * (1f - boss / 16f) else 1f
-            for (k in -3..3) {
-                val fl = 0.65f + 0.35f * sin(t * 0.45f + k * 1.3f)
-                val tip = h * (0.2f + (3 - kotlin.math.abs(k)) * 0.055f) * fl * rise
-                flameSpire(Offset(x + k * u * 1.15f, crownY), u * 0.75f, tip, sin(t * 0.3f + k) * u * 0.5f,
-                    Color(0xFFD50000).copy(alpha = 0.9f), Color(0xFFFF9100), Color(0xFFFFF59D))
-            }
-            drawLine(Color(0xFFFFD23F), Offset(x - u * 4.4f, crownY + u * 0.3f), Offset(x + u * 4.4f, crownY + u * 0.3f), strokeWidth = u * 0.9f)
-            for (k in -2..2) {
-                val jp = Offset(x + k * u * 1.9f, crownY + u * 0.3f)
-                drawCircle(if (k == 0) Color(0xFFFF1744) else Color(0xFFFFF176), u * 0.42f, jp)
-                if (((tick / 6) + k + 2) % 5 == 0 || gem in 0..10) drawCircle(Color.White, u * 0.2f, jp)
-            }
-            // lava drips falling from the circlet
-            for (k in 0 until 6) {
-                val ph = (t * 0.05f + k / 6f) % 1f
-                val dx = x + (k - 2.5f) * u * 1.5f
-                val dy = crownY + u * 0.6f + ph * h * 0.8f
-                drawLine(Color(0xFFFF6D00).copy(alpha = 1f - ph), Offset(dx, dy), Offset(dx, dy - u * 1.2f * (1f - ph)), strokeWidth = u * 0.6f)
-                drawCircle(Color(0xFFFFAB00).copy(alpha = 1f - ph), u * 0.4f, Offset(dx, dy))
-            }
-            // rising embers
-            for (k in 0 until 8) {
-                val ph = (t * 0.04f + k / 8f) % 1f
-                drawCircle(Color(0xFFFFD54F).copy(alpha = 1f - ph), u * 0.3f,
-                    Offset(x - h * 0.3f + ((k * 29) % 60) / 60f * h * 0.6f + sin(t * 0.2f + k) * u, y + h * 0.3f - ph * h * 0.9f))
-            }
-            // boss roar: shockwave rings + upward flame burst
+            drawOval(Color(0xFFFFD23F), topLeft = Offset(x - h * 0.34f, crownY - h * 0.07f), size = Size(h * 0.68f, h * 0.14f),
+                style = Stroke(1.5f), alpha = 0.35f, blendMode = BlendMode.Plus)
+            // boss roar: heat shockwave rings
             if (boss in 0..22) {
                 val f = boss / 22f
-                for (k in 0 until 2) drawCircle(Color(0xFFFF3D00).copy(alpha = 1f - f), h * 0.3f + boss * u * (1.1f + k * 0.5f), ship, style = Stroke(4f))
+                for (k in 0 until 2) drawCircle(mag, h * 0.3f + boss * u * (1.1f + k * 0.5f), ship, alpha = 1f - f, style = Stroke(3.5f), blendMode = BlendMode.Plus)
             }
-            // close call: a ring of flame rays
+            // close call: quick white-gold flash ring
             if (cc in 0..12) {
                 val f = cc / 12f
-                for (k in 0 until 12) {
-                    val ang = k * pi / 6f
-                    drawLine(Color(0xFFFFAB00).copy(alpha = 1f - f), ship + Offset(cos(ang), sin(ang)) * (h * 0.32f + h * 0.2f * f),
-                        ship + Offset(cos(ang), sin(ang)) * (h * 0.5f + h * 0.4f * f), strokeWidth = 3.5f)
-                }
+                drawCircle(hot, h * 0.3f + h * 0.35f * f, ship, alpha = 1f - f, style = Stroke(4f), blendMode = BlendMode.Plus)
+                aGlow(ship, h * 0.6f, amber, 0.35f * (1f - f))
             }
         }
 
