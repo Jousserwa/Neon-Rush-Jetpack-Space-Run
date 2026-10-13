@@ -47,6 +47,7 @@ enum class RunRarity(val label: String, val argb: Int) {
 /** Extra data for the v2 card. Everything has a safe default so old call sites still work. */
 data class ShareCardExtras(
     val hullId: String = "cyan_diamond",
+    val suitId: String = "default",   // equipped pilot suit, drawn on the card
     val rank: AuraRank = AuraRank.NONE,
     val isLegend: Boolean = false,
     val ownedHullIds: Set<String> = emptySet(),
@@ -97,7 +98,7 @@ object ShareCardPlus {
         val sx = 90f; val sy = 235f; val sw = W - 180f; val sh = 270f
         c.drawRoundRect(RectF(sx, sy, sx + sw, sy + sh), 28f, 28f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
             shader = RadialGradient(cx, sy + sh / 2, sw / 1.6f, Color.parseColor("#2A1250"), Color.parseColor("#0A0420"), Shader.TileMode.CLAMP) })
-        drawHull(context, c, x.hullId, sx.roundToInt(), sy.roundToInt(), sw.roundToInt(), sh.roundToInt())
+        drawHull(context, c, x.hullId, x.suitId, sx.roundToInt(), sy.roundToInt(), sw.roundToInt(), sh.roundToInt())
         val hull = HullCatalog.byId(x.hullId)
         val hullLabel = (hull?.let { "${it.emoji} ${it.name}" } ?: x.hullId.replace('_', ' ')).uppercase()
         c.drawText(hullLabel + if (x.hullLevel > 0) "  ·  LV ${x.hullLevel}" else "", cx, sy + sh + 50f, paint(Color.WHITE, 38f, Paint.Align.CENTER))
@@ -149,7 +150,7 @@ object ShareCardPlus {
     }
 
     /** Draw the real animated hull (a frozen frame) into the Android canvas via an offscreen Compose scope. */
-    private fun drawHull(context: Context, c: Canvas, hullId: String, left: Int, top: Int, w: Int, h: Int) {
+    private fun drawHull(context: Context, c: Canvas, hullId: String, suitId: String, left: Int, top: Int, w: Int, h: Int) {
         try {
             val img = ImageBitmap(w, h)
             val pilot = ImageBitmap.imageResource(context.resources, R.drawable.pilot_run_1)
@@ -161,8 +162,7 @@ object ShareCardPlus {
                 HullFx.gemTick = 296; HullFx.closeCallTick = 292
                 drawHullEffect(hullId, px, py, hh, 300, 6)
                 val pw = hh * pilot.width / pilot.height
-                drawImage(pilot, dstOffset = IntOffset((px - pw / 2f).roundToInt(), (py - hh / 2f).roundToInt()),
-                    dstSize = IntSize(pw.roundToInt(), hh.roundToInt()))
+                drawPilotWithSuit(suitId, pilot, px, py, pw, hh, 300)
             }
             c.drawBitmap(img.asAndroidBitmap(), left.toFloat(), top.toFloat(), null)
             HullFx.reset()
