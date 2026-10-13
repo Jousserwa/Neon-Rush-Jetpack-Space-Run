@@ -98,6 +98,8 @@ import com.neonrush.game.ZoneGenerator
 import com.neonrush.game.TESTING_DISABLE_PRO_GATE
 import com.neonrush.game.StoryBannerHost
 import com.neonrush.game.Skins
+import com.neonrush.game.SuitGates
+import com.neonrush.game.SuitRotation
 import com.neonrush.game.Upgrades
 import com.neonrush.game.DailyCrate
 import com.neonrush.game.RunGoals
@@ -539,6 +541,11 @@ if (showStreakFreezeOffer) {
             snackbarHostState.showSnackbar(message)
         }
     }
+    LaunchedEffect(Unit) {
+        viewModel.suitGateCelebration.collect { message ->
+            snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Long)
+        }
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -893,13 +900,13 @@ fun HeaderProfileDeck(profile: GameProfile, viewModel: NeonRushViewModel) {
                     var showPilotCard by remember { mutableStateOf(false) }
                     LaunchedEffect(Unit) { while (true) { hudDelay(5000); HullFx.gemTick = tickNow } }
                     LivingAvatar(menuTick, Modifier.padding(end = 10.dp).clickable { HullFx.gemTick = tickNow; showPilotCard = true }) {
-                        Image(painterResource(R.drawable.pilot_run_1), null, Modifier.size(56.dp))
+                        SuitAvatar(profile.activePilotSkinId, 56.dp, menuTick)
                     }
                     if (showPilotCard) {
                         PilotCardDialog(
                             PilotCardData(profile.username, profile.activeSkinId, profile.bestScore, profile.bestZoneReached,
                                 perks.rank, perks.isLegend, PilotIdentity.autoTitleId(pilotStats), PilotIdentity.autoBadgeIds(pilotStats), perks.isPro,
-                                WorldBackdrops.forCosmetics(passSt.cosmetics)),
+                                WorldBackdrops.forCosmetics(passSt.cosmetics), profile.activePilotSkinId),
                             onDismiss = { showPilotCard = false })
                     }
                     Column {
@@ -2926,6 +2933,7 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
             val unlockedPilotSkins = remember(profile.unlockedPilotSkinsCsv) {
                 profile.unlockedPilotSkinsCsv.split(",").toSet()
             }
+            val gatesOpen by viewModel.suitGatesOpen.collectAsState()
 
             Text(
                 text = "🧑‍🚀 PILOT SUITS",
@@ -2936,6 +2944,23 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                 modifier = Modifier.padding(bottom = 6.dp)
             )
 
+            run {
+                val suitFree by viewModel.suitFreeRide.collectAsState()
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(8.dp)).background(CyberSurface).padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("FREE RIDE", color = CyberPrimary, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text(
+                            if (suitFree) "ON: your suit changes every ${SuitRotation.ZONES_PER_SUIT} zones, only among suits you own."
+                            else "OFF: your equipped suit stays on everywhere. Turn on to rotate through your owned suits.",
+                            color = CyberOnSurface.copy(alpha = 0.7f), fontSize = 11.sp
+                        )
+                    }
+                    Switch(checked = suitFree, onCheckedChange = { viewModel.setSuitFreeRide(it) })
+                }
+            }
             Text(
                 text = "Suit up your pilot. Some are earned by completing Worlds, others can be bought outright.",
                 color = CyberOnSurface.copy(alpha = 0.7f),
@@ -2947,6 +2972,8 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                 val isUnlocked = unlockedPilotSkins.contains(skin.id)
                 val isActive = profile.activePilotSkinId == skin.id
                 val isStorySkin = skin.unlockWorldId != null
+                val suitGate = SuitGates.forSkin(skin.id)
+                val gateOpen = suitGate == null || gatesOpen.contains(skin.id)
 
                 Row(
                     modifier = Modifier
@@ -2975,6 +3002,16 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                             fontSize = 11.sp,
                             color = CyberPrimary.copy(alpha = 0.7f)
                         )
+                        if (suitGate != null && !isUnlocked) {
+                            Text(
+                                text = if (gateOpen) "🔓 UNLOCKED FOR PURCHASE" else "🎯 ${suitGate.requirement}",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = if (gateOpen) Color(0xFF69F0AE) else Color(0xFFFFD23F),
+                                modifier = Modifier.padding(top = 3.dp)
+                            )
+                        }
                     }
 
                     if (isActive) {
@@ -3000,7 +3037,7 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                         ) {
                             Text(text = "EQUIP", color = CyberPrimary, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
                         }
-                    } else if (isStorySkin) {
+                    } else if (isStorySkin && !skin.purchasable) {
                         Text(
                             text = "🔒 World ${skin.unlockWorldId}",
                             fontSize = 11.sp,
@@ -3021,10 +3058,11 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                                     viewModel.purchasePilotSkin(it, skin.id, "neonrush_skin_${skin.id}")
                                 }
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary),
-                            shape = RoundedCornerShape(4.dp)
+                            colors = ButtonDefaults.buttonColors(containerColor = if (gateOpen) CyberSecondary else CyberSurface.copy(alpha = 0.8f)),
+                            shape = RoundedCornerShape(4.dp),
+                            modifier = if (gateOpen) Modifier else Modifier.border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
                         ) {
-                            Text(text = "BUY ${skin.priceUsd}", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                            Text(text = if (gateOpen) "BUY ${skin.priceUsd}" else "🔒 ${skin.priceUsd}", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
                         }
                     }
                 }
@@ -3414,6 +3452,8 @@ fun RacingSimulatorScreen(
     SideEffect { previousUserYPos = simState.userYPos }
     val activity = LocalContext.current.findActivity()
     val sectorHull by viewModel.hangar.sectorHullId.collectAsState()
+    val suitFreeRide by viewModel.suitFreeRide.collectAsState()
+    val runSuitId = SuitRotation.pick(profile.unlockedPilotSkinsCsv, profile.activePilotSkinId, simState.currentZoneNumber, suitFreeRide)
     val hullToast by viewModel.hangar.toast.collectAsState()
     LaunchedEffect(hullToast) { if (hullToast != null) { kotlinx.coroutines.delay(1800); viewModel.hangar.consumeToast() } }
     if (hullToast != null) {
@@ -3427,8 +3467,7 @@ fun RacingSimulatorScreen(
     Popup(alignment = Alignment.TopStart) {
         Box(Modifier.padding(start = 8.dp, top = 140.dp)) {
             LivingAvatar(simState.tickIndex) {
-                Image(painterResource(R.drawable.pilot_run_1), null,
-                    Modifier.size(38.dp).clip(CircleShape).background(Color(0x66000000)))
+                SuitAvatar(runSuitId, 38.dp, simState.tickIndex, Modifier.clip(CircleShape).background(Color(0x66000000)))
             }
         }
     }
@@ -4454,7 +4493,7 @@ val bossImagesByWorld = mapOf(
 
                         rotate(degrees = tiltAngle, pivot = Offset(userX, userY)) {
                             // Equipped pilot suit: colour grade + aura/particles on the shared frames.
-                            drawPilotWithSuit(profile.activePilotSkinId, currentFrameImg, userX, userY, displayWidth, displayHeight, simState.tickIndex)
+                            drawPilotWithSuit(runSuitId, currentFrameImg, userX, userY, displayWidth, displayHeight, simState.tickIndex)
                         }
 
                         for ((scoreDelta, spawnTick, spawnY) in scorePopups) {
@@ -4751,7 +4790,7 @@ fun GameOverOverlayScreen(
                     LaunchedEffect(Unit) { if (goPB) HullFx.gemTick = goTick else HullFx.closeCallTick = goTick }
                     Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically) {
-                        LivingAvatar(goTick) { Image(painterResource(R.drawable.pilot_run_1), null, Modifier.size(72.dp)) }
+                        LivingAvatar(goTick) { SuitAvatar(profile.activePilotSkinId, 72.dp, goTick) }
                         Spacer(Modifier.width(12.dp))
                         Column {
                             if (goPerks.isPro) ProName(profile.username, goPerks.isLegend, fontSize = 16.sp)
@@ -4783,6 +4822,7 @@ fun GameOverOverlayScreen(
                             ),
                             ShareCardExtras(
                                 hullId = viewModel.hangar.sectorHullId.value ?: profile.activeSkinId,
+                                suitId = SuitRotation.pick(profile.unlockedPilotSkinsCsv, profile.activePilotSkinId, simState.currentZoneNumber, viewModel.suitFreeRide.value),
                                 rank = ps.rank, isLegend = ps.isLegend,
                                 ownedHullIds = hs?.ownedHullIds ?: emptySet(), totalHulls = hs?.totalHullCount ?: 0,
                                 zoneReached = simState.currentZoneNumber,
