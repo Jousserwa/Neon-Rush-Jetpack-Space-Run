@@ -17,6 +17,7 @@ import kotlin.math.sin
  * [t] drives the flutter of scarves, capes and antennae.
  */
 class PartPainter(private val ds: DrawScope, private val ax: Float, private val ay: Float, private val r: Float, private val t: Float) {
+    val time: Float get() = t
     private var swDeg = 0f
     private var swF = 1f
     fun sway(deg: Float, f: Float) { swDeg = deg; swF = f }
@@ -120,6 +121,12 @@ internal fun paintPartById(id: String, P: PartPainter) {
         "claw_spikes" -> part_claw_spikes(P)
         "shackle_chain" -> part_shackle_chain(P)
         "ember_horns" -> part_ember_horns(P)
+        "phoenix_wings" -> part_phoenix_wings(P)
+        "orbital_drones" -> part_orbital_drones(P)
+        "singularity_crown" -> part_singularity_crown(P)
+        "fire_inferno" -> flameSet(P, 0xFFD32F2F, 0xFFFF6D00, 0xFFFFEA00, 0)
+        "fire_azure" -> flameSet(P, 0xFF1565C0, 0xFF29B6F6, 0xFFE1F5FE, 1)
+        "fire_violet" -> flameSet(P, 0xFF6A1B9A, 0xFFE040FB, 0xFFFFE6FF, 2)
         else -> {}
     }
 }
@@ -408,3 +415,129 @@ private fun part_ember_horns(P: PartPainter) {
 }
 
 
+
+
+// ---------------------------------------------------------------------------------------------- animated showpieces
+
+private fun argbA(c: Long, a: Float): Long = (((a.coerceIn(0f, 1f) * 255f).toInt().toLong()) shl 24) or (c and 0xFFFFFFL)
+private fun pol(a: Float, r: Float): Pair<Float, Float> {
+    val rad = Math.toRadians(a.toDouble())
+    return Pair((Math.cos(rad) * r).toFloat(), (-Math.sin(rad) * r).toFloat())
+}
+
+/** Huge flame-feather wings that beat. Far wing is darker and a beat behind for depth. */
+private fun part_phoenix_wings(P: PartPainter) {
+    val cols = longArrayOf(0xFFB71C1C, 0xFFD32F2F, 0xFFE64A19, 0xFFF57C00, 0xFFFFA000, 0xFFFFC107, 0xFFFFE082)
+    for (wing in 0..1) {
+        val far = wing == 0
+        P.sway(if (far) 12f else 15f, if (far) 2.0f else 2.3f)
+        val sc = if (far) 0.82f else 1f
+        val dx = if (far) 0.5f else 0f
+        for (i in 0..6) {
+            val a = 104f + i * 11f
+            val len = (2.7f + i * 0.34f) * sc
+            val b1 = pol(a + 90f, 0.42f); val b2 = pol(a - 90f, 0.42f)
+            val d = pol(a + 4f, len * 0.58f); val n = pol(a + 90f, 0.5f * sc)
+            val tip = pol(a, len)
+            val col = if (far) (((cols[i] shr 1) and 0x7F7F7FL) or 0xFF000000L) else cols[i]
+            P.poly(col, 0xFF0B0A14, 0.1f,
+                b1.first + dx, b1.second, d.first + n.first + dx, d.second + n.second, tip.first + dx, tip.second,
+                d.first - n.first + dx, d.second - n.second, b2.first + dx, b2.second)
+            if (!far) {
+                val m = pol(a, len * 0.9f); val r0 = pol(a, 0.5f)
+                P.line(r0.first, r0.second, m.first, m.second, argbA(0xFFFFF3B0, 0.7f), 0.1f)
+                val fl = 0.5f + 0.5f * kotlin.math.sin(P.time * 5f + i * 1.3f)
+                P.circle(tip.first, tip.second, 0.12f + 0.08f * fl, argbA(0xFFFFEE58, 0.5f + 0.5f * fl), 0L, 0f)
+            }
+        }
+    }
+    P.sway(0f, 0f)
+}
+
+/** Three drones orbit the pilot's body, blink and fire pulse beams. */
+private fun part_orbital_drones(P: PartPainter) {
+    val t = P.time
+    P.ellipse(0f, 0f, 3.5f, 1.6f, 0L, argbA(0xFF00E5FF, 0.22f), 0.05f)
+    val order = (0..2).sortedBy { k -> kotlin.math.sin(t * 1.7f + k * 2.0944f) }   // far ones first
+    for (k in order) {
+        val th = t * 1.7f + k * 2.0944f
+        val x = kotlin.math.cos(th) * 3.4f
+        val y = kotlin.math.sin(th) * 1.5f
+        val depth = kotlin.math.sin(th)
+        val sc = 0.85f + 0.2f * depth
+        val dim = if (depth < 0f) 0.65f else 1f
+        val body = if (depth < 0f) 0xFF263238 else 0xFF455A64
+        // pulse beam forward on a rhythm
+        val beam = (kotlin.math.sin(t * 3.1f + k * 1.9f) - 0.55f).coerceAtLeast(0f) * 2.2f
+        if (beam > 0f) P.line(x + 0.35f * sc, y, x + 0.35f * sc + 1.6f * beam, y, argbA(0xFF00E5FF, 0.9f * dim), 0.12f * sc)
+        P.poly(body, 0xFF0B0A14, 0.1f, x - 0.5f * sc, y, x - 0.15f * sc, y - 0.42f * sc, x + 0.3f * sc, y - 0.3f * sc, x + 0.45f * sc, y, x + 0.3f * sc, y + 0.3f * sc, x - 0.15f * sc, y + 0.42f * sc)
+        P.poly(0xFF78909C, 0L, 0f, x - 0.4f * sc, y - 0.55f * sc, x + 0.1f * sc, y - 0.55f * sc, x, y - 0.4f * sc)
+        val blink = 0.55f + 0.45f * kotlin.math.sin(t * 6f + k * 2f)
+        P.circle(x + 0.18f * sc, y, 0.15f * sc, argbA(0xFF00E5FF, blink), 0xFF0B0A14, 0.04f)
+        P.circle(x + 0.18f * sc, y, 0.06f * sc, 0xFFFFFFFF, 0L, 0f)
+    }
+}
+
+/** A miniature black hole over the helmet: dark disc, spinning accretion ring, orbiting stars, faint light shafts. */
+private fun part_singularity_crown(P: PartPainter) {
+    val t = P.time
+    val cy = -2.0f
+    for (i in 0..2) {
+        val a = 70f + i * 20f
+        val tip = pol(a, 1.9f); val b1 = pol(a + 8f, 0.4f); val b2 = pol(a - 8f, 0.4f)
+        P.poly(argbA(0xFFB388FF, 0.14f + 0.08f * kotlin.math.sin(t * 2f + i)), 0L, 0f, b1.first, cy + b1.second, tip.first, cy + tip.second - 1.2f, b2.first, cy + b2.second)
+    }
+    P.ellipse(0f, cy, 1.55f, 0.46f, argbA(0xFF7C4DFF, 0.35f), 0L, 0f)
+    P.ellipse(0f, cy, 1.4f, 0.4f, 0L, 0xFFFF9100, 0.14f)
+    P.ellipse(0f, cy, 1.1f, 0.3f, 0L, 0xFFFFD180, 0.07f)
+    P.ellipse(0f, cy, 0.8f, 0.22f, 0xFF000000, 0xFF0B0A14, 0.06f)
+    for (k in 0..9) {
+        val th = t * (1.2f + (k % 3) * 0.35f) + k * 0.628f
+        val rr = 1.0f + (k % 4) * 0.16f
+        val x = kotlin.math.cos(th) * rr * 1.1f
+        val y = cy + kotlin.math.sin(th) * rr * 0.32f
+        val a = if (kotlin.math.sin(th) > 0f) 1f else 0.5f
+        P.circle(x, y, 0.07f + 0.03f * (k % 3), argbA(if (k % 2 == 0) 0xFFFFE0B2 else 0xFFB388FF, a), 0L, 0f)
+    }
+    P.circle(0f, cy - 0.02f, 0.14f, argbA(0xFFFFFFFF, 0.5f + 0.4f * kotlin.math.sin(t * 3f)), 0L, 0f)
+}
+
+/**
+ * Flame clusters on both fists and both heels. style 0 = Inferno (fast flicker, rising embers),
+ * 1 = Azure (tall, steady, sparks drift sideways), 2 = Violet (S-curve ghost-fire with floating orbs).
+ */
+private fun flameSet(P: PartPainter, c1: Long, c2: Long, c3: Long, style: Int) {
+    val t = P.time
+    val speed = when (style) { 0 -> 1.0f; 1 -> 0.55f; else -> 0.8f }
+    val tall = if (style == 1) 1.35f else 1f
+    P.circle(0f, -0.3f, 1.0f, argbA(c1, 0.16f), 0L, 0f)
+    for (k in 0..3) {
+        val bx = (k - 1.5f) * 0.3f
+        val hgt = tall * (1.55f + 0.5f * kotlin.math.sin(t * speed * (6f + k * 1.3f) + k * 1.7f)) * (if (k == 1 || k == 2) 1.15f else 0.85f)
+        var lean = -0.55f * hgt
+        if (style == 2) lean += kotlin.math.sin(t * 3f + k) * 0.55f
+        if (style == 1) lean *= 0.55f
+        for (layer in 0..2) {
+            val sc = when (layer) { 0 -> 1f; 1 -> 0.7f; else -> 0.4f }
+            val col = when (layer) { 0 -> c1; 1 -> c2; else -> c3 }
+            val h = hgt * sc; val w = 0.24f * (if (layer == 0) 1f else 0.8f * sc)
+            val wob = if (style == 2) kotlin.math.sin(t * 4f + k + layer) * 0.18f else 0f
+            P.poly(col, 0L, 0f,
+                bx - w, 0.05f,
+                bx - w * 0.85f + lean * 0.3f * sc + wob, -h * 0.45f,
+                bx + lean * sc + wob * 2f, -h,
+                bx + w * 0.85f + lean * 0.35f * sc + wob, -h * 0.5f,
+                bx + w, 0.05f)
+        }
+    }
+    for (k in 0..4) {
+        val ph = (t * (0.6f + (k % 3) * 0.2f) * speed + k * 0.23f) % 1f
+        val x: Float; val y: Float; val r: Float
+        when (style) {
+            1 -> { x = -ph * 2.2f; y = -0.6f - ph * 1.2f; r = 0.06f * (1f - ph) }
+            2 -> { x = kotlin.math.sin(ph * 6f + k) * 0.5f - ph * 0.5f; y = -0.4f - ph * 2.6f; r = 0.11f * (1f - ph * 0.5f) }
+            else -> { x = -ph * 1.3f + (k - 2) * 0.15f; y = -0.4f - ph * 2.3f; r = 0.07f * (1f - ph) }
+        }
+        P.circle(x, y, r, argbA(c3, 1f - ph), 0L, 0f)
+    }
+}
