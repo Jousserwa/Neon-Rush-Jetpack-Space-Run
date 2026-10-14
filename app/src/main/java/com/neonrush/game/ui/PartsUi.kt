@@ -1,5 +1,8 @@
 package com.neonrush.game.ui
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -36,6 +39,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -141,6 +145,8 @@ private fun PartCard(
     owned: Set<String>, equipped: Map<String, String>, frames: List<ImageBitmap>, suitId: String,
     clock: State<Float>, trying: Boolean, onTry: () -> Unit
 ) {
+    val ctx = LocalContext.current
+    val activity = remember(ctx) { var c: Context? = ctx; var a: Activity? = null; while (c is ContextWrapper) { if (c is Activity) { a = c; break }; c = c.baseContext }; a }
     val rc = Color(part.rarity.argb)
     val have = part.id in owned
     val worn = equipped[part.slot.name] == part.id
@@ -171,6 +177,10 @@ private fun PartCard(
                     colors = ButtonDefaults.buttonColors(containerColor = CyberSurface.copy(alpha = 0.8f)), shape = RoundedCornerShape(4.dp),
                     modifier = Modifier.border(1.dp, CyberPrimary, RoundedCornerShape(4.dp))
                 ) { Text("EQUIP", color = CyberPrimary, fontFamily = FontFamily.Monospace, fontSize = 11.sp) }
+                part.usd != null -> Button(
+                    onClick = { activity?.let { viewModel.parts.buyUsd(it, part.id) } },
+                    colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary), shape = RoundedCornerShape(4.dp)
+                ) { Text("BUY ${part.usd}", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 else -> Button(
                     onClick = { viewModel.parts.buy(part.id) },
                     colors = ButtonDefaults.buttonColors(containerColor = if (profile.gems >= part.gems) CyberSecondary else CyberSurface.copy(alpha = 0.8f)),
