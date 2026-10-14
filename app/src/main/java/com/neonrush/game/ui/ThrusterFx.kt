@@ -252,6 +252,93 @@ internal fun DrawScope.drawThruster(id: String, x: Float, y: Float, h: Float, ti
                 drawCircle(Color.White, s * 0.3f, Offset(px, py))
             }
         }
+        "paper_planes" -> stamps(ox, oy, y, h, time, speedLevel, 8, 1.5f, yAt) { px, py0, f, seed ->
+            val py = py0 + sin(f * 7f + seed) * u * 1.2f
+            val sz = u * (1.5f - 0.5f * f)
+            rotate(sin(f * 8f + seed) * 25f - 10f, Offset(px, py)) {
+                val body = Path().apply { moveTo(px + sz * 1.2f, py); lineTo(px - sz, py - sz * 0.6f); lineTo(px - sz * 0.5f, py); lineTo(px - sz, py + sz * 0.35f); close() }
+                drawPath(body, INK.copy(alpha = 0.9f), style = Stroke(3.5f))
+                drawPath(body, Color(0xFFF5F5F5), alpha = 1f - f * 0.5f)
+                drawLine(Color(0xFFB0BEC5), Offset(px + sz * 1.2f, py), Offset(px - sz * 0.5f, py), strokeWidth = 1.5f)
+            }
+        }
+        "snowflakes" -> stamps(ox, oy, y, h, time, speedLevel, 12, 1.5f, yAt) { px, py0, f, seed ->
+            val py = py0 + f * u * 4f + sin(f * 6f + seed) * u * 0.8f
+            val r = u * (0.9f + rnd(seed) * 0.7f) * (1f - 0.3f * f)
+            val a = 1f - f * 0.7f
+            rotate(f * 200f + seed * 30f, Offset(px, py)) {
+                for (k in 0 until 3) {
+                    val ang = k * PI.toFloat() / 3f
+                    val dx = cos(ang) * r; val dy = sin(ang) * r
+                    drawLine(INK.copy(alpha = a * 0.8f), Offset(px - dx, py - dy), Offset(px + dx, py + dy), strokeWidth = 4.5f, cap = StrokeCap.Round)
+                    drawLine(Color(0xFFE1F5FE).copy(alpha = a), Offset(px - dx, py - dy), Offset(px + dx, py + dy), strokeWidth = 2.2f, cap = StrokeCap.Round)
+                    for (sgn in listOf(-1f, 1f)) {
+                        val bx = px + dx * 0.55f * sgn; val by = py + dy * 0.55f * sgn
+                        drawLine(Color(0xFFE1F5FE).copy(alpha = a), Offset(bx, by), Offset(bx + (cos(ang + 1.0f) * r * 0.3f), by + (sin(ang + 1.0f) * r * 0.3f)), strokeWidth = 1.6f)
+                        drawLine(Color(0xFFE1F5FE).copy(alpha = a), Offset(bx, by), Offset(bx + (cos(ang - 1.0f) * r * 0.3f), by + (sin(ang - 1.0f) * r * 0.3f)), strokeWidth = 1.6f)
+                    }
+                }
+            }
+        }
+        "sakura_petals" -> stamps(ox, oy, y, h, time, speedLevel, 12, 1.4f, yAt) { px, py0, f, seed ->
+            val py = py0 + sin(f * 9f + seed) * u * 1.6f + f * u * 1.5f
+            val r = u * (1.1f - 0.3f * f)
+            val col = if (seed % 2 == 0) Color(0xFFFFB7C5) else Color(0xFFFF80AB)
+            val pp = Path().apply {
+                moveTo(px - r, py); quadraticBezierTo(px - r * 0.2f, py - r * 0.9f, px + r, py - r * 0.15f)
+                lineTo(px + r * 0.75f, py + r * 0.05f); quadraticBezierTo(px, py + r * 0.9f, px - r, py); close()
+            }
+            rotate(seed * 47f + f * 300f, Offset(px, py)) {
+                drawPath(pp, INK.copy(alpha = 0.85f), style = Stroke(3.2f)); drawPath(pp, col, alpha = 1f - f * 0.5f)
+                drawLine(Color(0xFFFF4081).copy(alpha = 0.6f), Offset(px - r * 0.6f, py), Offset(px + r * 0.4f, py - r * 0.05f), strokeWidth = 1.3f)
+            }
+        }
+        "dice_roll" -> stamps(ox, oy, y, h, time, speedLevel, 8, 1.3f, yAt) { px, py0, f, seed ->
+            val py = py0 + sin(f * 6f + seed) * u * 1.3f
+            val sz = u * (1.5f - 0.4f * f)
+            val pips = ((seed % 6) + 6) % 6 + 1
+            rotate(seed * 60f + f * 420f, Offset(px, py)) {
+                drawRoundRect(INK.copy(alpha = 0.95f), Offset(px - sz - 1.5f, py - sz - 1.5f), Size(sz * 2f + 3f, sz * 2f + 3f), androidx.compose.ui.geometry.CornerRadius(sz * 0.4f))
+                drawRoundRect(Color(0xFFFAFAFA).copy(alpha = 1f - f * 0.5f), Offset(px - sz, py - sz), Size(sz * 2f, sz * 2f), androidx.compose.ui.geometry.CornerRadius(sz * 0.35f))
+                val g = sz * 0.5f
+                val spots = when (pips) {
+                    1 -> listOf(0f to 0f)
+                    2 -> listOf(-g to -g, g to g)
+                    3 -> listOf(-g to -g, 0f to 0f, g to g)
+                    4 -> listOf(-g to -g, g to -g, -g to g, g to g)
+                    5 -> listOf(-g to -g, g to -g, 0f to 0f, -g to g, g to g)
+                    else -> listOf(-g to -g, g to -g, -g to 0f, g to 0f, -g to g, g to g)
+                }
+                for ((dx, dy) in spots) drawCircle(if (pips == 1) Color(0xFFE53935) else INK, sz * 0.17f, Offset(px + dx, py + dy))
+            }
+        }
+        "sheet_music" -> {
+            for (k in 0 until 3) {   // faint staff lines that follow the path
+                val pts = ArrayList<Offset>()
+                for (i in 0..14) { val age = i * 1.3f / 14f; pts.add(Offset(ox - age * v / 1.3f, yAt(age) + (oy - y) + (k - 1) * u * 0.7f)) }
+                for (i in 0 until pts.size - 1) drawLine(Color.White.copy(alpha = 0.3f * (1f - i / 14f)), pts[i], pts[i + 1], strokeWidth = 1.4f)
+            }
+            stamps(ox, oy, y, h, time, speedLevel, 8, 1.3f, yAt) { px, py0, f, seed ->
+                val py = py0 + sin(f * 8f + seed) * u * 1.5f
+                val c = when (((seed % 3) + 3) % 3) { 0 -> Color(0xFF00E5FF); 1 -> Color(0xFFFF2D95); else -> Color(0xFFFFEB3B) }
+                val a = 1f - f * 0.7f
+                val head = u * 0.7f
+                drawOval(INK.copy(alpha = a), Offset(px - head - 1.5f, py - head * 0.7f - 1.5f), Size(head * 2f + 3f, head * 1.4f + 3f))
+                drawOval(c.copy(alpha = a), Offset(px - head, py - head * 0.7f), Size(head * 2f, head * 1.4f))
+                drawLine(INK.copy(alpha = a), Offset(px + head * 0.9f, py), Offset(px + head * 0.9f, py - u * 2.4f), strokeWidth = 5f, cap = StrokeCap.Round)
+                drawLine(c.copy(alpha = a), Offset(px + head * 0.9f, py), Offset(px + head * 0.9f, py - u * 2.4f), strokeWidth = 2.6f, cap = StrokeCap.Round)
+                if (seed % 2 == 0) drawLine(c.copy(alpha = a), Offset(px + head * 0.9f, py - u * 2.4f), Offset(px + head * 2.2f, py - u * 1.6f), strokeWidth = 3f, cap = StrokeCap.Round)
+            }
+        }
+        "soap_bubbles" -> stamps(ox, oy, y, h, time, speedLevel, 10, 1.6f, yAt) { px, py0, f, seed ->
+            val py = py0 - f * u * 4.5f + sin(f * 7f + seed) * u * 0.7f
+            val r = u * (0.8f + rnd(seed) * 0.9f) * (0.7f + 0.5f * f)
+            val a = 1f - f * 0.8f
+            drawCircle(Brush.radialGradient(listOf(Color(0x33FFFFFF), Color(0x55B388FF), Color(0x5518FFFF)), center = Offset(px, py), radius = r), r, Offset(px, py), alpha = a)
+            drawCircle(INK.copy(alpha = 0.6f * a), r, Offset(px, py), style = Stroke(3.2f))
+            drawCircle(Color.White.copy(alpha = 0.9f * a), r, Offset(px, py), style = Stroke(1.6f))
+            drawCircle(Color.White.copy(alpha = a), r * 0.2f, Offset(px - r * 0.38f, py - r * 0.38f))
+        }
         "veteran_comet" -> {
             val ice = Color(0xFF9BE7FF)
             val n = 16
