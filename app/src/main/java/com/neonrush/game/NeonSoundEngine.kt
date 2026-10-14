@@ -333,6 +333,13 @@ class NeonSoundEngine {
         triggerHaptic(8)
     }
 
+    /** Near-miss with feedback that scales: tier 1 graze / 2 razor; the whoosh pitches up with the combo, razors get a double tap. */
+    fun playNearMissTier(tier: Int, combo: Int) {
+        val freq = 220f * (1f + 0.16f * (combo - 1).coerceIn(0, 4)) * (if (tier >= 2) 1.25f else 1f)
+        activeVoices.add(NearMissVoice(true, freq))
+        if (tier >= 2) triggerHaptic(longArrayOf(0, 22, 35, 40)) else triggerHaptic(18)
+    }
+
     fun playNearMiss(isRight: Boolean = true) {
         activeVoices.add(NearMissVoice(isRight))
         triggerHaptic(50)
@@ -538,7 +545,7 @@ class NeonSoundEngine {
         }
     }
 
-    class NearMissVoice(val isRight: Boolean) : AudioVoice {
+    class NearMissVoice(val isRight: Boolean, val freq: Float = 220f) : AudioVoice {
         private var sampleIdx = 0
         private val totalSamples = (80 * SAMPLE_RATE / 1000f).toInt()
         private val noiseSamples = (40 * SAMPLE_RATE / 1000f).toInt()
@@ -559,7 +566,7 @@ class NeonSoundEngine {
                     noise = (Random.nextFloat() * 2f - 1f) * 0.6f
                 }
                 
-                val period = 1.0f / 220f
+                val period = 1.0f / freq
                 val t = sampleIdx * dt
                 val saw = (2.0f * ((t % period) / period) - 1.0f) * 0.4f
                 
