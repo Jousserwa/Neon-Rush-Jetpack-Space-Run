@@ -116,6 +116,11 @@ data class SimulationState(
     // a second, independent progression axis alongside gems.
     val comboStreak: Int = 0,
     val peakComboStreak: Int = 0,
+    // Near-miss loop (graze/razor combo). Tier 0 none, 1 graze, 2 razor.
+    val nearMissTier: Int = 0,
+    val nearMissTick: Int = -999,
+    val nearCombo: Int = 0,
+    val overdriveUntilTick: Int = -1,
     // Sector system: every 2 zones is a "sector" with guaranteed-different
     // obstacle set/mechanics/environment from the previous one (see
     // ZoneGenerator). These fields drive the on-screen banner + gem bonus
@@ -203,8 +208,11 @@ class NeonRushViewModel(
     val thrusters = ThrusterLocker(gameDao, hangarStore, viewModelScope, { RevenueCatManager.isPro.value }, { msg -> _suitGateCelebration.tryEmit(msg) })
     // Pilot parts (head/neck/shoulder/back/wrist/boots gear bought with gems, worn on any suit).
     val parts = PartsLocker(gameDao, hangarStore, viewModelScope) { msg -> _suitGateCelebration.tryEmit(msg) }
+    val locker = LockerRewards(gameDao, hangarStore, viewModelScope) { msg -> _suitGateCelebration.tryEmit(msg) }
     private suspend fun loadSuitGates() {
         parts.load()
+        locker.load()
+        try { NearMissFx.shakeOn = hangarStore.get("nm_shake") != "0"; NearMissFx.flashOn = hangarStore.get("nm_flash") != "0" } catch (_: Exception) {}
         try { _suitFreeRide.value = hangarStore.get(SuitRotation.K_SUIT_FREE_RIDE) == "1" } catch (_: Exception) {}
         thrusters.load()
         try { gameDao.getProfileDirect()?.let { thrusters.evaluate(it) } } catch (_: Exception) {}
@@ -435,6 +443,11 @@ class NeonRushViewModel(
         }
         _simState.value = _simState.value.copy(sectorBonusPending = 0, sectorBonusExpiresAtTick = 0)
     }
+    // Near-miss feel switches (vibration is NeonSoundEngine's haptics switch)
+    fun setNearMissShake(on: Boolean) { NearMissFx.shakeOn = on; viewModelScope.launch { try { hangarStore.put("nm_shake", if (on) "1" else "0") } catch (_: Exception) {} } }
+    fun setNearMissFlash(on: Boolean) { NearMissFx.flashOn = on; viewModelScope.launch { try { hangarStore.put("nm_flash", if (on) "1" else "0") } catch (_: Exception) {} } }
+    fun getHapticsEnabled(): Boolean = NeonSoundEngine.getHapticsEnabled()
+    fun setHapticsEnabled(on: Boolean) = NeonSoundEngine.setHapticsEnabled(on)
     fun getSoundEffectsEnabled(): Boolean = NeonSoundEngine.getSoundEffectsEnabled()
     fun setSoundEffectsEnabled(enabled: Boolean) = NeonSoundEngine.setSoundEffectsEnabled(enabled)
     fun getAmbientEnabled(): Boolean = NeonSoundEngine.getAmbientEnabled()
@@ -827,7 +840,7 @@ fun freezeStreak() {
             proPerks.refresh(); hangar.reconcileWithStore(); seasonPass.refresh()
         }
         viewModelScope.launch {
-            RevenueCatManager.isPro.collect { proPerks.refresh(); seasonPass.refresh(); try { gameDao.getProfileDirect()?.let { thrusters.evaluate(it) } } catch (_: Exception) {} }
+            RevenueCatManager.isPro.collect { proPerks.refresh(); seasonPass.refresh(); thrusters.recheckDrops(); try { gameDao.getProfileDirect()?.let { thrusters.evaluate(it) } } catch (_: Exception) {} }
         }
         restoreDifficulty()
         viewModelScope.launch { loadSuitGates() }
@@ -1248,6 +1261,7 @@ private fun stepHints(prev: HintState, input: HintInput): HintState {
 // ============================================================
 private var firstRunAssist = false
 private val grazedIds = mutableSetOf<String>()
+private val nearMiss = NearMissDirector()
 private var assistGemsGiven = 0
 private val FIRST_FLIGHT_GEMS = 60
 
@@ -1357,6 +1371,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             beginHintsForNewRun(prof.hintsCsv)
             firstRunAssist = prof.totalRuns == 0
             grazedIds.clear()
+            nearMiss.reset()
             assistGemsGiven = 0
             gameDao.updateProfile { p -> p.copy(currentRunGemsCredited = 0, currentRunBossZonesRewarded = "", currentRunMilestonesRewarded = "") }
             var tick = 0
@@ -1451,6 +1466,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 var activeDna = ZoneGenerator.generateZone(nextZoneNumber, runSeed)
                 if (state.specialWorldId != null) activeDna = overrideEnvironment(activeDna, state.specialWorldId)
                 var updatedMsg = state.feedbackMessage
+                var nmTierThis = -1
+                var nmBonusThisTick = 0
                 var sectorBannerText = state.sectorBannerText
                 var sectorBannerUntilTick = state.sectorBannerUntilTick
                 var sectorBonusPending = state.sectorBonusPending
@@ -1793,8 +1810,16 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         // CLOSE CALL: an obstacle slipped past within ~10 units of the hull.
                         if (elem.type == "obstacle" && elem.subType != "BLINK_HAZARD" &&
                             verticalDist < collisionRadius + 10 && grazedIds.add(elem.id)) {
-                            soundEngine.playNearMiss()
-                            updatedMsg = "CLOSE CALL!"
+                            val nmRes = nearMiss.register(tick, verticalDist < collisionRadius + 4)
+                            if (nmRes != null) {
+                                soundEngine.playNearMissTier(nmRes.tier, nmRes.combo)
+                                updatedMsg = nmRes.label
+                                nmTierThis = maxOf(nmTierThis, nmRes.tier)
+                                nmBonusThisTick += nmRes.points
+                            } else {
+                                soundEngine.playNearMiss()
+                                updatedMsg = "CLOSE CALL!"
+                            }
                             HullFx.closeCallTick = tick; hangar.onCloseCall(prof.activeSkinId); seasonPass.onToken(SeasonPass.TOKENS_CLOSE_CALL)
                             if (assist > 0f && assistGemsGiven < 8) { // first run only: small gem reward
                                 assistGemsGiven++
@@ -1818,6 +1843,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                     finalElements.add(elem)
                 }
+                if (hitThisTick) nearMiss.onHit()
                 if (boomClearTriggered) {
                     // Clear obstacles/bullets in the path immediately ahead
                     // of the player — a real "boom clear" effect, not just
@@ -1867,7 +1893,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 } else if (nextDurationsMap.containsKey("PU5")) {
                     multi *= 2.0f
                 }
-                val finalTickPoints = (tickScore * multi).toInt()
+                val finalTickPoints = (tickScore * multi).toInt() + nmBonusThisTick + nearMiss.overdriveTickPoints(tick)
                 val nextScore = state.score + finalTickPoints
                 soundEngine.updateGameTelemetries(speedInPx * 40f, nextScore)
                 for (ms in listOf(150, 500, 1500, 4000, 10000)) {
@@ -1889,6 +1915,20 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (activeDna.mechanicIds.contains(9) || (hasBossZone && bossHealthState > 0)) {
                     shakeX = (random.nextFloat() * 8f - 4f)
                     shakeY = (random.nextFloat() * 8f - 4f)
+                }
+                run {
+                    // Near-miss kick: a short, small shake that fades (kept under the big-hit white flash threshold).
+                    val nmT = if (nmTierThis >= 0) tick else state.nearMissTick
+                    val nmTier = if (nmTierThis >= 0) nmTierThis else state.nearMissTier
+                    val nmA = tick - nmT
+                    if (NearMissFx.shakeOn && nmTier > 0 && nmA in 0..5 && shakeX == 0f && shakeY == 0f) {
+                        val amp = (if (nmTier == 2) 2.6f else 1.6f) * (1f - nmA / 6f)
+                        var sx = (random.nextFloat() * 2f - 1f) * amp
+                        var sy = (random.nextFloat() * 2f - 1f) * amp * 0.6f
+                        val sum = kotlin.math.abs(sx) + kotlin.math.abs(sy)
+                        if (sum > 2.9f) { val k = 2.9f / sum; sx *= k; sy *= k }
+                        shakeX = sx; shakeY = sy
+                    }
                 }
                 val hintPicked = updatedElements.filter {
                     (it.type == "gem" || it.type == "fuel" || it.type == "powerup") &&
@@ -1944,6 +1984,10 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     bossHealth = bossHealthState.coerceIn(0f, 1f),
                     bossY = bossYState,
                     collectedGemsCount = gemsGathered,
+                    nearMissTier = if (nmTierThis >= 0) nmTierThis else state.nearMissTier,
+                    nearMissTick = if (nmTierThis >= 0) tick else state.nearMissTick,
+                    nearCombo = nearMiss.comboNow(tick),
+                    overdriveUntilTick = nearMiss.overdriveUntil,
                     particles = agedParticles,
                     isTranscendenceUnlocked = nextZoneNumber >= 50 || prof.transcendenceCount > 0
                 )
@@ -2189,6 +2233,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 var activeDna = ZoneGenerator.generateZone(nextZoneNumber, runSeed)
                 if (state.specialWorldId != null) activeDna = overrideEnvironment(activeDna, state.specialWorldId)
                 var updatedMsg = state.feedbackMessage
+                var nmTierThis = -1
+                var nmBonusThisTick = 0
                 var sectorBannerText = state.sectorBannerText
                 var sectorBannerUntilTick = state.sectorBannerUntilTick
                 var sectorBonusPending = state.sectorBonusPending
@@ -2506,8 +2552,16 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         // CLOSE CALL: an obstacle slipped past within ~10 units of the hull.
                         if (elem.type == "obstacle" && elem.subType != "BLINK_HAZARD" &&
                             verticalDist < collisionRadius + 10 && grazedIds.add(elem.id)) {
-                            soundEngine.playNearMiss()
-                            updatedMsg = "CLOSE CALL!"
+                            val nmRes = nearMiss.register(tick, verticalDist < collisionRadius + 4)
+                            if (nmRes != null) {
+                                soundEngine.playNearMissTier(nmRes.tier, nmRes.combo)
+                                updatedMsg = nmRes.label
+                                nmTierThis = maxOf(nmTierThis, nmRes.tier)
+                                nmBonusThisTick += nmRes.points
+                            } else {
+                                soundEngine.playNearMiss()
+                                updatedMsg = "CLOSE CALL!"
+                            }
                             HullFx.closeCallTick = tick; hangar.onCloseCall(prof.activeSkinId); seasonPass.onToken(SeasonPass.TOKENS_CLOSE_CALL)
                             if (assist > 0f && assistGemsGiven < 8) { // first run only: small gem reward
                                 assistGemsGiven++
@@ -2531,6 +2585,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                     finalElements.add(elem)
                 }
+                if (hitThisTick) nearMiss.onHit()
                 if (boomClearTriggered) {
                     // Clear obstacles/bullets in the path immediately ahead
                     // of the player — a real "boom clear" effect, not just
@@ -2565,7 +2620,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 } else if (nextDurationsMap.containsKey("PU5")) {
                     multi *= 2.0f
                 }
-                val finalTickPoints = (tickScore * multi).toInt()
+                val finalTickPoints = (tickScore * multi).toInt() + nmBonusThisTick + nearMiss.overdriveTickPoints(tick)
                 val nextScore = state.score + finalTickPoints
                 soundEngine.updateGameTelemetries(speedInPx * 40f, nextScore)
                 for (ms in listOf(150, 500, 1500, 4000, 10000)) {
@@ -2588,6 +2643,20 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (activeDna.mechanicIds.contains(9) || (hasBossZone && bossHealthState > 0)) {
                     shakeX = (random.nextFloat() * 8f - 4f)
                     shakeY = (random.nextFloat() * 8f - 4f)
+                }
+                run {
+                    // Near-miss kick: a short, small shake that fades (kept under the big-hit white flash threshold).
+                    val nmT = if (nmTierThis >= 0) tick else state.nearMissTick
+                    val nmTier = if (nmTierThis >= 0) nmTierThis else state.nearMissTier
+                    val nmA = tick - nmT
+                    if (NearMissFx.shakeOn && nmTier > 0 && nmA in 0..5 && shakeX == 0f && shakeY == 0f) {
+                        val amp = (if (nmTier == 2) 2.6f else 1.6f) * (1f - nmA / 6f)
+                        var sx = (random.nextFloat() * 2f - 1f) * amp
+                        var sy = (random.nextFloat() * 2f - 1f) * amp * 0.6f
+                        val sum = kotlin.math.abs(sx) + kotlin.math.abs(sy)
+                        if (sum > 2.9f) { val k = 2.9f / sum; sx *= k; sy *= k }
+                        shakeX = sx; shakeY = sy
+                    }
                 }
                 val hintPicked = updatedElements.filter {
                     (it.type == "gem" || it.type == "fuel" || it.type == "powerup") &&
@@ -2643,6 +2712,10 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     bossHealth = bossHealthState.coerceIn(0f, 1f),
                     bossY = bossYState,
                     collectedGemsCount = gemsGathered,
+                    nearMissTier = if (nmTierThis >= 0) nmTierThis else state.nearMissTier,
+                    nearMissTick = if (nmTierThis >= 0) tick else state.nearMissTick,
+                    nearCombo = nearMiss.comboNow(tick),
+                    overdriveUntilTick = nearMiss.overdriveUntil,
                     isTranscendenceUnlocked = nextZoneNumber >= 50 || prof.transcendenceCount > 0
                 )
             }
