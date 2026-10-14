@@ -348,6 +348,8 @@ class NeonRushViewModel(
                 )
             }
         }
+        // Real-money pilot parts (non-consumable neonrush_part_<id>) restore on every store sync.
+        parts.grantFromStore(owned.map { it.substringBefore(':') }.filter { it.startsWith("neonrush_part_") }.map { it.removePrefix("neonrush_part_") })
         // Pro + ads-removed: profile.subscriptionPro / adsRemoved were never written from the store before.
         val pro = RevenueCatManager.isPro.value
         val ads = RevenueCatManager.isAdsRemoved.value
