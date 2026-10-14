@@ -20,9 +20,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import com.neonrush.game.NeonRushViewModel
 import com.neonrush.game.R
 import com.neonrush.game.RevenueCatManager
+import com.neonrush.game.ServerClock
 import com.neonrush.game.ThrusterCatalog
 import com.neonrush.game.ThrusterKind
 import com.neonrush.game.Rarity
@@ -71,11 +74,16 @@ fun ThrustersPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
     LaunchedEffect(profile.bestZoneReached, profile.totalRuns, profile.bestScore, profile.currentStreak) {
         viewModel.thrusters.evaluate(profile)
     }
+    DisposableEffect(Unit) { onDispose { viewModel.thrusters.clearNew() } }
+    val nowMs = remember { ServerClock.bestNowMs() }
     val have = ThrusterCatalog.ALL.count { it.id in st.owned && (it.kind != ThrusterKind.PRO || pro) }
+    val released = ThrusterCatalog.ALL.count { ThrusterCatalog.released(it, nowMs) }
+    val upcoming = ThrusterCatalog.ALL.filter { !ThrusterCatalog.released(it, nowMs) }.minByOrNull { it.dropMonth }
 
     Text("🚀 THRUSTER TRAILS", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = CyberPrimary,
         fontFamily = FontFamily.Monospace, modifier = Modifier.padding(bottom = 4.dp))
-    Text("$have/${ThrusterCatalog.ALL.size} collected. A trail is matter left on your flight path. It works with any hull and any suit.",
+    Text("$have/$released collected. A trail is matter left on your flight path. It works with any hull and any suit." +
+        (upcoming?.let { "  Next drop: ${it.name} on ${dropDate(it)} (Pro get it first)." } ?: ""),
         color = CyberOnSurface.copy(alpha = 0.7f), fontSize = 12.sp, modifier = Modifier.padding(bottom = 12.dp))
 
     ThrusterCatalog.ALL.forEach { th ->
@@ -121,6 +129,17 @@ fun ThrustersPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
                         Text("  ${th.emoji} ${th.name}", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
                     }
                     Text(th.desc, fontSize = 11.sp, color = CyberPrimary.copy(alpha = 0.7f), modifier = Modifier.padding(top = 3.dp))
+                    if (th.dropMonth > 0 && !owned) {
+                        val at = ThrusterCatalog.buyableAtMs(th, pro)
+                        val rel = ThrusterCatalog.releaseMs(th)
+                        val line = when {
+                            at <= nowMs -> "🆕 Monthly drop · ${dropDate(th)}"
+                            rel > nowMs -> "🔒 Drops ${dropDate(th)} · Pro members get it first"
+                            else -> "⏳ Pro early access is live · opens for you in ${countdown(at - nowMs)}"
+                        }
+                        Text(line, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, color = Color(0xFFFFD23F), modifier = Modifier.padding(top = 3.dp))
+                    }
+                    if (th.id in st.newDrops) Text("NEW", fontSize = 10.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, color = Color(0xFF69F0AE), modifier = Modifier.padding(top = 2.dp))
                     if (!owned && th.kind != ThrusterKind.GEMS && th.kind != ThrusterKind.FREE) {
                         Text("🎯 ${th.requirement}" + (st.progress[th.id]?.let { "  ($it)" } ?: ""), fontSize = 10.sp, fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace, color = Color(0xFFFFD23F), modifier = Modifier.padding(top = 3.dp))
@@ -135,6 +154,7 @@ fun ThrustersPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
                         colors = ButtonDefaults.buttonColors(containerColor = CyberSurface.copy(alpha = 0.8f)),
                         shape = RoundedCornerShape(4.dp), modifier = Modifier.border(1.dp, CyberPrimary, RoundedCornerShape(4.dp))
                     ) { Text("EQUIP", color = CyberPrimary, fontFamily = FontFamily.Monospace, fontSize = 11.sp) }
+                    th.kind == ThrusterKind.GEMS && ThrusterCatalog.buyableAtMs(th, pro) > nowMs -> Text("🔒", fontSize = 16.sp)
                     th.kind == ThrusterKind.GEMS -> Button(
                         onClick = { viewModel.thrusters.buy(th.id) },
                         colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary), shape = RoundedCornerShape(4.dp)
@@ -145,4 +165,13 @@ fun ThrustersPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
             }
         }
     }
+}
+
+private fun dropDate(t: com.neonrush.game.Thruster): String =
+    java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date(ThrusterCatalog.releaseMs(t)))
+
+private fun countdown(ms: Long): String {
+    val m = (ms / 60000L).coerceAtLeast(0L)
+    val d = m / 1440L; val hh = (m % 1440L) / 60L; val mm = m % 60L
+    return if (d > 0) "${d}d ${hh}h" else "${hh}h ${mm}m"
 }
