@@ -9,259 +9,278 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.lerp
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.floor
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
- * Thruster trails, drawn in code. Each one starts at the jetpack (just behind the pilot) and streams to the left.
- * [h] = pilot height in px, [tick] = game tick (or any free-running tick in menus), [speedLevel] 0..5 lengthens the trail.
- * All use additive light so they blend with the neon scene. Cheap: a few dozen primitives each.
+ * THRUSTER TRAILS are WAKES, not auras.
+ *  - Hull effects glow around the ship and move with it.
+ *  - A trail is made of SOLID objects (dashes, pixels, digits, leaves, coins, circuit copper...) that are dropped on your actual
+ *    flight path and then stay in the world while you fly on, so a climb or a dive bends the whole trail.
+ * That difference (matter left behind vs light around you) is what makes them read as a separate collection.
  */
-private fun tRand(i: Int): Float { val v = sin(i * 12.9898f) * 43758.547f; return abs(v - floor(v)) }
 
-private fun DrawScope.tGlow(c: Offset, r: Float, color: Color, a: Float) {
-    drawCircle(Brush.radialGradient(listOf(color.copy(alpha = a.coerceIn(0f, 1f)), Color.Transparent), center = c, radius = r),
-        r, c, blendMode = BlendMode.Plus)
+/** Remembers where the pilot was over the last few seconds so a trail can follow the real flight path. */
+class TrailPath {
+    private val cap = 180
+    private val ts = FloatArray(cap)
+    private val ys = FloatArray(cap)
+    private var count = 0
+    private var head = 0
+    private var now = 0f
+
+    fun push(time: Float, y: Float) {
+        if (count > 0 && time < now - 0.5f) count = 0            // the effects clock restarted
+        if (count > 0 && time - now < 0.02f) { ys[head] = y; now = time; return }
+        head = (head + 1) % cap; ts[head] = time; ys[head] = y; now = time
+        if (count < cap) count++
+    }
+
+    /** Pilot centre Y, [age] seconds ago (the oldest sample if older than we remember). */
+    fun yAt(age: Float): Float {
+        if (count == 0) return 0f
+        val target = now - age
+        var i = head
+        var k = 0
+        while (k < count - 1) {
+            val j = (i - 1 + cap) % cap
+            if (ts[j] <= target) {
+                val f = ((target - ts[j]) / (ts[i] - ts[j]).coerceAtLeast(1e-4f)).coerceIn(0f, 1f)
+                return ys[j] + (ys[i] - ys[j]) * f
+            }
+            i = j; k++
+        }
+        return ys[i]
+    }
 }
 
-private fun DrawScope.seg(a: Offset, b: Offset, color: Color, alpha: Float, w: Float) {
-    drawLine(color, a, b, strokeWidth = w, cap = StrokeCap.Round, alpha = alpha.coerceIn(0f, 1f), blendMode = BlendMode.Plus)
+private fun rnd(i: Int): Float { val v = sin(i * 12.9898f) * 43758.547f; return abs(v - floor(v)) }
+private val INK = Color(0xFF05060F)
+
+/** Drops [count] objects over [life] seconds; each is called with (x, y, fade 0..1 young->old, stable seed). */
+private fun DrawScope.stamps(
+    ox: Float, oy: Float, y: Float, h: Float, time: Float, speed: Int, count: Int, life: Float,
+    yAt: (Float) -> Float, draw: DrawScope.(Float, Float, Float, Int) -> Unit
+) {
+    val dt = life / count
+    val v = h * 2.3f * (1f + 0.1f * speed) / life
+    val base = floor(time / dt).toInt()
+    val frac = time - base * dt
+    for (j in 0 until count) {
+        val age = frac + j * dt
+        draw(ox - age * v, yAt(age) + (oy - y), age / life, base - j)
+    }
 }
 
-internal fun DrawScope.drawThruster(id: String, x: Float, y: Float, h: Float, tick: Int, speedLevel: Int = 0) {
+private fun DrawScope.sparkle(c: Offset, r: Float, color: Color, alpha: Float) {
+    val p = Path().apply {
+        moveTo(c.x, c.y - r); quadraticBezierTo(c.x, c.y, c.x + r, c.y); quadraticBezierTo(c.x, c.y, c.x, c.y + r)
+        quadraticBezierTo(c.x, c.y, c.x - r, c.y); quadraticBezierTo(c.x, c.y, c.x, c.y - r); close()
+    }
+    drawPath(p, color, alpha = alpha.coerceIn(0f, 1f))
+}
+
+private fun DrawScope.ecg(p: Float): Float = when {
+    p < 0.10f -> sin(p / 0.10f * PI.toFloat()) * 0.12f
+    p in 0.30f..0.36f -> -(p - 0.30f) / 0.06f * 0.2f
+    p in 0.36f..0.42f -> -0.2f + (p - 0.36f) / 0.06f * 1.4f
+    p in 0.42f..0.50f -> 1.2f - (p - 0.42f) / 0.08f * 1.6f
+    p in 0.50f..0.56f -> -0.4f + (p - 0.50f) / 0.06f * 0.4f
+    else -> 0f
+}
+
+/**
+ * [x],[y] = pilot centre, [h] = pilot height, [time] = smooth seconds, [speedLevel] 0..5 (Afterburner) lengthens the wake.
+ * [yAt] = pilot Y [age] seconds ago (see TrailPath).
+ */
+internal fun DrawScope.drawThruster(id: String, x: Float, y: Float, h: Float, time: Float, speedLevel: Int, yAt: (Float) -> Float) {
     val u = h * 0.06f
-    val t = tick.toFloat()
-    val n = 10 + speedLevel * 2
     val ox = x - h * 0.2f
     val oy = y + h * 0.06f
-    val o = Offset(ox, oy)
-    val cyan = Color(0xFF00E5FF); val mag = Color(0xFFFF2D95); val violet = Color(0xFF7C4DFF)
+    val v = h * 2.3f * (1f + 0.1f * speedLevel)       // wake length in px (life * speed)
     when (id) {
-        "plasma_ribbon" -> {
-            tGlow(o, u * 3f, violet, 0.5f)
-            for (rb in 0..1) {
-                var prev = o
-                for (i in 1..n + 4) {
-                    val f = i / (n + 5f)
-                    val nx = Offset(ox - i * u * 1.7f, oy + sin(t * 0.26f - i * 0.5f + rb * PI.toFloat()) * u * (0.5f + f * 2.2f))
-                    val col = lerp(if (rb == 0) mag else cyan, violet, f)
-                    seg(prev, nx, col, 0.2f * (1f - f), u * (1.8f - 1.3f * f) * 2.6f)
-                    seg(prev, nx, col, 0.9f * (1f - f), (u * (1.8f - 1.3f * f)).coerceAtLeast(1.2f))
-                    prev = nx
-                }
+        "pixel_trail" -> stamps(ox, oy, y, h, time, speedLevel, 12, 1.0f, yAt) { px, py, f, seed ->
+            val cols = listOf(Color(0xFF00E5FF), Color(0xFFFF2D95), Color(0xFFFFEB3B))
+            val cell = u * 0.9f * (if (f < 0.33f) 1f else if (f < 0.66f) 0.75f else 0.5f)
+            val gx = floor(px / cell) * cell; val gy = floor(py / cell) * cell
+            drawRect(INK, Offset(gx - 1.5f, gy - 1.5f), Size(cell + 3f, cell + 3f))
+            drawRect(cols[((seed % 3) + 3) % 3], Offset(gx, gy), Size(cell, cell))
+        }
+        "code_stream" -> stamps(ox, oy, y, h, time, speedLevel, 16, 1.2f, yAt) { px, py, f, seed ->
+            val row = ((rnd(seed * 3) * 5f).toInt() - 2) * u * 1.25f
+            val g = u * 0.8f
+            val c = if (f < 0.1f) Color(0xFFE8FFE8) else Color(0xFF39FF14)
+            val a = 1f - f * 0.85f
+            val cy = py + row
+            if (rnd(seed * 7) > 0.5f) {
+                drawCircle(INK.copy(alpha = a), g * 0.75f, Offset(px, cy), style = Stroke(4f))
+                drawCircle(c.copy(alpha = a), g * 0.75f, Offset(px, cy), style = Stroke(2f))
+            } else {
+                drawLine(INK.copy(alpha = a), Offset(px, cy - g), Offset(px, cy + g), strokeWidth = 4.5f, cap = StrokeCap.Round)
+                drawLine(c.copy(alpha = a), Offset(px, cy - g), Offset(px, cy + g), strokeWidth = 2.2f, cap = StrokeCap.Round)
+                drawLine(c.copy(alpha = a), Offset(px, cy - g), Offset(px - g * 0.5f, cy - g * 0.55f), strokeWidth = 2.2f, cap = StrokeCap.Round)
             }
         }
-        "pixel_stream" -> {
-            val cols = listOf(cyan, mag, Color(0xFFFFEB3B))
-            val cell = u * 0.9f
-            for (i in 0 until n + 6) {
-                val f = i / (n + 6f)
-                val row = ((tRand(i * 7 + (tick / 3)) - 0.5f) * 5f).toInt()
-                val px = ox - i * cell * 1.15f
-                val py = oy + row * cell
-                val a = (1f - f) * 0.95f
-                drawRect(cols[(i + tick / 4) % 3].copy(alpha = a), Offset(px, py), Size(cell, cell), blendMode = BlendMode.Plus)
-            }
-            tGlow(o, u * 2.2f, cyan, 0.4f)
+        "ink_blots" -> stamps(ox, oy, y, h, time, speedLevel, 9, 1.2f, yAt) { px, py0, f, seed ->
+            val ink = Color(0xFF1A0B3B)
+            val py = py0 + f * f * h * 0.55f * (0.5f + rnd(seed))
+            val r = u * (1.0f - 0.5f * f) * (0.7f + 0.6f * rnd(seed * 5))
+            if (rnd(seed * 2) > 0.5f) drawLine(ink, Offset(px, py - r * 2.2f), Offset(px, py), strokeWidth = r * 0.7f, cap = StrokeCap.Round)
+            drawCircle(ink, r, Offset(px, py))
+            drawCircle(Color(0xFFFF2D95), r, Offset(px, py), style = Stroke(1.8f))
+            drawCircle(Color.White.copy(alpha = 0.85f), r * 0.28f, Offset(px - r * 0.3f, py - r * 0.3f))
+            drawCircle(ink, r * 0.3f, Offset(px + r * 1.5f, py - r * 0.8f)); drawCircle(ink, r * 0.22f, Offset(px - r * 1.2f, py + r * 1.2f))
         }
-        "star_dust" -> {
-            tGlow(o, u * 3f, Color(0xFFFFE082), 0.35f)
-            for (k in 0 until n + 6) {
-                val ph = (t * 0.03f + k / (n + 6f)) % 1f
-                val sx = ox - ph * h * 1.25f
-                val sy = oy + (tRand(k * 5) - 0.5f) * h * 0.5f + sin(t * 0.1f + k) * u * 0.4f
-                val tw = 0.5f + 0.5f * sin(t * 0.3f + k * 2f)
-                val r = u * (0.25f + 0.45f * tRand(k * 3)) * (1f - ph * 0.5f)
-                val c = Offset(sx, sy)
-                val col = if (k % 3 == 0) Color(0xFFFFE082) else Color.White
-                val a = (1f - ph) * (0.4f + 0.6f * tw)
-                seg(Offset(c.x - r * 1.6f, c.y), Offset(c.x + r * 1.6f, c.y), col, a, 1.6f)
-                seg(Offset(c.x, c.y - r * 1.6f), Offset(c.x, c.y + r * 1.6f), col, a, 1.6f)
-                drawCircle(col.copy(alpha = a), r * 0.5f, c, blendMode = BlendMode.Plus)
+        "leaf_wake" -> stamps(ox, oy, y, h, time, speedLevel, 9, 1.4f, yAt) { px, py0, f, seed ->
+            val py = py0 + sin(f * 9f + seed) * u * 1.4f
+            val r = u * (1.6f - 0.5f * f)
+            val col = when (((seed % 3) + 3) % 3) { 0 -> Color(0xFF4CAF50); 1 -> Color(0xFF9CCC65); else -> Color(0xFFFFB300) }
+            val lp = Path().apply {
+                moveTo(px - r, py); quadraticBezierTo(px, py - r * 0.75f, px + r, py); quadraticBezierTo(px, py + r * 0.75f, px - r, py); close()
+            }
+            rotate(seed * 40f + f * 260f, Offset(px, py)) {
+                drawPath(lp, INK.copy(alpha = 0.9f), style = Stroke(3.5f)); drawPath(lp, col, alpha = 1f - f * 0.6f)
+                drawLine(Color(0x99103010), Offset(px - r, py), Offset(px + r * 0.9f, py), strokeWidth = 1.6f)
             }
         }
-        "glitch_static" -> {
-            val s = tick / 2
-            tGlow(o, u * 2f, cyan, 0.35f)
+        "constellation" -> {
+            val pts = ArrayList<Triple<Offset, Float, Int>>()
+            stamps(ox, oy, y, h, time, speedLevel, 9, 1.3f, yAt) { px, py, f, seed ->
+                pts.add(Triple(Offset(px, py + (rnd(seed) - 0.5f) * u * 3.5f), f, seed))
+            }
+            for (i in 0 until pts.size - 1) drawLine(Color.White.copy(alpha = 0.5f * (1f - pts[i + 1].second)), pts[i].first, pts[i + 1].first, strokeWidth = 1.4f)
+            for ((c, f, seed) in pts) {
+                val big = rnd(seed * 4) > 0.6f
+                sparkle(c, u * (if (big) 1.3f else 0.8f) * (1f - f * 0.4f), if (big) Color(0xFFFFE082) else Color.White, 1f - f * 0.7f)
+            }
+        }
+        "prism_shards" -> stamps(ox, oy, y, h, time, speedLevel, 10, 1.3f, yAt) { px, py0, f, seed ->
+            val py = py0 + (rnd(seed) - 0.5f) * u * 3f
+            val r = u * (0.8f + 0.6f * rnd(seed * 3))
+            val col = Color.hsv(((seed * 47) % 360 + 360 + time * 60f) % 360f, 0.55f, 1f)
+            val tri = Path().apply { moveTo(px, py - r); lineTo(px + r * 0.9f, py + r * 0.7f); lineTo(px - r * 0.9f, py + r * 0.7f); close() }
+            val inner = Path().apply { moveTo(px, py - r * 0.35f); lineTo(px + r * 0.35f, py + r * 0.3f); lineTo(px - r * 0.35f, py + r * 0.3f); close() }
+            rotate(seed * 57f + f * 300f, Offset(px, py)) {
+                drawPath(tri, col, alpha = 1f - f * 0.6f); drawPath(inner, Color.White.copy(alpha = 0.55f - f * 0.4f))
+                drawPath(tri, Color.White.copy(alpha = 0.85f - f * 0.6f), style = Stroke(1.4f))
+            }
+        }
+        "circuit_trace" -> {
+            val step = u * 1.3f
+            val n = 26
+            val life = 1.2f
+            val xs = FloatArray(n); val ysq = FloatArray(n)
             for (k in 0 until n) {
-                val f = k / n.toFloat()
-                val len = u * (3f + 8f * tRand(s * 11 + k))
-                val dy = (tRand(s * 7 + k * 3) - 0.5f) * u * 5f
-                val px = ox - f * h * 1.2f
-                val hgt = u * (0.25f + 0.5f * tRand(s + k * 9))
-                val a = (1f - f) * (if (tRand(s * 3 + k) > 0.2f) 0.9f else 0.2f)
-                drawRect(Color(0xFFFF1744).copy(alpha = a * 0.8f), Offset(px - len + u * 0.5f, oy + dy), Size(len, hgt), blendMode = BlendMode.Plus)
-                drawRect(cyan.copy(alpha = a), Offset(px - len, oy + dy + hgt * 0.4f), Size(len, hgt), blendMode = BlendMode.Plus)
+                val age = k * life / (n - 1)
+                xs[k] = ox - age * (v / life)
+                ysq[k] = ((yAt(age) + (oy - y)) / step).roundToInt() * step
             }
-        }
-        "prism_beam" -> {
-            val bands = 6
-            val len = h * (1.0f + 0.15f * speedLevel)
-            for (b in 0 until bands) {
-                val hue = ((t * 2.2f + b * 55f) % 360f)
-                val col = Color.hsv(hue, 0.85f, 1f)
-                val off = (b - (bands - 1) / 2f) * u * 0.55f
-                val wob = sin(t * 0.18f + b) * u * 0.25f
-                val steps = 8
-                var prev = Offset(ox, oy + off)
-                for (i in 1..steps) {
-                    val f = i / steps.toFloat()
-                    val nx = Offset(ox - len * f, oy + off * (1f + f * 1.8f) + wob * f)
-                    seg(prev, nx, col, 0.8f * (1f - f), u * 0.55f * (1f - 0.5f * f))
-                    prev = nx
+            val copper = Color(0xFFFFB300)
+            for (k in 0 until n - 1) {
+                val f = k / (n - 1f)
+                val a = 1f - f * 0.85f
+                // horizontal run, then the vertical hop at the corner
+                drawLine(INK.copy(alpha = a), Offset(xs[k], ysq[k]), Offset(xs[k + 1], ysq[k]), strokeWidth = u * 0.95f)
+                drawLine(copper.copy(alpha = a), Offset(xs[k], ysq[k]), Offset(xs[k + 1], ysq[k]), strokeWidth = u * 0.5f)
+                if (ysq[k + 1] != ysq[k]) {
+                    drawLine(INK.copy(alpha = a), Offset(xs[k + 1], ysq[k]), Offset(xs[k + 1], ysq[k + 1]), strokeWidth = u * 0.95f)
+                    drawLine(copper.copy(alpha = a), Offset(xs[k + 1], ysq[k]), Offset(xs[k + 1], ysq[k + 1]), strokeWidth = u * 0.5f)
+                    drawCircle(copper.copy(alpha = a), u * 0.6f, Offset(xs[k + 1], ysq[k + 1]))
+                    drawCircle(INK.copy(alpha = a), u * 0.22f, Offset(xs[k + 1], ysq[k + 1]))
                 }
             }
-            tGlow(o, u * 2.8f, Color.White, 0.4f)
+            val pk = (((time * 1.4f) % 1f) * (n - 1)).toInt().coerceIn(0, n - 1)   // data pulse running down the board
+            drawCircle(Color.White, u * 0.5f, Offset(xs[pk], ysq[pk]))
+            drawCircle(Color(0xFF00E5FF), u * 0.5f, Offset(xs[pk], ysq[pk]), style = Stroke(2f))
         }
-        "ink_drip" -> {
-            val ink = Color(0xFF6A1BFF)
-            for (k in 0 until n) {
-                val ph = (t * 0.03f + k / n.toFloat()) % 1f
-                val px = ox - ph * h * 1.0f
-                val py = oy + ph * ph * h * 0.55f * (0.4f + tRand(k)) + sin(t * 0.15f + k) * u * 0.3f
-                val r = u * (0.9f - 0.6f * ph) * (0.7f + 0.5f * tRand(k * 4))
-                val a = (1f - ph)
-                drawCircle(ink.copy(alpha = 0.55f * a), r * 1.9f, Offset(px, py), blendMode = BlendMode.Plus)
-                drawCircle(Color(0xFF14002E).copy(alpha = 0.9f * a), r, Offset(px, py))
-                drawCircle(mag.copy(alpha = 0.8f * a), r, Offset(px, py), style = Stroke(1.6f), blendMode = BlendMode.Plus)
+        "sonic_rings" -> stamps(ox, oy, y, h, time, speedLevel, 7, 1.2f, yAt) { px, py, f, _ ->
+            val r = u * (0.8f + 3.6f * f)
+            val col = lerp(Color(0xFFFF2D95), Color(0xFF7C4DFF), f)
+            for (k in 0..1) {
+                val rr = r * (1f - k * 0.38f)
+                val w = (u * 0.45f * (1f - f)).coerceAtLeast(1.4f)
+                drawArc(INK.copy(alpha = 1f - f), 135f, 90f, false, Offset(px - rr * 0.6f, py - rr), Size(rr * 1.2f, rr * 2f), style = Stroke(w + 3f, cap = StrokeCap.Round))
+                drawArc(col.copy(alpha = 1f - f), 135f, 90f, false, Offset(px - rr * 0.6f, py - rr), Size(rr * 1.2f, rr * 2f), style = Stroke(w, cap = StrokeCap.Round))
             }
-            tGlow(o, u * 2.4f, ink, 0.5f)
-        }
-        "circuit_sparks" -> {
-            val green = Color(0xFF39FFA0)
-            for (tr in 0..2) {
-                var p = Offset(ox, oy + (tr - 1) * u * 1.1f)
-                val total = n
-                for (i in 1..total) {
-                    val f = i / total.toFloat()
-                    val horiz = tRand(tr * 31 + i * 17) > 0.35f
-                    val np = if (horiz) Offset(p.x - u * (1.4f + 1.6f * tRand(i + tr)), p.y)
-                             else Offset(p.x, p.y + (if (tRand(i * 3 + tr) > 0.5f) 1f else -1f) * u * 1.1f)
-                    seg(p, np, green, (1f - f) * 0.9f, u * 0.32f)
-                    if (!horiz) drawCircle(cyan.copy(alpha = 1f - f), u * 0.34f, np, blendMode = BlendMode.Plus)
-                    p = np
-                }
-            }
-            for (k in 0 until 4) {
-                val ph = (t * 0.07f + k * 0.25f) % 1f
-                val sp = Offset(ox - ph * h * 0.9f, oy + sin(k * 3.1f) * u * 2f)
-                tGlow(sp, u * 1.4f, Color.White, (1f - ph) * 0.7f)
-            }
-            tGlow(o, u * 2.2f, green, 0.4f)
-        }
-        "aurora_veil" -> {
-            val green = Color(0xFF39FFA0)
-            for (band in 0..2) {
-                val col = when (band) { 0 -> green; 1 -> cyan; else -> violet }
-                var prev = Offset(ox, oy + (band - 1) * u * 1.2f)
-                val steps = n + 4
-                for (i in 1..steps) {
-                    val f = i / steps.toFloat()
-                    val nx = Offset(ox - i * u * 1.8f, oy + (band - 1) * u * (1.2f + f * 1.6f) + sin(t * 0.12f - i * 0.35f + band * 1.9f) * u * (0.6f + f * 1.8f))
-                    seg(prev, nx, col, 0.14f * (1f - f), u * 3.4f)
-                    seg(prev, nx, col, 0.55f * (1f - f), u * 1.1f)
-                    // shimmer rays hanging off the curtain
-                    if (i % 3 == 0) seg(nx, Offset(nx.x, nx.y + u * (1.5f + 2f * tRand(i + band * 9))), Color.White, 0.35f * (1f - f), 1.4f)
-                    prev = nx
-                }
-            }
-            tGlow(o, u * 2.6f, green, 0.4f)
-        }
-        "royal_plasma" -> {
-            val gold = Color(0xFFFFD23F)
-            val steps = n + 6
-            var pa = o; var pb = o
-            for (i in 1..steps) {
-                val f = i / steps.toFloat()
-                val px = ox - i * u * 1.5f
-                val amp = u * (0.8f + f * 1.6f)
-                val a = sin(t * 0.25f - i * 0.5f) * amp
-                val na = Offset(px, oy + a); val nb = Offset(px, oy - a)
-                seg(pa, na, gold, 0.9f * (1f - f), u * 0.7f)
-                seg(pb, nb, mag, 0.9f * (1f - f), u * 0.7f)
-                if (i % 2 == 0) seg(na, nb, Color.White, 0.25f * (1f - f), 1.2f)   // rungs
-                if (abs(a) < amp * 0.25f) drawCircle(Color.White.copy(alpha = 0.9f * (1f - f)), u * 0.35f, Offset(px, oy), blendMode = BlendMode.Plus)
-                pa = na; pb = nb
-            }
-            tGlow(o, u * 3f, gold, 0.45f)
-        }
-        "supernova_wake" -> {
-            val gold = Color(0xFFFFE082)
-            for (k in 0 until 4) {
-                val ph = (t * 0.045f + k / 4f) % 1f
-                val c = Offset(ox - ph * h * 1.15f, oy)
-                val r = u * (0.6f + 3.2f * ph)
-                val col = lerp(Color.White, mag, ph)
-                drawCircle(col.copy(alpha = (1f - ph) * 0.85f), r, c, style = Stroke(u * 0.35f * (1f - ph * 0.6f)), blendMode = BlendMode.Plus)
-                tGlow(c, r * 1.3f, gold, (1f - ph) * 0.25f)
-            }
-            for (k in 0 until 8) {  // flare spikes at the jet
-                val ang = k * PI.toFloat() / 4f + t * 0.03f
-                seg(o, Offset(ox + cos(ang) * u * (1.6f + 1.4f * (k % 2)), oy + sin(ang) * u * (1.6f + 1.4f * (k % 2))), Color.White, 0.8f, 1.8f)
-            }
-            seg(o, Offset(ox - h * 0.9f, oy), gold, 0.7f, u * 0.5f)
-            tGlow(o, u * 3.4f, Color.White, 0.5f)
         }
         "heartbeat_pulse" -> {
-            val green = Color(0xFF39FFA0)
-            val steps = n + 8
-            var prev = o
-            for (i in 1..steps) {
-                val f = i / steps.toFloat()
-                val ph = ((i * 0.5f + t * 0.35f) % 8f)
-                val amp = when {            // one ECG beat every 8 samples: small bump, spike up, spike down
-                    ph < 1f -> sin(ph * PI.toFloat()) * 0.5f
-                    ph in 3f..3.5f -> (ph - 3f) * 2f * 3.2f
-                    ph in 3.5f..4f -> 3.2f - (ph - 3.5f) * 2f * 5.4f
-                    ph in 4f..4.6f -> -2.2f + (ph - 4f) / 0.6f * 2.2f
-                    else -> 0f
-                }
-                val nx = Offset(ox - i * u * 0.95f, oy - amp * u)
-                seg(prev, nx, green, 0.2f * (1f - f), u * 1.6f)
-                seg(prev, nx, green, 0.95f * (1f - f), u * 0.4f)
-                prev = nx
+            val n = 40
+            val life = 1.3f
+            val green = Color(0xFF39FF14)
+            var prev = Offset(ox, oy)
+            for (k in 1..n) {
+                val age = k * life / n
+                val ph = ((time - age) * 1.8f).let { it - floor(it) }
+                val p = Offset(ox - age * v / life, yAt(age) + (oy - y) - ecg(ph) * h * 0.34f)
+                val a = 1f - k / n.toFloat()
+                drawLine(INK.copy(alpha = a), prev, p, strokeWidth = u * 0.85f, cap = StrokeCap.Round)
+                drawLine(green.copy(alpha = a), prev, p, strokeWidth = u * 0.4f, cap = StrokeCap.Round)
+                prev = p
             }
-            val beat = 0.6f + 0.4f * sin(t * 0.35f * PI.toFloat() / 4f)
-            tGlow(o, u * 2.6f * beat + u, green, 0.5f)
-            drawCircle(Color.White.copy(alpha = 0.9f), u * 0.4f, o, blendMode = BlendMode.Plus)
+            drawCircle(Color.White, u * 0.45f, Offset(ox, oy))
+        }
+        "gold_rush" -> stamps(ox, oy, y, h, time, speedLevel, 9, 1.3f, yAt) { px, py0, f, seed ->
+            val py = py0 + sin(f * 7f + seed) * u * 1.3f
+            val r = u * (1.3f - 0.35f * f)
+            val wdt = (r * abs(cos(seed * 1.3f + f * 12f))).coerceAtLeast(r * 0.14f)
+            val tl = Offset(px - wdt, py - r); val sz = Size(wdt * 2f, r * 2f)
+            drawOval(Color(0xFF8A5A00), tl - Offset(1.5f, 1.5f), Size(sz.width + 3f, sz.height + 3f))
+            drawOval(Color(0xFFFFC107), tl, sz, alpha = 1f - f * 0.5f)
+            drawOval(Color(0xFFFFE57F), Offset(px - wdt * 0.6f, py - r * 0.6f), Size(wdt * 1.2f, r * 1.2f), alpha = 0.8f - f * 0.5f)
+            if (rnd(seed * 6) > 0.7f) sparkle(Offset(px + r, py - r), u * 0.9f, Color.White, 1f - f)
+        }
+        "starburst_wake" -> stamps(ox, oy, y, h, time, speedLevel, 6, 1.4f, yAt) { px, py, f, seed ->
+            val s = u * (0.9f + 3.0f * sin(f * PI.toFloat()).coerceAtLeast(0.1f))
+            val star = Path().apply {
+                for (k in 0 until 16) {
+                    val ang = k * PI.toFloat() / 8f
+                    val rad = if (k % 2 == 1) s * 0.28f else if (k % 4 == 0) s * 1.7f else s * 0.8f
+                    val pt = Offset(px + cos(ang) * rad, py + sin(ang) * rad)
+                    if (k == 0) moveTo(pt.x, pt.y) else lineTo(pt.x, pt.y)
+                }
+                close()
+            }
+            rotate(seed * 23f + f * 90f, Offset(px, py)) {
+                drawPath(star, Color(0xFFFF2D95), style = Stroke(3f))
+                drawPath(star, Color(0xFFFFD23F), alpha = 1f - f * 0.4f)
+                drawCircle(Color.White, s * 0.3f, Offset(px, py))
+            }
         }
         "veteran_comet" -> {
             val ice = Color(0xFF9BE7FF)
-            val len = h * (1.1f + 0.12f * speedLevel)
+            val n = 16
+            val life = 1.3f
+            val tops = ArrayList<Offset>(); val bots = ArrayList<Offset>()
+            for (k in 0..n) {
+                val age = k * life / n
+                val f = k / n.toFloat()
+                val cx = ox - age * v / life; val cy = yAt(age) + (oy - y)
+                val w = u * 1.5f * Math.pow((1f - f).toDouble(), 0.8).toFloat()
+                tops.add(Offset(cx, cy - w)); bots.add(Offset(cx, cy + w))
+            }
             val tail = Path().apply {
-                moveTo(ox, oy - u * 1.3f); lineTo(ox - len, oy + sin(t * 0.1f) * u * 0.8f); lineTo(ox, oy + u * 1.3f); close()
+                moveTo(tops[0].x, tops[0].y); for (p in tops) lineTo(p.x, p.y); for (p in bots.reversed()) lineTo(p.x, p.y); close()
             }
-            drawPath(tail, Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0.85f), ice.copy(alpha = 0.35f), Color.Transparent), startX = ox, endX = ox - len),
-                blendMode = BlendMode.Plus)
-            for (k in 0 until 3) {   // little stars orbiting the tail axis
-                val ph = (t * 0.03f + k / 3f) % 1f
-                val sx = ox - ph * len * 0.9f
-                val sy = oy + sin(ph * 12f + k * 2.1f) * u * (1f + ph * 1.6f)
-                drawCircle(Color.White.copy(alpha = 1f - ph), u * 0.4f, Offset(sx, sy), blendMode = BlendMode.Plus)
-                seg(Offset(sx - u * 0.8f, sy), Offset(sx + u * 0.8f, sy), ice, (1f - ph) * 0.7f, 1.4f)
-                seg(Offset(sx, sy - u * 0.8f), Offset(sx, sy + u * 0.8f), ice, (1f - ph) * 0.7f, 1.4f)
+            drawPath(tail, Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0.95f), ice.copy(alpha = 0.55f), Color.Transparent), startX = ox, endX = ox - v))
+            drawPath(tail, Color.White.copy(alpha = 0.5f), style = Stroke(1.2f))
+            for (k in 0 until 4) {   // little stars riding the tail
+                val f = ((time * 0.5f + k / 4f) % 1f)
+                val age = f * life
+                val c = Offset(ox - age * v / life, yAt(age) + (oy - y) + sin(f * 14f + k) * u * (1f + f * 1.5f))
+                sparkle(c, u * 0.9f, Color.White, 1f - f)
             }
-            for (k in 0 until 8) {   // ice dust
-                val ph = (t * 0.04f + k / 8f) % 1f
-                drawCircle(ice.copy(alpha = (1f - ph) * 0.8f), u * 0.18f, Offset(ox - ph * len, oy + (tRand(k * 6) - 0.5f) * u * 3.2f), blendMode = BlendMode.Plus)
-            }
-            tGlow(o, u * 3f, Color.White, 0.55f)
+            drawCircle(Color.White, u * 0.8f, Offset(ox, oy)); drawCircle(ice, u * 1.3f, Offset(ox, oy), style = Stroke(2f))
         }
-        else -> { // ion_stream (default): three tapering cyan streaks + core glow
-            val len = h * (0.75f + 0.12f * speedLevel) * (0.92f + 0.08f * sin(t * 0.5f))
-            tGlow(o, u * 3f, cyan, 0.5f)
-            for (k in -1..1) {
-                val tip = Offset(ox - len * (1f - 0.18f * abs(k)), oy + k * u * 1.1f)
-                val p = Path().apply {
-                    moveTo(ox, oy + k * u * 0.35f - u * 0.5f); lineTo(tip.x, tip.y); lineTo(ox, oy + k * u * 0.35f + u * 0.5f); close()
-                }
-                drawPath(p, cyan.copy(alpha = if (k == 0) 0.85f else 0.45f), blendMode = BlendMode.Plus)
-            }
-            drawCircle(Color.White.copy(alpha = 0.8f), u * 0.5f, o, blendMode = BlendMode.Plus)
+        else -> stamps(ox, oy, y, h, time, speedLevel, 12, 1.0f, yAt) { px, py, f, _ ->   // contrail
+            val len = u * 2.4f * (1f - 0.5f * f)
+            drawLine(INK.copy(alpha = 1f - f), Offset(px, py), Offset(px + len, py), strokeWidth = u * 0.95f, cap = StrokeCap.Round)
+            drawLine(lerp(Color.White, Color(0xFF7FDBFF), f).copy(alpha = 1f - f * 0.8f), Offset(px, py), Offset(px + len, py), strokeWidth = u * 0.5f, cap = StrokeCap.Round)
         }
     }
 }
