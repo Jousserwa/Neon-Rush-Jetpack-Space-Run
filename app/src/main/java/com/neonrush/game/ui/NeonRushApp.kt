@@ -90,6 +90,7 @@ import com.neonrush.game.AdMobManager
 import com.neonrush.game.RewardedSlot
 import com.neonrush.game.DailyMutations
 import com.neonrush.game.MutationDay
+import com.neonrush.game.NearMissFx
 import com.neonrush.game.NeonRushViewModel
 import com.neonrush.game.LeaderboardPilot
 import com.neonrush.game.RevenueCatManager
@@ -2879,6 +2880,8 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
         }
         Spacer(modifier = Modifier.height(16.dp))
 
+        LockerEntry(viewModel, profile)
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -4559,6 +4562,36 @@ val bossImagesByWorld = mapOf(
                                 size = Size(cw, ch)
                             )
                         }
+
+                        // ---- near-miss feel: edge flash, combo badge, overdrive frame
+                        run {
+                            val nmAge = simState.tickIndex - simState.nearMissTick
+                            if (NearMissFx.flashOn && simState.nearMissTier > 0 && nmAge in 0..7) {
+                                val tierCol = if (simState.nearMissTier == 2) Color(0xFFFFD23F) else Color(0xFF00E5FF)
+                                val a = (1f - nmAge / 8f) * (if (simState.nearMissTier == 2) 0.6f else 0.4f)
+                                drawRect(
+                                    brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                                        listOf(Color.Transparent, Color.Transparent, tierCol.copy(alpha = a)),
+                                        center = Offset(cw / 2f, ch / 2f), radius = kotlin.math.max(cw, ch) * 0.72f
+                                    ),
+                                    size = Size(cw, ch)
+                                )
+                            }
+                            val overdrive = simState.tickIndex < simState.overdriveUntilTick
+                            if (overdrive && NearMissFx.flashOn) {
+                                val pa = 0.3f + 0.25f * kotlin.math.sin(simState.tickIndex * 0.9f)
+                                drawRect(Color(0xFFFFD23F).copy(alpha = pa.coerceIn(0f, 1f)), size = Size(cw, ch), style = Stroke(width = 6f))
+                            }
+                            if (simState.nearCombo >= 2 || overdrive) {
+                                val m = kotlin.math.min(simState.nearCombo, 5)
+                                val label = if (overdrive) "OVERDRIVE  x$m" else "COMBO  x$m"
+                                val tl = textMeasurer.measure(
+                                    label,
+                                    style = TextStyle(color = if (overdrive) Color(0xFFFFD23F) else Color(0xFF00E5FF), fontSize = 15.sp, fontWeight = FontWeight.Black)
+                                )
+                                drawText(textLayoutResult = tl, topLeft = Offset((cw - tl.size.width) / 2f, ch * 0.06f))
+                            }
+                        }
                     }
                 }
                 // Invisible onboarding: non-blocking contextual prompts.
@@ -5129,6 +5162,10 @@ fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
                         )
                     )
                 }
+
+                FeelToggleRow("Vibration", viewModel.getHapticsEnabled()) { viewModel.setHapticsEnabled(it) }
+                FeelToggleRow("Screen shake on near-misses", NearMissFx.shakeOn) { viewModel.setNearMissShake(it) }
+                FeelToggleRow("Edge flash on near-misses", NearMissFx.flashOn) { viewModel.setNearMissFlash(it) }
             }
         }
 
@@ -5151,6 +5188,19 @@ fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
     if (showTutorial) {
         TutorialScreen(onBack = { showTutorial = false })
     }
+    }
+}
+
+@Composable
+private fun FeelToggleRow(label: String, initial: Boolean, onChange: (Boolean) -> Unit) {
+    var on by remember { mutableStateOf(initial) }
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = Color.White, fontFamily = FontFamily.Monospace)
+        Switch(
+            checked = on,
+            onCheckedChange = { on = it; onChange(it) },
+            colors = SwitchDefaults.colors(checkedThumbColor = CyberPrimary, checkedTrackColor = CyberPrimary.copy(alpha = 0.5f))
+        )
     }
 }
 
