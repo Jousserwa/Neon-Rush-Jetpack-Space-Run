@@ -43,6 +43,7 @@ import kotlin.math.sin
 /** Parts the player has equipped, readable from any draw scope (header avatar, in-run pilot, cards). */
 object PilotWardrobe {
     var equipped: Map<String, String> by mutableStateOf(emptyMap())   // slot name -> part id
+    var masteryTier: Int by mutableStateOf(0)                          // Locker mastery 0..4 (orbiting stars)
 }
 
 // ---------------------------------------------------------------------------------------------- anchors
@@ -457,6 +458,20 @@ fun DrawScope.drawPilotLook(
         )
     }
     paintParts(parts, true, frameIdx, l, tp, w, h, t)
+
+    // Locker mastery: Bronze..Mythic collectors get orbiting stars around the pilot
+    val mt = PilotWardrobe.masteryTier
+    if (mt > 0) {
+        val mc = Color(longArrayOf(0xFF607D8B, 0xFFCD7F32, 0xFFCFD8DC, 0xFFFFD23F, 0xFFE040FB)[mt.coerceIn(0, 4)])
+        if (mt >= 4) drawOval(mc.copy(alpha = 0.35f), Offset(cx - w * 0.62f, cy - h * 0.2f), Size(w * 1.24f, h * 0.4f), style = androidx.compose.ui.graphics.drawscope.Stroke(h * 0.012f))
+        for (k in 0 until mt) {
+            val th = t * 1.1f + k * (6.2832f / mt)
+            val ox = cx + cos(th) * w * 0.62f; val oy = cy + sin(th) * h * 0.2f
+            val sz = h * 0.035f * (0.8f + 0.2f * sin(t * 4f + k))
+            drawLine(mc, Offset(ox - sz, oy), Offset(ox + sz, oy), strokeWidth = h * 0.012f, cap = StrokeCap.Round)
+            drawLine(mc, Offset(ox, oy - sz), Offset(ox, oy + sz), strokeWidth = h * 0.012f, cap = StrokeCap.Round)
+        }
+    }
 
     // afterimages / RGB split
     if (look.ghost != 0L) {
