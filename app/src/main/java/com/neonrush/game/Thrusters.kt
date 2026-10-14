@@ -14,12 +14,18 @@ import kotlinx.coroutines.launch
  */
 enum class ThrusterKind { FREE, MILESTONE, GEMS, PRO, LOYALTY }
 
+/** Collection rarity: drives the card frame, the badge and how rare the item feels. */
+enum class Rarity(val label: String, val argb: Long) {
+    COMMON("COMMON", 0xFF9FB3C8), RARE("RARE", 0xFF4FC3F7), EPIC("EPIC", 0xFFB36BFF), LEGENDARY("LEGENDARY", 0xFFFFC107)
+}
+
 data class Thruster(
     val id: String,
     val name: String,
     val emoji: String,
     val desc: String,
     val kind: ThrusterKind,
+    val rarity: Rarity = Rarity.COMMON,
     val gemCost: Int = 0,
     val requirement: String = "",
     val loyalty: String = "",   // PRO_3M, PRO_12M, FREE_4M, VETERAN_2Y (see ThrusterLocker.evaluate)
@@ -27,31 +33,35 @@ data class Thruster(
 )
 
 object ThrusterCatalog {
-    const val DEFAULT = "ion_stream"
+    const val DEFAULT = "contrail"
+    /**
+     * Trails are WAKES, not auras: they are made of solid objects (dashes, pixels, digits, leaves, coins...) that are left
+     * on your actual flight path and stay in the world while you fly on. Hull effects glow around the ship; trails are matter behind it.
+     */
     val ALL: List<Thruster> = listOf(
-        Thruster("ion_stream", "Ion Stream", "💠", "The standard cyan jet. Clean and sharp.", ThrusterKind.FREE),
-        Thruster("plasma_ribbon", "Plasma Ribbon", "🎀", "Two glowing ribbons that dance behind you.", ThrusterKind.MILESTONE,
-            requirement = "Reach Zone 33 (clear Green Hell)", earned = { it.bestZoneReached >= 33 }),
-        Thruster("pixel_stream", "Pixel Stream", "🟦", "Retro blocks, straight out of an arcade.", ThrusterKind.MILESTONE,
+        Thruster("contrail", "Contrail", "✈️", "Clean white dashes laid along your exact flight path.", ThrusterKind.FREE, Rarity.COMMON),
+        Thruster("pixel_trail", "Pixel Trail", "🟦", "Chunky 8-bit blocks that stay where you flew.", ThrusterKind.MILESTONE, Rarity.COMMON,
             requirement = "Finish 100 runs", earned = { it.totalRuns >= 100 }),
-        Thruster("glitch_static", "Glitch Static", "📺", "Your jet tears and splits like a broken signal.", ThrusterKind.MILESTONE,
+        Thruster("code_stream", "Code Stream", "💻", "Binary digits drop out of your jetpack like a hacked terminal.", ThrusterKind.MILESTONE, Rarity.RARE,
             requirement = "Score 3,000 in one run", earned = { it.bestScore >= 3000 }),
-        Thruster("ink_drip", "Ink Drip", "🖋️", "Heavy neon ink that falls as you fly.", ThrusterKind.MILESTONE,
+        Thruster("ink_blots", "Ink Blots", "🖋️", "Heavy ink that splats, drips and falls behind you.", ThrusterKind.MILESTONE, Rarity.RARE,
             requirement = "Keep a 14-day play streak", earned = { it.currentStreak >= 14 }),
-        Thruster("star_dust", "Star Dust", "✨", "A twinkling trail of tiny stars.", ThrusterKind.GEMS, gemCost = 900),
-        Thruster("prism_beam", "Prism Beam", "🌈", "A full-spectrum beam that slowly changes colour.", ThrusterKind.GEMS, gemCost = 1500),
-        Thruster("circuit_sparks", "Circuit Sparks", "🔌", "Live circuit traces that crackle behind you. A Pro reward.", ThrusterKind.PRO,
+        Thruster("leaf_wake", "Leaf Wake", "🍃", "Tumbling leaves, a trophy from Green Hell.", ThrusterKind.MILESTONE, Rarity.RARE,
+            requirement = "Reach Zone 33 (clear Green Hell)", earned = { it.bestZoneReached >= 33 }),
+        Thruster("constellation", "Constellation", "✨", "Stars joined by thin lines, drawing your route across the sky.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 900),
+        Thruster("prism_shards", "Prism Shards", "💎", "Tumbling crystal facets in every colour.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1500),
+        Thruster("circuit_trace", "Circuit Trace", "🔌", "A copper circuit board prints itself behind you, with a pulse running down it. A Pro reward.", ThrusterKind.PRO, Rarity.EPIC,
             requirement = "Pro member + reach Zone 20", earned = { it.bestZoneReached >= 20 }),
-        Thruster("aurora_veil", "Aurora Veil", "🌌", "Shimmering northern-lights curtains that follow your jet. A Pro reward.", ThrusterKind.PRO,
+        Thruster("sonic_rings", "Sonic Rings", "🔊", "Sonar arcs ripple out behind every move. A Pro reward.", ThrusterKind.PRO, Rarity.EPIC,
             requirement = "Pro member + score 1,500 in one run", earned = { it.bestScore >= 1500 }),
         // ---- loyalty rewards: given for time, not for spending
-        Thruster("heartbeat_pulse", "Heartbeat Pulse", "💚", "A living pulse line. For pilots who stayed 4 months in a row on the free tier.", ThrusterKind.LOYALTY,
+        Thruster("heartbeat_pulse", "Heartbeat Pulse", "💚", "Your flight path turns into a heart-monitor line. For 4 months in a row on the free tier.", ThrusterKind.LOYALTY, Rarity.EPIC,
             requirement = "Play 4 months in a row on the free tier", loyalty = "FREE_4M"),
-        Thruster("royal_plasma", "Royal Plasma", "👑", "A golden double helix. For 3 months of unbroken Pro.", ThrusterKind.LOYALTY,
+        Thruster("gold_rush", "Gold Rush", "🪙", "Spinning gold coins pour out behind you. For 3 months of unbroken Pro.", ThrusterKind.LOYALTY, Rarity.LEGENDARY,
             requirement = "3 months in a row as Pro", loyalty = "PRO_3M"),
-        Thruster("supernova_wake", "Supernova Wake", "💥", "Your jet leaves shockwave rings like an exploding star. For a full year of Pro.", ThrusterKind.LOYALTY,
+        Thruster("starburst_wake", "Starburst Wake", "🌟", "Huge starbursts pop along your route. For a full year of Pro.", ThrusterKind.LOYALTY, Rarity.LEGENDARY,
             requirement = "12 months in a row as Pro", loyalty = "PRO_12M"),
-        Thruster("veteran_comet", "Veteran Comet", "☄️", "A long icy comet tail with orbiting stars. For pilots who have flown 2 years.", ThrusterKind.LOYALTY,
+        Thruster("veteran_comet", "Veteran Comet", "☄️", "A long icy comet tail that bends with your flight. For pilots who have flown 2 years.", ThrusterKind.LOYALTY, Rarity.LEGENDARY,
             requirement = "Fly with Neon Rush for 2 years", loyalty = "VETERAN_2Y")
     )
     fun byId(id: String) = ALL.firstOrNull { it.id == id } ?: ALL.first()
