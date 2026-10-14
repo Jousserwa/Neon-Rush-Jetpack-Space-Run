@@ -98,7 +98,6 @@ import com.neonrush.game.ZoneGenerator
 import com.neonrush.game.TESTING_DISABLE_PRO_GATE
 import com.neonrush.game.StoryBannerHost
 import com.neonrush.game.Skins
-import com.neonrush.game.ThrusterCatalog
 import com.neonrush.game.SuitGates
 import com.neonrush.game.SuitRotation
 import com.neonrush.game.Upgrades
@@ -536,21 +535,22 @@ if (showStreakFreezeOffer) {
         }
     }
 
-    val snackbarHostState = remember { SnackbarHostState() }
+    // Floating messages: they vanish right after they can be read, and never block a button.
+    var toastText by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         viewModel.purchaseErrorEvent.collect { message ->
-            snackbarHostState.showSnackbar(message)
+            toastText = message; delay(toastMillis(message)); if (toastText == message) toastText = null
         }
     }
     LaunchedEffect(Unit) {
         viewModel.suitGateCelebration.collect { message ->
-            snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Long)
+            toastText = message; delay(toastMillis(message)); if (toastText == message) toastText = null
         }
     }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { toastText?.let { ToastPopup(it) } },
         bottomBar = {
             if (!simState.isStarted || simState.isCompleted) {
                 Column {
@@ -2952,6 +2952,23 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
             }
             val gatesOpen by viewModel.suitGatesOpen.collectAsState()
 
+            var wardrobeTab by remember { mutableStateOf("suits") }
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(8.dp)).border(1.dp, CyberPrimary, RoundedCornerShape(8.dp))
+            ) {
+                listOf("suits" to "🧑‍🚀 SUITS", "parts" to "🧩 PARTS").forEach { (key, label) ->
+                    Text(
+                        text = label,
+                        color = if (wardrobeTab == key) CyberBackground else CyberPrimary,
+                        fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 13.sp, textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f).background(if (wardrobeTab == key) CyberPrimary else Color.Transparent)
+                            .clickable { wardrobeTab = key }.padding(vertical = 10.dp)
+                    )
+                }
+            }
+            if (wardrobeTab == "parts") {
+                PartsPanel(viewModel, profile)
+            } else {
             Text(
                 text = "🧑‍🚀 PILOT SUITS",
                 fontSize = 16.sp,
@@ -3007,7 +3024,7 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    SuitPreview(skin.id, Modifier.size(64.dp).padding(end = 10.dp))
+                    SuitAvatar(skin.id, 76.dp, modifier = Modifier.padding(end = 10.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = skin.name,
@@ -3083,6 +3100,7 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                         }
                     }
                 }
+            }
             }
         }
 
@@ -3905,6 +3923,7 @@ val bossImagesByWorld = mapOf(
                     // Smooth 30 fps effects clock (flames, smoke, warnings). Read inside the draw block only,
                     // so it redraws the canvas without recomposing anything.
                     val fxClock = remember { mutableStateOf(0f) }
+                    val trailPath = remember { TrailPath() }
                     LaunchedEffect(Unit) {
                         var last = 0L
                         while (true) withFrameNanos { n ->
@@ -4502,17 +4521,18 @@ val bossImagesByWorld = mapOf(
                         val frameIdx = (simState.tickIndex / 3) % pilotFrames.size
                         val currentFrameImg = pilotFrames[frameIdx]
 
-                        val displayHeight = ch * 0.23f
+                        val displayHeight = ch * 0.26f
                         val aspect = currentFrameImg.width.toFloat() / currentFrameImg.height.toFloat()
                         val displayWidth = displayHeight * aspect
 
                         // Equipped ship hull: thruster trail + aura behind the pilot.
                         drawHullEffect(sectorHull ?: profile.activeSkinId, userX, userY, displayHeight, simState.tickIndex, afterburnerLevel)
-                        drawThruster(if (thrusterState.active.isNotEmpty()) viewModel.thrusters.activeNow() else ThrusterCatalog.DEFAULT, userX, userY, displayHeight, simState.tickIndex, afterburnerLevel)
+                        trailPath.push(fxClock.value, userY)
+                        drawThruster(viewModel.thrusters.activeNow(), userX, userY, displayHeight, fxClock.value, afterburnerLevel) { age -> trailPath.yAt(age) }
 
                         rotate(degrees = tiltAngle, pivot = Offset(userX, userY)) {
                             // Equipped pilot suit: colour grade + aura/particles on the shared frames.
-                            drawPilotWithSuit(runSuitId, currentFrameImg, userX, userY, displayWidth, displayHeight, simState.tickIndex)
+                            drawPilotLook(runSuitId, currentFrameImg, frameIdx, userX, userY, displayWidth, displayHeight, simState.tickIndex)
                         }
 
                         for ((scoreDelta, spawnTick, spawnY) in scorePopups) {
