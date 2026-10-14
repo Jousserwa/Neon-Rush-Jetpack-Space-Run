@@ -201,7 +201,10 @@ class NeonRushViewModel(
     }
     // Thruster trail slot (independent of hull and suit). Announcements reuse the suit celebration snackbar.
     val thrusters = ThrusterLocker(gameDao, hangarStore, viewModelScope, { RevenueCatManager.isPro.value }, { msg -> _suitGateCelebration.tryEmit(msg) })
+    // Pilot parts (head/neck/shoulder/back/wrist/boots gear bought with gems, worn on any suit).
+    val parts = PartsLocker(gameDao, hangarStore, viewModelScope) { msg -> _suitGateCelebration.tryEmit(msg) }
     private suspend fun loadSuitGates() {
+        parts.load()
         try { _suitFreeRide.value = hangarStore.get(SuitRotation.K_SUIT_FREE_RIDE) == "1" } catch (_: Exception) {}
         thrusters.load()
         try { gameDao.getProfileDirect()?.let { thrusters.evaluate(it) } } catch (_: Exception) {}
