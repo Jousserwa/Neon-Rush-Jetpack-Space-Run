@@ -162,7 +162,7 @@ object ShareCardPlus {
                 HullFx.gemTick = 296; HullFx.closeCallTick = 292
                 drawHullEffect(hullId, px, py, hh, 300, 6)
                 val pw = hh * pilot.width / pilot.height
-                drawPilotWithSuit(suitId, pilot, px, py, pw, hh, 300)
+                drawPilotLook(suitId, pilot, 0, px, py, pw, hh, 300)
             }
             c.drawBitmap(img.asAndroidBitmap(), left.toFloat(), top.toFloat(), null)
             HullFx.reset()
