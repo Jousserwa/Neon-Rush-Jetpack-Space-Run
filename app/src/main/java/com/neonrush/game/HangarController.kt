@@ -156,7 +156,13 @@ class HangarController(
             val at = HullCatalog.buyableAtMs(pro, rel[h.id] ?: 0L)
             if (at <= now) null else DropEntry(h.id, h.name, h.emoji, nowWall + (at - now), pro)
         }
-        try { DropNotifier.sync(ctx, entries) } catch (_: Exception) {}
+        try { DropNotifier.sync(ctx, entries, "hull") } catch (_: Exception) {}
+        // Monthly thruster-trail drops ride the same calendar, Pro window and notification toggle.
+        val trailEntries = ThrusterCatalog.ALL.filter { it.dropMonth > 0 }.mapNotNull { t ->
+            val at = ThrusterCatalog.buyableAtMs(t, pro)
+            if (at <= now) null else DropEntry(t.id, t.name, t.emoji, nowWall + (at - now), pro, "trail")
+        }
+        try { DropNotifier.sync(ctx, trailEntries, "trail") } catch (_: Exception) {}
     }
 
     fun setDropNotify(on: Boolean) {
