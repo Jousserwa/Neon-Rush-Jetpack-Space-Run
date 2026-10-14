@@ -74,7 +74,7 @@ private fun DrawScope.stamps(
     val frac = time - base * dt
     for (j in 0 until count) {
         val age = frac + j * dt
-        draw(ox - age * v, yAt(age) + (oy - y), age / life, base - j)
+        draw(ox - age * v, yAt(age) + (oy - y), (age / life).coerceIn(0f, 1f), base - j)
     }
 }
 
