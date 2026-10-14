@@ -25,6 +25,7 @@ import com.neonrush.game.PartCatalog
 import com.neonrush.game.PartSlot
 import com.neonrush.game.PilotPart
 import com.neonrush.game.R
+import com.neonrush.game.Rarity
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -73,6 +74,8 @@ private fun anchorsFor(slot: PartSlot, fi: Int, l: Float, tp: Float, w: Float, h
             Offset(l + a[7] * w - 0.2f * r, tp + a[8] * h - 0.35f * r),
             Offset(l + a[9] * w, tp + a[10] * h)
         )
+        PartSlot.AURA -> listOf(Offset(hx - 1.6f * r, hy + 3.2f * r))
+        PartSlot.FLAME -> anchorsFor(PartSlot.WRIST, fi, l, tp, w, h) + anchorsFor(PartSlot.BOOTS, fi, l, tp, w, h)
     }
 }
 
@@ -402,13 +405,30 @@ fun effectiveParts(suitId: String, equipped: Map<String, String>): List<PilotPar
     return bySlot.values.toList()
 }
 
-private val DRAW_ORDER = listOf(PartSlot.BACK, PartSlot.NECK, PartSlot.BOOTS, PartSlot.SHOULDER, PartSlot.WRIST, PartSlot.HEAD)
+private val DRAW_ORDER = listOf(PartSlot.BACK, PartSlot.NECK, PartSlot.BOOTS, PartSlot.SHOULDER, PartSlot.WRIST, PartSlot.FLAME, PartSlot.HEAD, PartSlot.AURA)
 
 private fun DrawScope.paintParts(parts: List<PilotPart>, behind: Boolean, fi: Int, l: Float, tp: Float, w: Float, h: Float, t: Float) {
     val r = FRAME_ANCHORS[((fi % 6) + 6) % 6][2] * h
     for (slot in DRAW_ORDER) {
         val part = parts.firstOrNull { it.slot == slot && it.behind == behind } ?: continue
-        for (o in anchorsFor(slot, fi, l, tp, w, h)) paintPartById(part.id, PartPainter(this, o.x, o.y, r, t))
+        val pts = anchorsFor(slot, fi, l, tp, w, h)
+        for (o in pts) paintPartById(part.id, PartPainter(this, o.x, o.y, r, t))
+        // rarity shine: Epic and Legendary parts glow softly and throw a twinkling glint, so they read as treasure
+        if (!behind && part.rarity.ordinal >= Rarity.EPIC.ordinal && part.slot != PartSlot.FLAME && part.slot != PartSlot.AURA) {
+            val o = pts[0]
+            val rc = Color(part.rarity.argb)
+            drawCircle(Brush.radialGradient(listOf(rc.copy(alpha = 0.22f), Color.Transparent), center = o, radius = r * 2.2f),
+                radius = r * 2.2f, center = o, blendMode = BlendMode.Plus)
+            val ph = t * 1.6f + part.id.length
+            val g = (sin(ph).coerceAtLeast(0f))
+            if (g > 0.05f) {
+                val gx = o.x + cos(ph * 0.7f) * r * 0.9f; val gy = o.y - r * 0.5f + sin(ph * 0.9f) * r * 0.6f
+                val sz = r * 0.38f * g
+                val gc = Color.White.copy(alpha = g)
+                drawLine(gc, Offset(gx - sz, gy), Offset(gx + sz, gy), strokeWidth = r * 0.07f, cap = StrokeCap.Round)
+                drawLine(gc, Offset(gx, gy - sz), Offset(gx, gy + sz), strokeWidth = r * 0.07f, cap = StrokeCap.Round)
+            }
+        }
     }
 }
 
