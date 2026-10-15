@@ -30,6 +30,15 @@ object LockerCatalog {
         LockerStep("all:75", 0.75f, 700, "Gold Collector"),
         LockerStep("all:100", 1.0f, 2000, "Mythic Curator")
     )
+    /** Lifetime RAZOR dodges (obstacle slipped past within a hair). needFrac holds the dodge count. */
+    val RAZOR_STEPS = listOf(
+        LockerStep("razor:25", 25f, 10, "25 RAZORS"),
+        LockerStep("razor:100", 100f, 20, "100 RAZORS"),
+        LockerStep("razor:300", 300f, 40, "300 RAZORS"),
+        LockerStep("razor:750", 750f, 60, "750 RAZORS"),
+        LockerStep("razor:1000", 1000f, 80, "1000 RAZORS"),
+        LockerStep("razor:2000", 2000f, 100, "RAZOR LEGEND")
+    )
     val TIER_NAMES = listOf("Rookie", "Bronze Collector", "Silver Collector", "Gold Collector", "Mythic Curator")
     val TIER_COLORS = longArrayOf(0xFF607D8B, 0xFFCD7F32, 0xFFCFD8DC, 0xFFFFD23F, 0xFFE040FB)
     fun tierFor(frac: Float): Int = when {
@@ -53,11 +62,19 @@ class LockerRewards(
 ) {
     private val _claimed = MutableStateFlow<Set<String>>(emptySet())
     val claimed: StateFlow<Set<String>> = _claimed.asStateFlow()
+    private val _razor = MutableStateFlow(0)
+    val razorCount: StateFlow<Int> = _razor.asStateFlow()
+    fun addRazor() {
+        _razor.value = _razor.value + 1
+        val v = _razor.value
+        scope.launch { try { store.put("razor_total", v.toString()) } catch (_: Exception) {} }
+    }
     private companion object { const val K_CLAIMED = "locker_claimed_csv"; const val K_TIER = "locker_tier" }
 
     suspend fun load() {
         try {
             _claimed.value = store.getList(K_CLAIMED).toSet()
+            _razor.value = maxOf(_razor.value, store.get("razor_total").toIntOrNull() ?: 0)
             PilotWardrobe.masteryTier = store.get(K_TIER).toIntOrNull()?.coerceIn(0, 4) ?: 0
         } catch (_: Exception) {}
     }
