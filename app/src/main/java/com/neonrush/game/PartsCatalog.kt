@@ -33,7 +33,7 @@ object PartCatalog {
         // HEAD
         p("antenna_array", "Antenna Array", PartSlot.HEAD, Rarity.COMMON, 0, "Twin signal whips that sway as you run.", usd = "$0.99"),
         p("crest_fin", "Neon Crest", PartSlot.HEAD, Rarity.RARE, 600, "A razor fin crest in hot pink."),
-        p("halo_ring", "Halo Ring", PartSlot.HEAD, Rarity.EPIC, 1000, "A gold ring that floats above the helmet.", behind = true),
+        p("halo_ring", "Halo Ring", PartSlot.HEAD, Rarity.EPIC, 0, "A gold ring that floats above the helmet.", behind = true, usd = "$0.99"),
         p("oni_horns", "Oni Horns", PartSlot.HEAD, Rarity.EPIC, 1000, "Crimson horns with bone-gold tips."),
         // NECK
         p("flag_scarf", "Battle Scarf", PartSlot.NECK, Rarity.COMMON, 0, "A red scarf that streams behind you.", usd = "$0.99"),
@@ -54,8 +54,8 @@ object PartCatalog {
         p("power_gauntlet", "Power Gauntlets", PartSlot.WRIST, Rarity.RARE, 600, "Armoured bracers with glowing cores."),
         p("blade_bracer", "Blade Bracers", PartSlot.WRIST, Rarity.EPIC, 1000, "Forearm guards with energy blades."),
         // BOOTS
-        p("spur_boots", "Gold Spurs", PartSlot.BOOTS, Rarity.COMMON, 0, "Golden spurs on both heels.", usd = "$1.99"),
-        p("magnet_cuffs", "Mag Cuffs", PartSlot.BOOTS, Rarity.RARE, 600, "Hovering magnet rings round each ankle."),
+        p("spur_boots", "Gold Spurs", PartSlot.BOOTS, Rarity.COMMON, 0, "Golden spurs on both heels.", usd = "$2.99"),
+        p("magnet_cuffs", "Mag Cuffs", PartSlot.BOOTS, Rarity.RARE, 0, "Hovering magnet rings round each ankle.", usd = "$2.99"),
         p("wing_boots", "Wing Boots", PartSlot.BOOTS, Rarity.EPIC, 1000, "White feathered wings on both heels.", behind = true),
         // EXTRAORDINARY ($3.99): animated showpieces
         p("phoenix_wings", "Phoenix Wings", PartSlot.BACK, Rarity.LEGENDARY, 0, "Huge wings of living flame feathers that beat as you fly.", behind = true, usd = "$3.99"),
