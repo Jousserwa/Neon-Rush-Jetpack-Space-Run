@@ -25,6 +25,7 @@ import kotlin.random.Random
  */
 object HullFx {
     @Volatile var closeCallTick = -9999
+    @Volatile var razorTick = -9999
     @Volatile var gemTick = -9999
     @Volatile var zoneTick = -9999
     @Volatile var reviveTick = -9999
@@ -412,6 +413,28 @@ private fun DrawScope.drawPremiumHullRaw(hullId: String, x: Float, y: Float, h: 
             }
             val a = age(tick, HullFx.closeCallTick)
             if (a in 0..5) drawRect(Color.White.copy(alpha = 0.4f * (1f - a / 5f)), Offset(x - size.width, y - size.height), Size(size.width * 2f, size.height * 2f))
+            // RAZOR dodge: the storm answers. Blinding strike flash, forked bolts across the screen and a thunder ring.
+            val rz = age(tick, HullFx.razorTick)
+            if (rz in 0..14) {
+                val f = rz / 14f
+                val fl = (1f - f).coerceIn(0f, 1f)
+                drawRect(Color(0xFFE3F2FD).copy(alpha = (0.75f * fl * fl).coerceIn(0f, 1f)), Offset(x - size.width, y - size.height), Size(size.width * 2f, size.height * 2f))
+                val rr = Random(HullFx.razorTick * 31 + (rz / 2))
+                for (b in 0 until 4) {
+                    var p = Offset(x + (rr.nextFloat() - 0.2f) * size.width * 0.8f, 0f)
+                    val target = ship + Offset((rr.nextFloat() - 0.5f) * h * 0.8f, 0f)
+                    val steps = 9
+                    for (sg in 1..steps) {
+                        val fy = sg / steps.toFloat()
+                        val nx = Offset(p.x + (target.x - p.x) / (steps - sg + 1) + (rr.nextFloat() - 0.5f) * u * 7f, target.y * fy)
+                        drawLine(Color(0xFF82B1FF).copy(alpha = (0.55f * fl).coerceIn(0f, 1f)), p, nx, strokeWidth = 9f)
+                        drawLine(Color.White.copy(alpha = (0.95f * fl).coerceIn(0f, 1f)), p, nx, strokeWidth = 3.2f)
+                        p = nx
+                    }
+                }
+                drawCircle(Color(0xFFFFF59D).copy(alpha = (0.9f * fl).coerceIn(0f, 1f)), h * 0.4f + f * h * 2.2f, ship, style = Stroke(5f * fl + 1f))
+                drawCircle(Color(0xFF90CAF9).copy(alpha = (0.7f * fl).coerceIn(0f, 1f)), h * 0.2f + f * h * 1.5f, ship, style = Stroke(3f))
+            }
         }
 
         "cosmic_koi" -> {
