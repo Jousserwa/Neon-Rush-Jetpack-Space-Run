@@ -28,6 +28,13 @@ const val TESTING_DISABLE_PRO_GATE = true
 /** EASY (kids) mode: hits the pilot's shield soaks up at run start and after every refuel / revive. */
 const val EASY_SHIELD_LAYERS = 2
 
+/** Shield the pilot wears after every revive: EASY 2 (it also gets one at run start and after each refuel), MEDIUM 2, HARD / LEGENDARY 1. */
+fun reviveShieldLayers(tier: NeonRushViewModel.DifficultyTier): Int = when (tier) {
+    NeonRushViewModel.DifficultyTier.EASY -> EASY_SHIELD_LAYERS
+    NeonRushViewModel.DifficultyTier.MEDIUM -> 2
+    else -> 1
+}
+
 /** Info attached automatically to a bug-report email. */
 data class SupportSnapshot(val score: Int, val sector: Int, val difficulty: String)
 
@@ -1902,7 +1909,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         nextDurationsMap.remove("PU1")
                                         hasShield = false
                                         updatedMsg = "DRIFT DEFLECTED: SHIELD BARRIER OVERLOADED"
-                                    } else if (shieldLayersState > 0) {
+                                    } else if (shieldLayersState > 0 && (kidMode || !isUnstoppableHazard)) {
                                         shieldLayersState--
                                         PilotShieldFx.onHit()
                                         soundEngine.playShieldBreak()
@@ -2324,13 +2331,13 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
         feedbackMessage = "Revive code accepted! Launching drone boosters...",
         reviveCount = currentState.reviveCount + 1,
         shieldUntilTick = currentTick + 25, // ~3 seconds of invulnerability at 120ms/tick
-        shieldLayers = if (selectedDifficulty == DifficultyTier.EASY) EASY_SHIELD_LAYERS else currentState.shieldLayers,
+        shieldLayers = reviveShieldLayers(selectedDifficulty),
         fuelRefillCount = 0, // fresh life = fresh set of 6 refuels
         hint = HintState(cooldownUntilMs = android.os.SystemClock.elapsedRealtime() + 2000L)
     )
     simJob?.cancel()
     soundEngine.playRevive()
-    if (selectedDifficulty == DifficultyTier.EASY) PilotShieldFx.onGain(EASY_SHIELD_LAYERS)
+    PilotShieldFx.onGain(reviveShieldLayers(selectedDifficulty))
         simJob = viewModelScope.launch {
             val milestonesTriggered = mutableSetOf<Int>()
             for (ms in listOf(150, 500, 1500, 4000, 10000)) {
@@ -2704,7 +2711,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         nextDurationsMap.remove("PU1")
                                         hasShield = false
                                         updatedMsg = "SHIELD BROKEN!"
-                                    } else if (shieldLayersState > 0) {
+                                    } else if (shieldLayersState > 0 && (kidMode || !isUnstoppableHazard)) {
                                         shieldLayersState--
                                         PilotShieldFx.onHit()
                                         soundEngine.playShieldBreak()
