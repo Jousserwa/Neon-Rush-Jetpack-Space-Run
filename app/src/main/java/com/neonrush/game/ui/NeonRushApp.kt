@@ -1486,6 +1486,16 @@ fun ArcadeHomeView(
 ) {
     var showCrate by remember { mutableStateOf(false) }
     var showCheckpoints by remember { mutableStateOf(false) }
+    // Play In-App Review: only on the calm home screen, after a happy milestone (never mid-run or right after dying).
+    val reviewActivity = LocalContext.current.findActivity()
+    LaunchedEffect(Unit) {
+        delay(2500)
+        val act = reviewActivity
+        if (act != null && viewModel.shouldAskReview()) {
+            viewModel.markReviewAsked()
+            ReviewPrompter.request(act)
+        }
+    }
     if (showCrate) {
         DailyCrateDialog(profile = profile, isPro = isPro, viewModel = viewModel, onDismiss = { showCrate = false })
     }
@@ -3051,7 +3061,7 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                                 modifier = Modifier.padding(top = 3.dp)
                             )
                         }
-                        if (suitGate != null && !isUnlocked) {
+                        if (suitGate != null && !dropSuit && !isUnlocked) {
                             Text(
                                 text = if (gateOpen) "🔓 UNLOCKED FOR PURCHASE" else "🎯 ${suitGate.requirement}",
                                 fontSize = 10.sp,
@@ -3200,7 +3210,11 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
             )
         }
 
+        var hullLock by remember { mutableStateOf<LockInfo?>(null) }
+        hullLock?.let { LockInfoDialog(it) { hullLock = null } }
         viewModel.shopSkins.forEach { (id, name, cost) ->
+            val classic = DropSchedule.classicHull(id)
+            val classicOut = classic == null || DropSchedule.classicReleased(id, com.neonrush.game.ServerClock.bestNowMs())
             val isUnlocked = unlockedSkins.contains(id)
             val isActive = profile.activeSkinId == id
 
@@ -3251,12 +3265,12 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                         )
                     }
                     Text(
-                        text = if (cost == 0) "Free Starter Hull" else "$cost GEMS Cost",
+                        text = if (cost == 0) "Free Starter Hull" else if (classic != null) "${classic.usd}  ·  one-time purchase" else "$cost GEMS Cost",
                         fontSize = 11.sp,
                         color = CyberPrimary.copy(alpha = 0.7f)
                     )
                     val shardNeed = DailyCrate.HULL_SHARDS[id]
-                    if (!isUnlocked && shardNeed != null) {
+                    if (!isUnlocked && shardNeed != null && classic == null) {
                         Text(
                             text = "🧩 ${DailyCrate.shards(profile.crateShardsCsv, id)}/$shardNeed shards (Daily Crate)",
                             fontSize = 10.sp,
@@ -3287,6 +3301,32 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                         modifier = Modifier.border(1.dp, CyberPrimary, RoundedCornerShape(4.dp))
                     ) {
                         Text(text = "EQUIP", color = CyberPrimary, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                    }
+                } else if (classic != null) {
+                    if (classicOut) {
+                        Button(
+                            onClick = { activity?.let { viewModel.purchaseClassicHull(it, id) } },
+                            colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary),
+                            shape = RoundedCornerShape(4.dp),
+                            modifier = Modifier.testTag("buy_skin_button")
+                        ) {
+                            Text(text = "BUY ${classic.usd}", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                        }
+                    } else {
+                        val relMs = DropSchedule.classicReleaseMs(id)
+                        Button(
+                            onClick = {
+                                hullLock = LockInfo("🚀", name, "Not released yet.",
+                                    listOf("This hull is released on ${DropSchedule.dateLabel(relMs)}.",
+                                        "One classic hull is released every 2 months.",
+                                        "Then you can buy it for ${classic.usd}. Money cannot skip the calendar."))
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = CyberSurface.copy(alpha = 0.8f)),
+                            shape = RoundedCornerShape(4.dp),
+                            modifier = Modifier.border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+                        ) {
+                            Text(text = "🔒 ${DropSchedule.dateLabel(relMs)}", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                        }
                     }
                 } else {
                     Button(
@@ -4549,6 +4589,8 @@ val bossImagesByWorld = mapOf(
                         rotate(degrees = tiltAngle, pivot = Offset(userX, userY)) {
                             // Equipped pilot suit: colour grade + aura/particles on the shared frames.
                             drawPilotLook(runSuitId, currentFrameImg, frameIdx, userX, userY, displayWidth, displayHeight, simState.tickIndex)
+                            // EASY (kids) layered shield: wraps the pilot, one ring per hit left
+                            drawPilotShield(simState.shieldLayers, userX, userY, displayHeight, displayWidth, fxClock.value)
                         }
 
                         for ((scoreDelta, spawnTick, spawnY) in scorePopups) {
@@ -5180,6 +5222,24 @@ fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
                 FeelToggleRow("Screen shake on near-misses", NearMissFx.shakeOn) { viewModel.setNearMissShake(it) }
                 FeelToggleRow("Edge flash on near-misses", NearMissFx.flashOn) { viewModel.setNearMissFlash(it) }
             }
+        }
+
+        val supportCtx = LocalContext.current
+        val supportScope = androidx.compose.runtime.rememberCoroutineScope()
+        Button(
+            onClick = { supportScope.launch { SupportMail.send(supportCtx, viewModel.supportSnapshot()) } },
+            colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, CyberSecondary.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+        ) {
+            Text(
+                text = "\uD83D\uDC1E REPORT A BUG / SEND FEEDBACK",
+                color = CyberSecondary,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
         }
 
         Button(
