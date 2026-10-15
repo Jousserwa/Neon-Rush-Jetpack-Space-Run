@@ -55,10 +55,34 @@ object DropSchedule {
     fun dateLabel(ms: Long): String =
         java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date(ms))
 
+    // ---------- Classic hulls: real money, one released every 2 months ----------
+    data class ClassicHull(val id: String, val month: Int, val usd: String) {
+        val productId: String get() = "neonrush_hull_$id"
+    }
+    private val CLASSIC_HULLS = listOf(
+        ClassicHull("solar_comet", 0, "$1.99"),
+        ClassicHull("ice_shard", 2, "$1.99"),
+        ClassicHull("magenta_pulse", 4, "$2.99"),
+        ClassicHull("static_storm", 6, "$0.99"),
+        ClassicHull("vaporwave_wave", 8, "$0.99"),
+        ClassicHull("gold_transcendence", 10, "$2.99"),
+        ClassicHull("phantom_echo", 12, "$1.99"),
+        ClassicHull("matrix_grid", 14, "$1.99")
+    )
+    private val CLASSIC_BY_ID = CLASSIC_HULLS.associateBy { it.id }
+    fun classicHull(id: String): ClassicHull? = CLASSIC_BY_ID[id]
+    fun classicReleaseMs(id: String): Long = HullCatalog.localReleaseMs(CLASSIC_BY_ID[id]?.month ?: 0)
+    fun classicReleased(id: String, nowMs: Long): Boolean {
+        val h = CLASSIC_BY_ID[id] ?: return true
+        return TEST_OPEN || h.month <= 0 || classicReleaseMs(id) <= nowMs
+    }
+
     // ---------- Pilot suits: one a month. When it is out, win a boss to earn the right to buy it. ----------
     private val SUITS = listOf(
         "chrome_reaper" to 0, "solar_flare" to 1, "void_walker" to 2, "toxic_bloom" to 3,
-        "circuit_breaker" to 4, "golden_protocol" to 5, "glitch_core" to 6
+        "circuit_breaker" to 4, "golden_protocol" to 5, "glitch_core" to 6,
+        // the four story suits join the same one-a-month calendar
+        "blackout_runner" to 7, "signal_ghost" to 8, "convict_grey" to 9, "apex_predator" to 10
     )
     private val SUIT_BY_ID = SUITS.toMap()
     fun isDropSuit(id: String) = id in SUIT_BY_ID
