@@ -24,6 +24,9 @@ import java.util.*
 // ============================================================
 const val TESTING_DISABLE_PRO_GATE = true
 
+/** All four tiers feel 30% gentler (belt speed, obstacle density, threat and boss-fire rate). The zone-by-zone growth is unchanged. */
+const val DIFFICULTY_EASE = 0.70f
+
 data class LeaderboardPilot(
     val rank: Int,
     val name: String,
@@ -208,10 +211,12 @@ class NeonRushViewModel(
     val thrusters = ThrusterLocker(gameDao, hangarStore, viewModelScope, { RevenueCatManager.isPro.value }, { msg -> _suitGateCelebration.tryEmit(msg) })
     // Pilot parts (head/neck/shoulder/back/wrist/boots gear bought with gems, worn on any suit).
     val parts = PartsLocker(gameDao, hangarStore, viewModelScope) { msg -> _suitGateCelebration.tryEmit(msg) }
+    val fuelGate = FuelGate(hangarStore, viewModelScope)
     val locker = LockerRewards(gameDao, hangarStore, viewModelScope) { msg -> _suitGateCelebration.tryEmit(msg) }
     private suspend fun loadSuitGates() {
         parts.load()
         locker.load()
+        fuelGate.load(); fuelGate.touch(RevenueCatManager.isPro.value)
         try { NearMissFx.shakeOn = hangarStore.get("nm_shake") != "0"; NearMissFx.flashOn = hangarStore.get("nm_flash") != "0" } catch (_: Exception) {}
         try { _suitFreeRide.value = hangarStore.get(SuitRotation.K_SUIT_FREE_RIDE) == "1" } catch (_: Exception) {}
         thrusters.load()
@@ -471,6 +476,11 @@ fun purchaseFuelTier(activity: Activity, tier: Int, productId: String) {
         val prof = gameDao.getProfileDirect() ?: GameProfile()
         if (prof.fuelTiersOwned != tier - 1) {
             _purchaseErrorEvent.tryEmit("Purchase your tiers in order.")
+            return@launch
+        }
+        fuelGate.touch(RevenueCatManager.isPro.value)
+        if (!fuelGate.canBuy(tier)) {
+            _purchaseErrorEvent.tryEmit("Tier $tier is still locked. Keep your monthly streak going.")
             return@launch
         }
         RevenueCatManager.purchaseGemPack(activity, productId) { success ->
@@ -840,7 +850,7 @@ fun freezeStreak() {
             proPerks.refresh(); hangar.reconcileWithStore(); seasonPass.refresh()
         }
         viewModelScope.launch {
-            RevenueCatManager.isPro.collect { proPerks.refresh(); seasonPass.refresh(); thrusters.recheckDrops(); try { gameDao.getProfileDirect()?.let { thrusters.evaluate(it) } } catch (_: Exception) {} }
+            RevenueCatManager.isPro.collect { fuelGate.touchAsync(it); proPerks.refresh(); seasonPass.refresh(); thrusters.recheckDrops(); try { gameDao.getProfileDirect()?.let { thrusters.evaluate(it) } } catch (_: Exception) {} }
         }
         restoreDifficulty()
         viewModelScope.launch { loadSuitGates() }
@@ -1372,6 +1382,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             firstRunAssist = prof.totalRuns == 0
             grazedIds.clear()
             nearMiss.reset()
+            fuelGate.touchAsync(RevenueCatManager.isPro.value)
             assistGemsGiven = 0
             gameDao.updateProfile { p -> p.copy(currentRunGemsCredited = 0, currentRunBossZonesRewarded = "", currentRunMilestonesRewarded = "") }
             var tick = 0
@@ -1412,7 +1423,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 val isFridayGolden = activeMutation == MutationDay.FRIDAY
                 val isSaturdayBoss = activeMutation == MutationDay.SATURDAY
                 val isSundayLegendary = activeMutation == MutationDay.SUNDAY
-                val tierPressure = selectedDifficulty.pressure(state.currentZoneNumber)
+                val tierPressure = selectedDifficulty.pressure(state.currentZoneNumber) * DIFFICULTY_EASE
                 val baseSpeedVal = ZoneGenerator.calculateSpeed(1) * tierPressure
                 val prestigeSpeedBoost = prof.transcendenceCount * 0.2f
                 var speedInPx = baseSpeedVal + prestigeSpeedBoost
@@ -1815,6 +1826,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 soundEngine.playNearMissTier(nmRes.tier, nmRes.combo)
                                 updatedMsg = nmRes.label
                                 nmTierThis = maxOf(nmTierThis, nmRes.tier)
+                                if (nmRes.tier == 2) { HullFx.razorTick = tick; locker.addRazor() }
                                 nmBonusThisTick += nmRes.points
                             } else {
                                 soundEngine.playNearMiss()
@@ -2183,7 +2195,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 val isFridayGolden = activeMutation == MutationDay.FRIDAY
                 val isSaturdayBoss = activeMutation == MutationDay.SATURDAY
                 val isSundayLegendary = activeMutation == MutationDay.SUNDAY
-                val tierPressure = selectedDifficulty.pressure(state.currentZoneNumber)
+                val tierPressure = selectedDifficulty.pressure(state.currentZoneNumber) * DIFFICULTY_EASE
                 val baseSpeedVal = ZoneGenerator.calculateSpeed(1) * tierPressure
                 val prestigeSpeedBoost = prof.transcendenceCount * 0.2f
                 var speedInPx = baseSpeedVal + prestigeSpeedBoost
@@ -2557,6 +2569,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 soundEngine.playNearMissTier(nmRes.tier, nmRes.combo)
                                 updatedMsg = nmRes.label
                                 nmTierThis = maxOf(nmTierThis, nmRes.tier)
+                                if (nmRes.tier == 2) { HullFx.razorTick = tick; locker.addRazor() }
                                 nmBonusThisTick += nmRes.points
                             } else {
                                 soundEngine.playNearMiss()
