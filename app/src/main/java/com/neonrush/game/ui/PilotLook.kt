@@ -408,12 +408,12 @@ fun effectiveParts(suitId: String, equipped: Map<String, String>): List<PilotPar
 
 private val DRAW_ORDER = listOf(PartSlot.BACK, PartSlot.NECK, PartSlot.BOOTS, PartSlot.SHOULDER, PartSlot.WRIST, PartSlot.FLAME, PartSlot.HEAD, PartSlot.AURA)
 
-private fun DrawScope.paintParts(parts: List<PilotPart>, behind: Boolean, fi: Int, l: Float, tp: Float, w: Float, h: Float, t: Float) {
+private fun DrawScope.paintParts(parts: List<PilotPart>, behind: Boolean, fi: Int, l: Float, tp: Float, w: Float, h: Float, t: Float, tint: Long = 0L) {
     val r = FRAME_ANCHORS[((fi % 6) + 6) % 6][2] * h
     for (slot in DRAW_ORDER) {
         val part = parts.firstOrNull { it.slot == slot && it.behind == behind } ?: continue
         val pts = anchorsFor(slot, fi, l, tp, w, h)
-        for (o in pts) paintPartById(part.id, PartPainter(this, o.x, o.y, r, t))
+        for (o in pts) paintPartById(part.id, PartPainter(this, o.x, o.y, r, t).also { it.tint = tint })
         // rarity shine: Epic and Legendary parts glow softly and throw a twinkling glint, so they read as treasure
         if (!behind && part.rarity.ordinal >= Rarity.EPIC.ordinal && part.slot != PartSlot.FLAME && part.slot != PartSlot.AURA) {
             val o = pts[0]
@@ -457,7 +457,7 @@ fun DrawScope.drawPilotLook(
             radius = h * 0.62f, center = Offset(cx, cy), blendMode = BlendMode.Plus
         )
     }
-    paintParts(parts, true, frameIdx, l, tp, w, h, t)
+    paintParts(parts, true, frameIdx, l, tp, w, h, t, look.aura)
 
     // Locker mastery: Bronze..Mythic collectors get orbiting stars around the pilot
     val mt = PilotWardrobe.masteryTier
@@ -499,7 +499,7 @@ fun DrawScope.drawPilotLook(
         c.restore()
     }
 
-    paintParts(parts, false, frameIdx, l, tp, w, h, t)
+    paintParts(parts, false, frameIdx, l, tp, w, h, t, look.aura)
 }
 
 // ---------------------------------------------------------------------------------------------- composables
