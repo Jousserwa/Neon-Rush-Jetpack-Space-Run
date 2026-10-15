@@ -34,7 +34,7 @@ object HullCatalog {
      */
     const val LAUNCH_YEAR = 2026
     // REMINDER (owner): confirm this month when the testing code is removed and the release AAB is built.
-    const val LAUNCH_MONTH = 11          // 1..12
+    const val LAUNCH_MONTH = 10          // 1..12  (launch: 18 Oct 2026)
 
     fun localReleaseMs(monthIndex: Int): Long {
         if (monthIndex <= 0) return 0L
