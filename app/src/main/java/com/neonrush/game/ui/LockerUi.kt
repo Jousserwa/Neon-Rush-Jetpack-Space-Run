@@ -91,7 +91,7 @@ fun LockerEntry(viewModel: NeonRushViewModel, profile: GameProfile) {
         LockerCat("hulls", "Ship Hulls", "🚀", hangar?.ownedHullCount ?: 0, hangar?.totalHullCount ?: 0),
         LockerCat("suits", "Pilot Suits", "🧑‍🚀", suitsOwned, Skins.ALL.size),
         LockerCat("trails", "Thruster Trails", "☄️", ThrusterCatalog.ALL.count { it.id in th.owned && (it.kind != ThrusterKind.PRO || pro) }, ThrusterCatalog.ALL.count { ThrusterCatalog.released(it, com.neonrush.game.ServerClock.bestNowMs()) }),
-        LockerCat("parts", "Pilot Parts", "🧩", PartCatalog.SHOP.count { it.id in pt.owned }, PartCatalog.SHOP.size)
+        LockerCat("parts", "Pilot Parts", "🧩", PartCatalog.SHOP.count { it.id in pt.owned }, PartCatalog.SHOP.count { com.neonrush.game.DropSchedule.partReleased(it.id, com.neonrush.game.ServerClock.bestNowMs()) })
     )
     val totalAll = cats.sumOf { it.total }
     val overall = if (totalAll == 0) 0f else cats.sumOf { it.owned }.toFloat() / totalAll
