@@ -2802,82 +2802,7 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
             .fillMaxSize()
             .verticalScroll(androidx.compose.foundation.rememberScrollState())
     ) {
-        Text(
-            text = "⛽ FUEL TANK UPGRADES",
-            color = CyberSecondary,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(bottom = 4.dp)
-        )
-        if (profile.fuelTiersOwned > 0) {
-            Text(
-                text = "Current longevity: +${profile.fuelTiersOwned * 20}%",
-                color = CyberPrimary,
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace,
-                modifier = Modifier.padding(bottom = 6.dp)
-            )
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(androidx.compose.foundation.rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            val tierPrices = listOf("$2.99", "$4.99", "$7.99", "$11.99", "$15.99")
-            val tierProductIds = listOf("fuel_tier_1", "fuel_tier_2", "fuel_tier_3", "fuel_tier_4", "fuel_tier_5")
-            for (i in 1..5) {
-                val isOwned = profile.fuelTiersOwned >= i
-                val isBuyable = profile.fuelTiersOwned == i - 1
-                Button(
-                    onClick = {
-                        if (isBuyable && activity != null) {
-                            viewModel.purchaseFuelTier(activity, i, tierProductIds[i - 1])
-                        }
-                    },
-                    enabled = isBuyable || isOwned,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = when {
-                            isOwned -> CyberPrimary
-                            isBuyable -> CyberSurface
-                            else -> CyberSurface.copy(alpha = 0.4f)
-                        }
-                    ),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.border(
-                        1.dp,
-                        if (isBuyable) CyberPrimary else CyberPrimary.copy(alpha = 0.25f),
-                        RoundedCornerShape(8.dp)
-                    )
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = if (isOwned) "TIER $i ✓" else "TIER $i",
-                            color = if (isOwned) Color.Black else Color.White,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "+${i * 20}%",
-                            color = if (isOwned) Color.Black else CyberSecondary,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 10.sp
-                        )
-                        if (!isOwned) {
-                            Text(
-                                text = tierPrices[i - 1],
-                                color = if (isBuyable) CyberPrimary else Color.Gray,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        FuelTankPanel(viewModel, profile)
         Spacer(modifier = Modifier.height(16.dp))
 
         LockerEntry(viewModel, profile)
@@ -3005,6 +2930,8 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                 modifier = Modifier.padding(bottom = 12.dp)
             )
 
+            var suitLock by remember { mutableStateOf<LockInfo?>(null) }
+            suitLock?.let { LockInfoDialog(it) { suitLock = null } }
             Skins.ALL.forEach { skin ->
                 val isUnlocked = unlockedPilotSkins.contains(skin.id)
                 val isActive = profile.activePilotSkinId == skin.id
@@ -3022,6 +2949,10 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                             1.dp,
                             if (isActive) CyberPrimary else Color.Transparent,
                             RoundedCornerShape(8.dp)
+                        )
+                        .then(
+                            if (!isUnlocked && !isActive && (!gateOpen || !skin.purchasable || (isStorySkin && !skin.purchasable)))
+                                Modifier.clickable { suitLock = suitLockInfo(skin, suitGate) } else Modifier
                         )
                         .padding(14.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -3091,7 +3022,8 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                     } else {
                         Button(
                             onClick = {
-                                activity?.let {
+                                if (!gateOpen) suitLock = suitLockInfo(skin, suitGate)
+                                else activity?.let {
                                     viewModel.purchasePilotSkin(it, skin.id, "neonrush_skin_${skin.id}")
                                 }
                             },
@@ -5952,4 +5884,20 @@ fun android.content.Context.findActivity(): Activity? {
         c = (c as? android.content.ContextWrapper)?.baseContext
     }
     return null
+}
+
+private fun suitLockInfo(skin: com.neonrush.game.Skin, gate: com.neonrush.game.SuitGate?): LockInfo {
+    val lines = ArrayList<String>()
+    if (gate != null) {
+        lines.add(gate.requirement)
+        lines.add("Once you earn it, the BUY button opens and stays open forever.")
+        return LockInfo("🧑‍🚀", skin.name, "Earn the right to buy this suit.", lines)
+    }
+    if (skin.unlockWorldId != null) {
+        lines.add("Clear World ${skin.unlockWorldId} in story mode.")
+        return LockInfo("🧑‍🚀", skin.name, "Unlocked by a story world.", lines)
+    }
+    lines.add("This suit cannot be bought. It is a reward for completing missions.")
+    lines.add("Keep claiming missions to earn it.")
+    return LockInfo("🧑‍🚀", skin.name, "Mission reward.", lines)
 }
