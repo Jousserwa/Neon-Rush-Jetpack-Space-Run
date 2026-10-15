@@ -132,6 +132,20 @@ class PartsLocker(
         scope.launch { save() }
     }
 
+    /**
+     * After a real store sync: a real-money part counts as owned ONLY while the store says so. Anything that was
+     * marked owned some other way (old test builds, parts that used to cost gems) goes back to the shop and is taken off.
+     */
+    fun syncRealMoney(ids: Collection<String>) {
+        val have = ids.toSet()
+        val keep = _state.value.owned.filter { id -> PartCatalog.byId(id)?.usd == null || id in have }.toSet()
+        val eq = _state.value.equipped.filterValues { it in keep }
+        if (keep != _state.value.owned || eq != _state.value.equipped) {
+            publish(_state.value.copy(owned = keep, equipped = eq))
+            scope.launch { save() }
+        }
+    }
+
     /** Real-money parts the store says the player owns (restores after reinstall / new phone). */
     fun grantFromStore(ids: Collection<String>) {
         val have = ids.filter { PartCatalog.byId(it)?.let { p -> p.shop && p.usd != null } == true }.toSet()
@@ -144,12 +158,19 @@ class PartsLocker(
     fun buyUsd(activity: android.app.Activity, id: String) {
         val part = PartCatalog.byId(id) ?: return
         if (!part.shop || part.usd == null || id in _state.value.owned) return
-        RevenueCatManager.purchasePilotSuit(activity, part.productId) { ok ->
-            if (ok) {
-                publish(_state.value.copy(owned = _state.value.owned + id, equipped = _state.value.equipped + (part.slot.name to id)))
-                scope.launch { save() }
-                announce("${part.name} unlocked and equipped.")
-            } else announce("Purchase failed. Please try again.")
+        scope.launch {
+            // The calendar and the zone milestone apply to money too: nothing can be bought early.
+            val best = try { dao.getProfileDirect()?.bestZoneReached ?: 0 } catch (_: Exception) { 0 }
+            if (DropSchedule.partStatus(id, best, ServerClock.bestNowMs()) != DropSchedule.PartStatus.OPEN) {
+                announce("${part.name} is still locked."); return@launch
+            }
+            RevenueCatManager.purchasePilotSuit(activity, part.productId) { ok ->
+                if (ok) {
+                    publish(_state.value.copy(owned = _state.value.owned + id, equipped = _state.value.equipped + (part.slot.name to id)))
+                    scope.launch { save() }
+                    announce("${part.name} unlocked and equipped.")
+                } else announce("Purchase failed. Please try again.")
+            }
         }
     }
 
@@ -158,7 +179,12 @@ class PartsLocker(
         if (!part.shop || part.usd != null || id in _state.value.owned) return
         scope.launch {
             var ok = false
-            dao.updateProfile { p -> if (p.gems >= part.gems) { ok = true; p.copy(gems = p.gems - part.gems) } else p }
+            var locked = false
+            dao.updateProfile { p ->
+                if (DropSchedule.partStatus(id, p.bestZoneReached, ServerClock.bestNowMs()) != DropSchedule.PartStatus.OPEN) { locked = true; p }
+                else if (p.gems >= part.gems) { ok = true; p.copy(gems = p.gems - part.gems) } else p
+            }
+            if (locked) { announce("${part.name} is still locked."); return@launch }
             if (ok) {
                 publish(_state.value.copy(owned = _state.value.owned + id, equipped = _state.value.equipped + (part.slot.name to id)))
                 save()
