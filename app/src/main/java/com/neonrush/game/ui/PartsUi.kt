@@ -31,6 +31,8 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import com.neonrush.game.DropSchedule
+import com.neonrush.game.ServerClock
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -86,6 +88,11 @@ fun PartsPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
     )
     var slotFilter by remember { mutableStateOf<PartSlot?>(null) }
     var tryId by remember { mutableStateOf<String?>(null) }
+    var lockInfo by remember { mutableStateOf<LockInfo?>(null) }
+    lockInfo?.let { LockInfoDialog(it) { lockInfo = null } }
+    val nowMs = remember { ServerClock.bestNowMs() }
+    val visible = PartCatalog.SHOP.filter { DropSchedule.partReleased(it.id, nowMs) }
+    val nextDrop = DropSchedule.nextPartDropMs(nowMs)
     val suitId = profile.activePilotSkinId
     val suitName = Skins.ALL.firstOrNull { it.id == suitId }?.name ?: "Standard Issue"
     val tryPart = tryId?.let { PartCatalog.byId(it) }
@@ -130,21 +137,25 @@ fun PartsPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
         }
     }
 
-    val ownedCount = PartCatalog.SHOP.count { it.id in st.owned }
-    Text("$ownedCount/${PartCatalog.SHOP.size} parts collected", color = CyberOnSurface.copy(alpha = 0.6f), fontSize = 11.sp,
-        modifier = Modifier.padding(bottom = 6.dp))
+    val ownedCount = visible.count { it.id in st.owned }
+    Text("$ownedCount/${visible.size} parts collected" + (nextDrop?.let { "  ·  2 new parts drop ${DropSchedule.dateLabel(it)}" } ?: ""),
+        color = CyberOnSurface.copy(alpha = 0.6f), fontSize = 11.sp, modifier = Modifier.padding(bottom = 6.dp))
+    Text("Parts arrive 2 a month, and each needs a zone milestone. Gems and money follow the same calendar.",
+        color = Color(0xFFFFD23F).copy(alpha = 0.8f), fontSize = 10.sp, modifier = Modifier.padding(bottom = 6.dp))
 
-    PartCatalog.SHOP.filter { slotFilter == null || it.slot == slotFilter }
+    visible. { slotFilter == null || it.slot == slotFilter }
         .sortedWith(compareBy<PilotPart>({ it.slot.ordinal }, { it.rarity.ordinal }, { it.gems }))
-        .forEach { part -> PartCard(viewModel, profile, part, st.owned, st.equipped, frames, suitId, clock, tryId == part.id) { tryId = if (tryId == part.id) null else part.id } }
+        .forEach { part -> PartCard(viewModel, profile, part, st.owned, st.equipped, frames, suitId, clock, tryId == part.id, { lockInfo = it }) { tryId = if (tryId == part.id) null else part.id } }
 }
 
 @Composable
 private fun PartCard(
     viewModel: NeonRushViewModel, profile: GameProfile, part: PilotPart,
     owned: Set<String>, equipped: Map<String, String>, frames: List<ImageBitmap>, suitId: String,
-    clock: State<Float>, trying: Boolean, onTry: () -> Unit
+    clock: State<Float>, trying: Boolean, onLock: (LockInfo) -> Unit, onTry: () -> Unit
 ) {
+    val nowMs = remember { ServerClock.bestNowMs() }
+    val status = DropSchedule.partStatus(part.id, profile.bestZoneReached, nowMs)
     val ctx = LocalContext.current
     val activity = remember(ctx) { var c: Context? = ctx; var a: Activity? = null; while (c is ContextWrapper) { if (c is Activity) { a = c; break }; c = c.baseContext }; a }
     val rc = Color(part.rarity.argb)
@@ -177,6 +188,11 @@ private fun PartCard(
                     colors = ButtonDefaults.buttonColors(containerColor = CyberSurface.copy(alpha = 0.8f)), shape = RoundedCornerShape(4.dp),
                     modifier = Modifier.border(1.dp, CyberPrimary, RoundedCornerShape(4.dp))
                 ) { Text("EQUIP", color = CyberPrimary, fontFamily = FontFamily.Monospace, fontSize = 11.sp) }
+                status != DropSchedule.PartStatus.OPEN -> Button(
+                    onClick = { onLock(partLockInfo(part, profile.bestZoneReached, nowMs, rc)) },
+                    colors = ButtonDefaults.buttonColors(containerColor = CyberSurface.copy(alpha = 0.8f)), shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier.border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+                ) { Text("🔒 REACH ZONE ${DropSchedule.partZone(part.id)}", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp) }
                 part.usd != null -> Button(
                     onClick = { activity?.let { viewModel.parts.buyUsd(it, part.id) } },
                     colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary), shape = RoundedCornerShape(4.dp)
@@ -189,4 +205,14 @@ private fun PartCard(
             }
         }
     }
+}
+
+private fun partLockInfo(part: PilotPart, best: Int, nowMs: Long, accent: Color): LockInfo {
+    val need = DropSchedule.partZone(part.id)
+    val price = part.usd ?: "💎 ${part.gems}"
+    return LockInfo("🧩", part.name, "Reach Zone $need to unlock this part.",
+        listOf("Fly any run until you reach Zone $need. Your best so far is Zone $best.",
+            "Then it opens for purchase ($price). Money cannot skip this step.",
+            "New parts arrive 2 at a time, every month."),
+        (best.toFloat() / need).coerceIn(0f, 1f), "Best zone $best / $need", accent)
 }
