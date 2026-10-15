@@ -64,14 +64,14 @@ object ThreatDirector {
             schedule(tick, zone, userY, rand, out, big = true, warnDelta = warnDelta)
         } else if (!busy) {
             // 2.6 s at the start, shrinking to ~1.4 s by zone 40, tighter again with intensity
-            val maxGap = ((22 - (zone / 4).coerceAtMost(8)) / intensity.coerceAtLeast(0.7f)).toInt().coerceIn(10, 24)
+            val maxGap = ((22 - (zone / 4).coerceAtMost(8)) / intensity.coerceAtLeast(0.5f)).toInt().coerceIn(10, 40)
             if (tick - lastThreatTick >= maxGap) schedule(tick, zone, userY, rand, out, big = false, warnDelta = warnDelta)
         }
         return out
     }
 
     private fun schedule(tick: Int, zone: Int, userY: Int, rand: Random, out: MutableList<VisualTrackElement>, big: Boolean, warnDelta: Int = 0) {
-        val kinds = mutableListOf("fire", "fire", "lava", "mountain")
+        val kinds = mutableListOf("fire", "lava", "mountain")
         if (zone >= 4) kinds += "mirror"
         if (zone >= 6) kinds += "charger"
         if (big && zone >= 10) kinds += "swarm"
@@ -86,9 +86,13 @@ object ThreatDirector {
         var tag = kind
         when (kind) {
             "fire" -> {
-                delay = LONG_WARN_TICKS + warnDelta
-                val gc = (userY + rand.nextInt(-14, 15)).coerceIn(30, 70); warnY = gc
-                listOf(-54, -40, -26, 26, 40, 54).map { gc + it }.filter { it in 6..94 }.forEachIndexed { i, y ->
+                // Arc pylon wall. Each pylon is about 26 units tall, so the usable opening is (halfGap - 13) either side
+                // of the centre. 38 gives a clear ~25 unit lane on MEDIUM (about the pilot's height twice over), wider on
+                // EASY, and the lane is centred close to where the pilot is. Longer warning than the other threats.
+                delay = LONG_WARN_TICKS + 3 + warnDelta
+                val halfGap = 38 + 3 * warnDelta.coerceIn(-2, 3)
+                val gc = (userY + rand.nextInt(-8, 9)).coerceIn(32, 68); warnY = gc
+                listOf(-(halfGap + 14), -halfGap, halfGap, halfGap + 14).map { gc + it }.filter { it in 6..94 }.forEachIndexed { i, y ->
                     elems += VisualTrackElement("obs_${tick + delay}_f${n}_$i", BASE_X, y, "obstacle", "FIRE_WALL")
                 }
             }
