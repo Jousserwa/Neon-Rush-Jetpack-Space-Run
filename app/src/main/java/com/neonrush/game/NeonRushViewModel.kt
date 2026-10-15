@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.neonrush.game.db.GameDao
 import com.neonrush.game.ui.HullFx
+import com.neonrush.game.ui.PilotShieldFx
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.tasks.await
 import com.neonrush.game.db.GameProfile
@@ -24,8 +25,17 @@ import java.util.*
 // ============================================================
 const val TESTING_DISABLE_PRO_GATE = true
 
+/** EASY (kids) mode: hits the pilot's shield soaks up at run start and after every refuel / revive. */
+const val EASY_SHIELD_LAYERS = 2
+
+/** Info attached automatically to a bug-report email. */
+data class SupportSnapshot(val score: Int, val sector: Int, val difficulty: String)
+
 /** All four tiers feel 30% gentler (belt speed, obstacle density, threat and boss-fire rate). The zone-by-zone growth is unchanged. */
 const val DIFFICULTY_EASE = 0.70f
+
+/** Every zone (so every world) takes this much more distance to cross. 1.5 = half again as long. Keep the three zone formulas in sync. */
+const val ZONE_LENGTH_MULT = 1.5
 
 data class LeaderboardPilot(
     val rank: Int,
@@ -112,6 +122,7 @@ data class SimulationState(
     val particles: List<Particle> = emptyList(),
     val reviveCount: Int = 0,
     val shieldUntilTick: Int = -1,
+    val shieldLayers: Int = 0,
     val fuelRefillCount: Int = 0,
     val specialWorldId: Int? = null,
     // Combo: consecutive tight-precision ticks (rawError < 8), resets to 0 on
@@ -234,8 +245,10 @@ class NeonRushViewModel(
         try { _suitFreeRide.value = hangarStore.get(SuitRotation.K_SUIT_FREE_RIDE) == "1" } catch (_: Exception) {}
         thrusters.load()
         try { gameDao.getProfileDirect()?.let { thrusters.evaluate(it) } } catch (_: Exception) {}
+        val nowMs = ServerClock.bestNowMs()
         _suitGatesOpen.value = SuitGates.ALL.filter { try { hangarStore.get(SuitGates.key(it.skinId)) == "1" } catch (_: Exception) { false } }
-            .map { it.skinId }.toSet() + suitDrops.load()
+            .filter { DropSchedule.suitReleased(it.skinId, nowMs) }
+            .map { it.skinId }.toSet() + suitDrops.load().filter { DropSchedule.suitReleased(it, nowMs) }
     }
     private suspend fun openSuitGate(skinId: String, announce: Boolean) {
         if (skinId in _suitGatesOpen.value) return
@@ -292,7 +305,9 @@ class NeonRushViewModel(
             _storyEvent.tryEmit(StoryEvent(world, StoryBeatType.ENDING, world.endingText))
             // The suits are no longer handed out: clearing the world (under the suit's condition) earns the RIGHT TO BUY it.
             SuitGates.forWorld(world.id)?.let { g ->
-                if (SuitGates.met(g, selectedDifficulty, _simState.value.reviveCount)) {
+                if (!DropSchedule.suitReleased(g.skinId, ServerClock.bestNowMs())) {
+                    _suitGateCelebration.tryEmit("Sector cleared. The ${Skins.ALL.firstOrNull { it.id == g.skinId }?.name ?: "suit"} drops on ${DropSchedule.dateLabel(DropSchedule.suitReleaseMs(g.skinId))}. Defeat a boss after that to unlock it for purchase.")
+                } else if (SuitGates.met(g, selectedDifficulty, _simState.value.reviveCount)) {
                     viewModelScope.launch { openSuitGate(g.skinId, announce = true) }
                 } else {
                     _suitGateCelebration.tryEmit("Sector cleared, but the ${Skins.ALL.firstOrNull { it.id == g.skinId }?.name ?: "suit"} is still locked. ${g.requirement}")
@@ -374,6 +389,37 @@ class NeonRushViewModel(
                 )
             }
         }
+        // Classic hulls bought with real money (neonrush_hull_<id>) come back after a reinstall.
+        val classicOwned = owned.map { it.substringBefore(':') }.filter { it.startsWith("neonrush_hull_") }
+            .map { it.removePrefix("neonrush_hull_") }.filter { DropSchedule.classicHull(it) != null }
+        if (classicOwned.isNotEmpty()) {
+            gameDao.updateProfile { p ->
+                val set = p.unlockedSkinsCsv.split(",").filter { it.isNotBlank() }.toMutableList()
+                var changed = false
+                classicOwned.forEach { if (it !in set) { set.add(it); changed = true } }
+                if (changed) p.copy(unlockedSkinsCsv = set.joinToString(",")) else p
+            }
+        }
+        // Classic hulls are purchase-only. After a real store sync, one only stays owned if the store says so, or it came
+        // from a deliberate reward: the Pro 3-month gift (Magenta Pulse + Gold Transcendence) or Transcendence ranks.
+        if (fromStore) {
+            val giftGranted = try { hangarStore.get("free_gem_hulls_granted") == "1" } catch (_: Exception) { false }
+            val storeSet = classicOwned.toSet()
+            gameDao.updateProfile { p ->
+                val have = p.unlockedSkinsCsv.split(",").filter { it.isNotBlank() }
+                val keep = have.filter { id ->
+                    DropSchedule.classicHull(id) == null || id in storeSet ||
+                        (giftGranted && (id == "magenta_pulse" || id == "gold_transcendence")) ||
+                        (id == "gold_transcendence" && p.transcendenceCount >= 1) ||
+                        (id == "matrix_grid" && p.transcendenceCount >= 2)
+                }
+                if (keep.size == have.size) p
+                else p.copy(
+                    unlockedSkinsCsv = keep.joinToString(","),
+                    activeSkinId = if (p.activeSkinId in have && p.activeSkinId !in keep) "cyan_diamond" else p.activeSkinId
+                )
+            }
+        }
         // Real-money pilot parts (non-consumable neonrush_part_<id>) restore on every store sync.
         parts.grantFromStore(owned.map { it.substringBefore(':') }.filter { it.startsWith("neonrush_part_") }.map { it.removePrefix("neonrush_part_") })
         if (fromStore) parts.syncRealMoney(owned.map { it.substringBefore(':') }.filter { it.startsWith("neonrush_part_") }.map { it.removePrefix("neonrush_part_") })
@@ -438,7 +484,7 @@ class NeonRushViewModel(
         // (zoneM = (-776.25 + sqrt(602564.0625 + 405*distance)) / 202.5),
         // solved for the distance at the start of targetZone.
         val zoneMTarget = (targetZone - 1).toDouble()
-        val targetDistanceRaw = ((202.5 * zoneMTarget + 776.25).let { it * it } - 602564.0625) / 405.0
+        val targetDistanceRaw = ((202.5 * zoneMTarget + 776.25).let { it * it } - 602564.0625) / 405.0 * ZONE_LENGTH_MULT
         val targetDistance = targetDistanceRaw.toFloat().coerceAtLeast(current.distanceMeters)
         _simState.value = current.copy(
             distanceMeters = targetDistance,
@@ -644,15 +690,15 @@ fun doubleGemsForRun() {
     }
 }
 fun purchasePilotSkin(activity: Activity, skinId: String, productId: String) {
-    if (SuitGates.forSkin(skinId) != null && skinId !in _suitGatesOpen.value) {
-        _purchaseErrorEvent.tryEmit(SuitGates.lockedMessage(skinId))
-        return
-    }
     if (DropSchedule.isDropSuit(skinId) && !DropSchedule.TEST_OPEN && skinId !in _suitGatesOpen.value) {
         _purchaseErrorEvent.tryEmit(
             if (!DropSchedule.suitReleased(skinId, ServerClock.bestNowMs())) "🔒 This suit drops on ${DropSchedule.dateLabel(DropSchedule.suitReleaseMs(skinId))}."
             else "🔒 Defeat a boss to earn the right to buy this suit."
         )
+        return
+    }
+    if (!DropSchedule.isDropSuit(skinId) && SuitGates.forSkin(skinId) != null && skinId !in _suitGatesOpen.value) {
+        _purchaseErrorEvent.tryEmit(SuitGates.lockedMessage(skinId))
         return
     }
     RevenueCatManager.purchasePilotSuit(activity, productId) { success ->
@@ -723,10 +769,14 @@ fun refuelWithGems(isPro: Boolean) {
             }
         }
         if (didRefuel) {
-            _simState.value = current.copy(
+            val easyKid = selectedDifficulty == DifficultyTier.EASY
+            _simState.value = _simState.value.copy(
                 fuelLevelPercent = 100,
-                fuelRefillCount = current.fuelRefillCount + 1
+                fuelRefillCount = current.fuelRefillCount + 1,
+                // EASY (kids): every refuel puts a fresh shield back on the pilot
+                shieldLayers = if (easyKid) EASY_SHIELD_LAYERS else _simState.value.shieldLayers
             )
+            if (easyKid) PilotShieldFx.onGain(EASY_SHIELD_LAYERS)
             soundEngine.playUnlockSkin()
         }
     }
@@ -996,6 +1046,31 @@ fun freezeStreak() {
         }
     }
 
+    /** Classic hulls now cost real money and follow the 2-month calendar. */
+    fun purchaseClassicHull(activity: Activity, hullId: String) {
+        val h = DropSchedule.classicHull(hullId) ?: return
+        if (!DropSchedule.classicReleased(hullId, ServerClock.bestNowMs())) {
+            _purchaseErrorEvent.tryEmit("🔒 This hull drops on ${DropSchedule.dateLabel(DropSchedule.classicReleaseMs(hullId))}.")
+            return
+        }
+        RevenueCatManager.purchasePilotSuit(activity, h.productId) { success ->
+            if (success) {
+                viewModelScope.launch {
+                    gameDao.updateProfile { prof ->
+                        val set = prof.unlockedSkinsCsv.split(",").filter { it.isNotBlank() }.toMutableList()
+                        if (hullId !in set) set.add(hullId)
+                        prof.copy(unlockedSkinsCsv = set.joinToString(","), activeSkinId = hullId)
+                    }
+                    hangar.noteEquipped(hullId)
+                    soundEngine.playUnlockSkin()
+                    loadDefaultLeaderboard()
+                }
+            } else {
+                _purchaseErrorEvent.tryEmit("Purchase failed. Please try again.")
+            }
+        }
+    }
+
     fun purchaseSkin(skinId: String, cost: Int) {
         viewModelScope.launch {
             var outcome = "none" // "equipped", "bought", or "none"
@@ -1004,7 +1079,7 @@ fun freezeStreak() {
                 if (unlockedSkins.contains(skinId)) {
                     outcome = "equipped"
                     prof.copy(activeSkinId = skinId)
-                } else if (prof.gems >= cost) {
+                } else if (DropSchedule.classicHull(skinId) == null && prof.gems >= cost) {
                     unlockedSkins.add(skinId)
                     outcome = "bought"
                     prof.copy(
@@ -1048,12 +1123,21 @@ fun freezeStreak() {
         val colorArgb: Long,      // tier colour for HUD / share card
         val boardKey: String      // Firestore collection suffix ("" = legacy global board)
     ) {
-        EASY(0.03f, 0.85f, "EASY", +3, 0.80f, 1.25f, 1.00f, 0xFF69F0AE, "_easy"),
+        EASY(0.02f, 0.75f, "EASY", +3, 0.80f, 1.25f, 1.00f, 0xFF69F0AE, "_easy"),
         MEDIUM(0.06f, 1.00f, "MEDIUM", 0, 1.00f, 1.00f, 1.00f, 0xFF00F0FF, ""),
         HARD(0.11f, 1.10f, "HARD", -1, 1.25f, 0.80f, 1.15f, 0xFFFF9100, "_hard"),
         LEGENDARY(0.13f, 1.22f, "LEGENDARY", -2, 1.60f, 0.65f, 1.30f, 0xFFFFD23F, "_legendary");
 
         fun pressure(zone: Int): Float = startMult * (1f + growthPer10 * (zone - 1).coerceAtLeast(0) / 10f)
+
+        /**
+         * Aggression (obstacle density, threat rate, boss fire) starts lower on EASY and MEDIUM and climbs at only
+         * 40% of the speed growth, so the game stays fair and fun while speed still rises steadily.
+         */
+        fun aggression(zone: Int): Float {
+            val start = when (this) { EASY -> 0.50f; MEDIUM -> 0.85f; HARD -> startMult; LEGENDARY -> startMult }
+            return start * (1f + growthPer10 * 0.4f * (zone - 1).coerceAtLeast(0) / 10f)
+        }
     }
 
     /** Observe this in the UI so the buttons recompose when the tier changes. */
@@ -1364,7 +1448,7 @@ fun startFromCheckpoint(checkpointZone: Int) {
 
 fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = null, startFromZone: Int = 1) {
     simJob?.cancel()
-    HullFx.reset(); hangar.onRunStart(profile.value?.activeSkinId ?: "cyan_diamond"); ThreatDirector.reset(); resetStoryProgress(); seasonPass.tierTokenMult = selectedDifficulty.tokenMult; seasonPass.onRunStart()
+    HullFx.reset(); PilotShieldFx.reset(); if (selectedDifficulty == DifficultyTier.EASY) PilotShieldFx.onGain(EASY_SHIELD_LAYERS); hangar.onRunStart(profile.value?.activeSkinId ?: "cyan_diamond"); ThreatDirector.reset(); resetStoryProgress(); seasonPass.tierTokenMult = selectedDifficulty.tokenMult; seasonPass.onRunStart()
     var startupDna = ZoneGenerator.generateZone(startFromZone, 42)
     if (specialWorldId != null) startupDna = overrideEnvironment(startupDna, specialWorldId)
     val todayMutation = DailyMutations.getActiveMutation()
@@ -1386,8 +1470,9 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
         currentZoneNumber = startFromZone,
         zoneDNA = startupDna,
         activeTrackElements = emptyList(),
-        // EASY: starts every run with a free shield (absorbs the first hit)
-        activePowerupDurations = if (selectedDifficulty == DifficultyTier.EASY) mapOf("PU1" to 900) else emptyMap(),
+        // EASY (kids): every run starts wrapped in a layered shield that soaks up the first hits
+        shieldLayers = if (selectedDifficulty == DifficultyTier.EASY) EASY_SHIELD_LAYERS else 0,
+        activePowerupDurations = emptyMap(),
         currentMutationName = todayMutation.title,
         specialWorldId = specialWorldId
     )
@@ -1445,6 +1530,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 val isSaturdayBoss = activeMutation == MutationDay.SATURDAY
                 val isSundayLegendary = activeMutation == MutationDay.SUNDAY
                 val tierPressure = selectedDifficulty.pressure(state.currentZoneNumber) * DIFFICULTY_EASE
+                val aggroPressure = selectedDifficulty.aggression(state.currentZoneNumber) * DIFFICULTY_EASE
                 val baseSpeedVal = ZoneGenerator.calculateSpeed(1) * tierPressure
                 val prestigeSpeedBoost = prof.transcendenceCount * 0.2f
                 var speedInPx = baseSpeedVal + prestigeSpeedBoost
@@ -1462,7 +1548,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 speedInPx *= liveDifficultyMultiplier * metaDifficultyMultiplier
                 val tickDistanceOffset = speedInPx * 3.6f
                 var nextDistance = state.distanceMeters + tickDistanceOffset
-                var zoneM = (-776.25 + kotlin.math.sqrt(602564.0625 + 405.0 * nextDistance)) / 202.5
+                var zoneM = (-776.25 + kotlin.math.sqrt(602564.0625 + 405.0 * (nextDistance / ZONE_LENGTH_MULT))) / 202.5
                 var nextZoneNumber = (kotlin.math.floor(zoneM).toInt() + 1).coerceAtLeast(1)
 
                 // Pro-content gate: only the normal endless path (special
@@ -1608,7 +1694,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                 }
                 val flavor = flavorFor(state, nextZoneNumber)
-                val spacingVal = ((activeDna.obstacleSpacingAndDensity / (12f * spacingBias * liveDifficultyMultiplier * tierPressure * (flavor?.spacingMul ?: 1f))) * (1f + 0.4f * assist)).coerceAtLeast(4f).toInt()
+                val spacingVal = ((activeDna.obstacleSpacingAndDensity / (12f * spacingBias * liveDifficultyMultiplier * aggroPressure * (flavor?.spacingMul ?: 1f))) * (1f + 0.4f * assist)).coerceAtLeast(4f).toInt()
                 if (tick % spacingVal == 0) {
                     val targetGhostY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     val obstacles = spawnObstacleForSet(activeDna.obstacleSetId, tick, random, targetGhostY, nextZoneNumber)
@@ -1620,7 +1706,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 }
                 val hasBossZone = nextZoneNumber % 5 == 0 && ((tick % 40) >= 24 || isSaturdayBoss)
                 if (state.specialWorldId == null && hasBossZone && !state.bossActive) checkStoryBeats(nextZoneNumber, true)
-                updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, (flavor?.spacingMul ?: 1f) * tierPressure, assistStrength(tick), selectedDifficulty.warnDelta))
+                updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, (flavor?.spacingMul ?: 1f) * aggroPressure, assistStrength(tick), selectedDifficulty.warnDelta))
                 var bossHealthState = state.bossHealth
                 var bossYState = state.bossY
                 if (hasBossZone) {
@@ -1632,7 +1718,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                     val trackingYBias = userY - bossYState
                     bossYState += (trackingYBias * 0.05f * (flavor?.bossAggro ?: 1f)).toInt()
-                    ThreatDirector.bossFire(tick, (Upgrades.bossBulletInterval(activeUpgradesCsv, 9) / ((flavor?.bossAggro ?: 1f) * tierPressure)).toInt().coerceAtLeast(4), bossYState, random, updatedElements)
+                    ThreatDirector.bossFire(tick, (Upgrades.bossBulletInterval(activeUpgradesCsv, 9) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4), bossYState, random, updatedElements)
                     bossHealthState -= 0.04f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
                     if (bossHealthState <= 0f) {
                         var wasNewlyRewarded = false
@@ -1688,6 +1774,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                 }
                 var fuelLevelState = state.fuelLevelPercent
+                var shieldLayersState = state.shieldLayers
+                val kidMode = selectedDifficulty == DifficultyTier.EASY
                 var gemsGathered = state.collectedGemsCount
                 val nextDurationsMap = state.activePowerupDurations.toMutableMap()
                 val finalElements = mutableListOf<VisualTrackElement>()
@@ -1712,7 +1800,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     val isAligned = prevX >= 0.16f && elem.xOffsetFraction <= 0.26f
                     if (isAligned) {
                         val verticalDist = Math.abs(userY - elem.yMatchPos)
-                        val collisionRadius = if (state.activePowerupDurations.containsKey("PU9")) 8 else 15 - (4 * assist).toInt()
+                        val collisionRadius = if (state.activePowerupDurations.containsKey("PU9")) 8 else if (kidMode) 11 else 15 - (4 * assist).toInt()
                         if (verticalDist < collisionRadius) {
                             when (elem.type) {
                                 "gem" -> {
@@ -1814,9 +1902,17 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         nextDurationsMap.remove("PU1")
                                         hasShield = false
                                         updatedMsg = "DRIFT DEFLECTED: SHIELD BARRIER OVERLOADED"
+                                    } else if (shieldLayersState > 0) {
+                                        shieldLayersState--
+                                        PilotShieldFx.onHit()
+                                        soundEngine.playShieldBreak()
+                                        updatedMsg = if (shieldLayersState > 0) "SHIELD HELD! $shieldLayersState LEFT" else "SHIELD BROKEN! FLY CAREFULLY"
+                                        repeat(8) { i ->
+                                            activeParticles.add(Particle(id = "sh_${tick}_${elem.id}_$i", x = 0.2f, y = userY.toFloat(), vx = random.nextFloat() * 0.04f - 0.02f, vy = random.nextFloat() * 8f - 4f, maxAge = 14, colorArgb = 0xFF5CE1FFL, kind = "sparkle"))
+                                        }
                                     } else {
                                         soundEngine.playCollision()
-                                        fuelLevelState = (fuelLevelState - (20 - (10 * assist).toInt())).coerceAtLeast(0)
+                                        fuelLevelState = (fuelLevelState - (if (kidMode) 12 else 20 - (10 * assist).toInt())).coerceAtLeast(0)
                                         updatedMsg = if (isUnstoppableHazard) "BLINK STRIKE HIT: NO SHIELD CAN STOP IT" else "WARNING: IMPACT DETECTED! HULL INTEGRITY LOST"
                                         hitObstaclesHistory.add(elem.subType)
                                         hitThisTick = true
@@ -2006,6 +2102,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     speedKmh = (speedInPx * 40).toInt(),
                     distanceMeters = nextDistance,
                     fuelLevelPercent = fuelLevelState,
+                    shieldLayers = shieldLayersState,
                     feedbackMessage = updatedMsg,
                     currentZoneNumber = nextZoneNumber,
                     zoneDNA = activeDna,
@@ -2075,6 +2172,49 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             soundEngine.playUnlockSkin()
         }
         soundEngine.playCollision()
+    }
+
+    // ---- Support email + Play In-App Review helpers ----
+    private suspend fun noteRunForSupport(score: Int, zone: Int, isNewPB: Boolean) {
+        try {
+            hangarStore.put("support_last_score", score.toString())
+            hangarStore.put("support_last_zone", zone.toString())
+            hangarStore.put("support_last_diff", selectedDifficulty.name)
+            val runs = hangarStore.getLong("review_runs") + 1
+            hangarStore.putLong("review_runs", runs)
+            val bestZone = hangarStore.getLong("review_best_zone")
+            val deeper = zone > bestZone
+            if (deeper) hangarStore.putLong("review_best_zone", zone.toLong())
+            // Happy moments only: a new personal best, or reaching a new deepest sector (Sector 6+).
+            if ((isNewPB && runs >= 5) || (deeper && zone >= 6 && runs >= 3)) hangarStore.put("review_pending", "1")
+        } catch (e: Exception) { }
+    }
+
+    suspend fun supportSnapshot(): SupportSnapshot {
+        val live = _simState.value
+        return try {
+            val lastScore = hangarStore.getLong("support_last_score").toInt()
+            val lastZone = hangarStore.getLong("support_last_zone").toInt()
+            val diff = hangarStore.get("support_last_diff", selectedDifficulty.name)
+            if (live.score > 0 && !live.isCompleted) SupportSnapshot(live.score, live.currentZoneNumber, selectedDifficulty.name)
+            else SupportSnapshot(lastScore, lastZone.coerceAtLeast(1), diff)
+        } catch (e: Exception) { SupportSnapshot(live.score, live.currentZoneNumber, selectedDifficulty.name) }
+    }
+
+    /** True only on the home screen after a happy milestone, and at most once every 45 days (Google also caps it). */
+    suspend fun shouldAskReview(): Boolean = try {
+        if (hangarStore.get("review_pending") != "1") false
+        else {
+            val last = hangarStore.getLong("review_last_ms")
+            System.currentTimeMillis() - last >= 45L * 24 * 60 * 60 * 1000
+        }
+    } catch (e: Exception) { false }
+
+    suspend fun markReviewAsked() {
+        try {
+            hangarStore.put("review_pending", "0")
+            hangarStore.putLong("review_last_ms", System.currentTimeMillis())
+        } catch (e: Exception) { }
     }
 
     fun finalizeRunStats() {
@@ -2158,6 +2298,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 AdMobManager.incrementGameOver()
             }
             if (isNewPB) soundEngine.playPersonalBestBroken()
+            noteRunForSupport(finalState.score, finalState.currentZoneNumber, isNewPB)
             // Each tier has its own board and its own personal best. The assisted first run stays off the boards.
             if (!wasAssisted) run {
                 val tier = selectedDifficulty
@@ -2183,11 +2324,13 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
         feedbackMessage = "Revive code accepted! Launching drone boosters...",
         reviveCount = currentState.reviveCount + 1,
         shieldUntilTick = currentTick + 25, // ~3 seconds of invulnerability at 120ms/tick
+        shieldLayers = if (selectedDifficulty == DifficultyTier.EASY) EASY_SHIELD_LAYERS else currentState.shieldLayers,
         fuelRefillCount = 0, // fresh life = fresh set of 6 refuels
         hint = HintState(cooldownUntilMs = android.os.SystemClock.elapsedRealtime() + 2000L)
     )
     simJob?.cancel()
     soundEngine.playRevive()
+    if (selectedDifficulty == DifficultyTier.EASY) PilotShieldFx.onGain(EASY_SHIELD_LAYERS)
         simJob = viewModelScope.launch {
             val milestonesTriggered = mutableSetOf<Int>()
             for (ms in listOf(150, 500, 1500, 4000, 10000)) {
@@ -2217,6 +2360,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 val isSaturdayBoss = activeMutation == MutationDay.SATURDAY
                 val isSundayLegendary = activeMutation == MutationDay.SUNDAY
                 val tierPressure = selectedDifficulty.pressure(state.currentZoneNumber) * DIFFICULTY_EASE
+                val aggroPressure = selectedDifficulty.aggression(state.currentZoneNumber) * DIFFICULTY_EASE
                 val baseSpeedVal = ZoneGenerator.calculateSpeed(1) * tierPressure
                 val prestigeSpeedBoost = prof.transcendenceCount * 0.2f
                 var speedInPx = baseSpeedVal + prestigeSpeedBoost
@@ -2234,7 +2378,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 speedInPx *= metaDifficultyMultiplier
                 val tickDistanceOffset = speedInPx * 3.6f
                 var nextDistance = state.distanceMeters + tickDistanceOffset
-                var zoneM = (-776.25 + kotlin.math.sqrt(602564.0625 + 405.0 * nextDistance)) / 202.5
+                var zoneM = (-776.25 + kotlin.math.sqrt(602564.0625 + 405.0 * (nextDistance / ZONE_LENGTH_MULT))) / 202.5
                 var nextZoneNumber = (kotlin.math.floor(zoneM).toInt() + 1).coerceAtLeast(1)
 
                 // Same Pro-zone gate as loop 1 — a revive continues the same
@@ -2377,7 +2521,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                 }
                 val flavor = flavorFor(state, nextZoneNumber)
-                val spacingVal = (activeDna.obstacleSpacingAndDensity / (12f * metaDifficultyMultiplier * tierPressure * (flavor?.spacingMul ?: 1f))).coerceAtLeast(4f).toInt()
+                val spacingVal = (activeDna.obstacleSpacingAndDensity / (12f * metaDifficultyMultiplier * aggroPressure * (flavor?.spacingMul ?: 1f))).coerceAtLeast(4f).toInt()
                 if (tick % spacingVal == 0) {
                     val targetGhostY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     val obstacles = spawnObstacleForSet(activeDna.obstacleSetId, tick, random, targetGhostY, nextZoneNumber)
@@ -2389,7 +2533,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 }
                 val hasBossZone = nextZoneNumber % 5 == 0 && ((tick % 40) >= 24 || isSaturdayBoss)
                 if (state.specialWorldId == null && hasBossZone && !state.bossActive) checkStoryBeats(nextZoneNumber, true)
-                updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, (flavor?.spacingMul ?: 1f) * tierPressure, assistStrength(tick), selectedDifficulty.warnDelta))
+                updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, (flavor?.spacingMul ?: 1f) * aggroPressure, assistStrength(tick), selectedDifficulty.warnDelta))
                 var bossHealthState = state.bossHealth
                 var bossYState = state.bossY
                 if (hasBossZone) {
@@ -2401,7 +2545,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                     val trackingYBias = userY - bossYState
                     bossYState += (trackingYBias * 0.12f * (flavor?.bossAggro ?: 1f)).toInt()
-                    ThreatDirector.bossFire(tick, (Upgrades.bossBulletInterval(activeUpgradesCsv, 6) / ((flavor?.bossAggro ?: 1f) * tierPressure)).toInt().coerceAtLeast(4), bossYState, random, updatedElements)
+                    ThreatDirector.bossFire(tick, (Upgrades.bossBulletInterval(activeUpgradesCsv, 6) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4), bossYState, random, updatedElements)
                     bossHealthState -= 0.04f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
                     if (bossHealthState <= 0f) {
                         soundEngine.playTone(990f, 400, "sine")
@@ -2437,6 +2581,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                 }
                 var fuelLevelState = state.fuelLevelPercent
+                var shieldLayersState = state.shieldLayers
+                val kidMode = selectedDifficulty == DifficultyTier.EASY
                 var gemsGathered = state.collectedGemsCount
                 val nextDurationsMap = state.activePowerupDurations.toMutableMap()
                 val finalElements = mutableListOf<VisualTrackElement>()
@@ -2461,7 +2607,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     val isAligned = prevX >= 0.16f && elem.xOffsetFraction <= 0.26f
                     if (isAligned) {
                         val verticalDist = Math.abs(userY - elem.yMatchPos)
-                        val collisionRadius = if (state.activePowerupDurations.containsKey("PU9")) 8 else 15 - (4 * assist).toInt()
+                        val collisionRadius = if (state.activePowerupDurations.containsKey("PU9")) 8 else if (kidMode) 11 else 15 - (4 * assist).toInt()
                         if (verticalDist < collisionRadius) {
                             when (elem.type) {
                                 "gem" -> {
@@ -2558,9 +2704,17 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         nextDurationsMap.remove("PU1")
                                         hasShield = false
                                         updatedMsg = "SHIELD BROKEN!"
+                                    } else if (shieldLayersState > 0) {
+                                        shieldLayersState--
+                                        PilotShieldFx.onHit()
+                                        soundEngine.playShieldBreak()
+                                        updatedMsg = if (shieldLayersState > 0) "SHIELD HELD! $shieldLayersState LEFT" else "SHIELD BROKEN! FLY CAREFULLY"
+                                        repeat(8) { i ->
+                                            activeParticles.add(Particle(id = "sh_${tick}_${elem.id}_$i", x = 0.2f, y = userY.toFloat(), vx = random.nextFloat() * 0.04f - 0.02f, vy = random.nextFloat() * 8f - 4f, maxAge = 14, colorArgb = 0xFF5CE1FFL, kind = "sparkle"))
+                                        }
                                     } else {
                                         soundEngine.playCollision()
-                                        fuelLevelState = (fuelLevelState - (20 - (10 * assist).toInt())).coerceAtLeast(0)
+                                        fuelLevelState = (fuelLevelState - (if (kidMode) 12 else 20 - (10 * assist).toInt())).coerceAtLeast(0)
                                         updatedMsg = if (isUnstoppableHazard) "BLINK STRIKE HIT: NO SHIELD CAN STOP IT" else "IMPACT IMPACT!"
                                         hitThisTick = true
                                         repeat(10) { i ->
@@ -2735,6 +2889,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     speedKmh = (speedInPx * 40).toInt(),
                     distanceMeters = nextDistance,
                     fuelLevelPercent = fuelLevelState,
+                    shieldLayers = shieldLayersState,
                     feedbackMessage = "REVIVED SYNCHRONIZING...",
                     currentZoneNumber = nextZoneNumber,
                     zoneDNA = activeDna,
