@@ -36,7 +36,11 @@ enum class Lesson(
     POWERUP("POWERUP", "Grab it!", 4000L, 1000L),
     // Refuel is the key lesson (and the revenue moment): 8 s minimum, fades at 9 s.
     LOW_FUEL("LOWFUEL", "Tap the fuel button to refuel", 9000L, 0L, 8000L),
-    BOSS("BOSS", "Survive until the bar empties", 4000L, 0L);
+    BOSS("BOSS", "Survive until the bar empties", 4000L, 0L),
+    // The pilot shield: the bubble around the pilot soaks up hits. Learned when it takes its first hit.
+    SHIELD("SHIELD", "🛡️ Your shield soaks up hits. Count the rings!", 5000L, 0L),
+    // Learned the first time the player skims an obstacle.
+    CLOSE_CALL("CLOSECALL", "Skim obstacles for bonus points", 4000L, 0L);
 
     companion object {
         fun fromId(id: String?): Lesson? = values().firstOrNull { it.id == id }
@@ -74,7 +78,12 @@ data class HintInput(
     val pickedFuel: Boolean,
     val pickedPowerupId: String?,
     val refuelTapped: Boolean,
-    val elements: List<VisualTrackElement>
+    val elements: List<VisualTrackElement>,
+    // Pilot shield: hit layers left on the pilot, and whether one was just used up this tick.
+    val shieldLayers: Int = 0,
+    val shieldHit: Boolean = false,
+    // The pilot just skimmed an obstacle (a close call).
+    val closeCall: Boolean = false
 )
 
 data class HintResult(
@@ -145,7 +154,11 @@ object HintEngine {
         if (active != null) {
             return when (evaluate(active, s, inp)) {
                 Outcome.SUCCESS -> {
-                    val effect = if (active == Lesson.POWERUP) powerupEffect(inp.pickedPowerupId) else null
+                    val effect = when (active) {
+                        Lesson.POWERUP -> powerupEffect(inp.pickedPowerupId)
+                        Lesson.SHIELD -> if (inp.shieldLayers > 0) "✓ Shield held! ${inp.shieldLayers} left" else "✓ Shield used up. Fly carefully!"
+                        else -> null
+                    }
                     HintResult(
                         end(now, effect ?: "✓ Nice!", if (effect != null) EFFECT_MS else SUCCESS_MS),
                         completed = active
@@ -173,6 +186,12 @@ object HintEngine {
             val threat = threatenedBy(inp)
             if (threat != null) return start(s, Lesson.DODGE, inp, threat.id)
         }
+        // First close call: no prompt needed, a quick banner teaches it.
+        if (ok(Lesson.CLOSE_CALL) && inp.closeCall) {
+            return HintResult(end(now, "✨ CLOSE CALL! Skim obstacles for bonus points", EFFECT_MS), completed = Lesson.CLOSE_CALL)
+        }
+        // The shield is on the pilot: point at it and wait for its first absorbed hit.
+        if (ok(Lesson.SHIELD) && inp.shieldLayers > 0 && inp.tick >= 8) return start(s, Lesson.SHIELD, inp)
         if (ok(Lesson.POWERUP) && inp.elements.any { it.type == "powerup" && it.xOffsetFraction in 0.35f..0.95f }) {
             return start(s, Lesson.POWERUP, inp)
         }
@@ -224,6 +243,7 @@ object HintEngine {
             // The boss window ends on its own; surviving it is the lesson.
             // Passive, so it waits for the minimum read time.
             Lesson.BOSS -> !inp.bossActive && elapsed >= l.minShowMs
+            Lesson.SHIELD -> inp.shieldHit
             Lesson.DODGE -> dodged(s, inp)
         }
         if (success) return Outcome.SUCCESS
@@ -248,6 +268,8 @@ object HintEngine {
         Lesson.FUEL_CELL -> nearestAhead(inp, "fuel")
         Lesson.POWERUP -> nearestAhead(inp, "powerup")
         Lesson.DODGE -> if (s.lost) null else inp.elements.firstOrNull { it.id == s.targetId }
+        // The pilot sits at about 20% of the width.
+        Lesson.SHIELD -> VisualTrackElement("pilot", 0.2f, inp.userY, "fx")
         else -> null
     }
 
@@ -301,7 +323,7 @@ object HintEngine {
     }
 
     private fun powerupEffect(id: String?): String = "✓ " + when (id) {
-        "PU1" -> "Shield blocks one hit"
+        "PU1" -> "Shield power-up blocks one hit"
         "PU2" -> "Magnet pulls pickups to you"
         "PU3" -> "Time Slow: more time to react"
         "PU4" -> "Ghost: fly through obstacles"
