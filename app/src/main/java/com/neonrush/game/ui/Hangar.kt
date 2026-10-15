@@ -251,6 +251,8 @@ private fun HullCard(h: PremiumHull, state: HangarUiState, actions: HangarAction
     val buyAt = HullCatalog.buyableAtMs(state.isPro, release)
     val dateFmt = remember { java.text.SimpleDateFormat("MMM d", java.util.Locale.getDefault()) }
     var showTest by remember(h.id) { mutableStateOf(false) }
+    var lockInfo by remember(h.id) { mutableStateOf<LockInfo?>(null) }
+    lockInfo?.let { LockInfoDialog(it) { lockInfo = null } }
     val price = priceLabel(h, state)
 
     // Every card is exactly the same size: hero (animation + name + buttons + price) and a fixed info area.
@@ -297,7 +299,9 @@ private fun HullCard(h: PremiumHull, state: HangarUiState, actions: HangarAction
                         modifier = Modifier.height(42.dp)) {
                         Text("EQUIP", color = CyberBackground, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 13.sp)
                     }
-                    h.earnedOnly -> ActionPill("ANNUAL PRO", Color(0xFFFFD23F), Color.Black)
+                    h.earnedOnly -> Box(Modifier.clickable {
+                        lockInfo = LockInfo("🚀", h.name, "Earned, never sold.", listOf("This hull is earned by staying on Annual Pro.", "It cannot be bought with money or gems."), null, null, Color(0xFFFFD23F))
+                    }) { ActionPill("ANNUAL PRO ⓘ", Color(0xFFFFD23F), Color.Black) }
                     canBuy -> Button(onClick = { actions.onBuy(h) }, enabled = state.purchaseInFlightId == null,
                         contentPadding = PaddingValues(horizontal = 18.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary), shape = RoundedCornerShape(10.dp),
@@ -305,7 +309,15 @@ private fun HullCard(h: PremiumHull, state: HangarUiState, actions: HangarAction
                         Text(if (state.purchaseInFlightId == h.id) "…" else "BUY  $price", color = Color.White,
                             fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 14.sp)
                     }
-                    else -> ActionPill("🔓 ${formatCountdown((buyAt - now).coerceAtLeast(0L))}", Color(0xFF2A2A44), Color.White)
+                    else -> Box(Modifier.clickable {
+                        val pubDay = dateFmt.format(java.util.Date(release + HullCatalog.earlyAccessMillis()))
+                        val proDay = dateFmt.format(java.util.Date(release))
+                        val ls = ArrayList<String>()
+                        ls.add("Opens for you in ${formatCountdown((buyAt - now).coerceAtLeast(0L))}.")
+                        if (state.isPro) ls.add("Pro early access starts $proDay.")
+                        else { ls.add("Pro members can buy it first on $proDay."); ls.add("Everyone else can buy it on $pubDay.") }
+                        lockInfo = LockInfo("🚀", h.name, "Not released to you yet.", ls, null, null, Color(0xFFFF9100))
+                    }) { ActionPill("🔓 ${formatCountdown((buyAt - now).coerceAtLeast(0L))}", Color(0xFF2A2A44), Color.White) }
                 }
             }
         }
