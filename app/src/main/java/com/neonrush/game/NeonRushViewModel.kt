@@ -42,7 +42,7 @@ data class SupportSnapshot(val score: Int, val sector: Int, val difficulty: Stri
 const val DIFFICULTY_EASE = 0.70f
 
 /** Every zone (so every world) takes this much more distance to cross. 1.5 = half again as long. Keep the three zone formulas in sync. */
-const val ZONE_LENGTH_MULT = 1.5
+const val ZONE_LENGTH_MULT = 4.5
 
 data class LeaderboardPilot(
     val rank: Int,
@@ -237,7 +237,13 @@ class NeonRushViewModel(
         soundEngine.playUnlockSkin()
         _suitGateCelebration.tryEmit("🔓 BOSS DOWN. SUIT UNLOCKED FOR PURCHASE: ${skin?.name ?: skinId} (${skin?.priceUsd ?: ""}). Find it in Shop > Pilot Suits.")
     }
+    /** A happy moment (boss beaten, world cleared): the home screen may show Google's in-app review once the player is back there. */
+    private fun flagReviewMoment() {
+        viewModelScope.launch { try { if (hangarStore.getLong("review_runs") >= 3) hangarStore.put("review_pending", "1") } catch (_: Exception) { } }
+    }
+
     fun onBossDefeatedForDrops() {
+        flagReviewMoment()
         viewModelScope.launch {
             val owned = try { gameDao.getProfileDirect()?.unlockedPilotSkinsCsv?.split(",")?.filter { it.isNotBlank() }?.toSet() ?: emptySet() } catch (_: Exception) { emptySet() }
             suitDrops.onBossWin(owned)
@@ -310,6 +316,7 @@ class NeonRushViewModel(
         val world = Worlds.worldForZone(previousZoneNumber)
         if (nextZoneNumber > world.endZone && firedStoryBeats.add(world.id to StoryBeatType.ENDING)) {
             _storyEvent.tryEmit(StoryEvent(world, StoryBeatType.ENDING, world.endingText))
+            flagReviewMoment()
             // The suits are no longer handed out: clearing the world (under the suit's condition) earns the RIGHT TO BUY it.
             SuitGates.forWorld(world.id)?.let { g ->
                 if (!DropSchedule.suitReleased(g.skinId, ServerClock.bestNowMs())) {
@@ -429,6 +436,10 @@ class NeonRushViewModel(
         }
         // Real-money pilot parts (non-consumable neonrush_part_<id>) restore on every store sync.
         parts.grantFromStore(owned.map { it.substringBefore(':') }.filter { it.startsWith("neonrush_part_") }.map { it.removePrefix("neonrush_part_") })
+        // Real-money trails (non-consumable neonrush_trail_<id>) restore on every store sync, and unbacked ones are taken off.
+        val trailIds = owned.map { it.substringBefore(':') }.filter { it.startsWith("neonrush_trail_") }.map { it.removePrefix("neonrush_trail_") }
+        thrusters.grantFromStore(trailIds)
+        if (fromStore) thrusters.syncRealMoney(trailIds)
         if (fromStore) parts.syncRealMoney(owned.map { it.substringBefore(':') }.filter { it.startsWith("neonrush_part_") }.map { it.removePrefix("neonrush_part_") })
         // Pro + ads-removed: profile.subscriptionPro / adsRemoved were never written from the store before.
         val pro = RevenueCatManager.isPro.value
@@ -1078,6 +1089,21 @@ fun freezeStreak() {
         }
     }
 
+    /** Buys a real-money thruster trail (one-time, via the store) once its monthly drop has opened for this player. */
+    fun purchaseTrail(activity: Activity, trailId: String) {
+        val t = ThrusterCatalog.ALL.firstOrNull { it.id == trailId } ?: return
+        if (!t.realMoney || trailId in thrusters.state.value.owned) return
+        val at = ThrusterCatalog.buyableAtMs(t, RevenueCatManager.isPro.value)
+        if (at > ServerClock.bestNowMs()) {
+            _purchaseErrorEvent.tryEmit("🔒 ${t.name} drops on ${java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date(ThrusterCatalog.releaseMs(t)))}.")
+            return
+        }
+        RevenueCatManager.purchasePilotSuit(activity, t.productId) { success ->
+            if (success) { thrusters.grantPurchased(trailId); soundEngine.playUnlockSkin() }
+            else _purchaseErrorEvent.tryEmit("Purchase failed. Please try again.")
+        }
+    }
+
     fun purchaseSkin(skinId: String, cost: Int) {
         viewModelScope.launch {
             var outcome = "none" // "equipped", "bought", or "none"
@@ -1462,7 +1488,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
     val isFirstLucky = (System.currentTimeMillis() - lastPlayTime) > 3 * 24 * 3600 * 1000L
     val startingDistance = if (startFromZone > 1) {
         val m = (startFromZone - 1).toDouble()
-        (75.0 * m * m + 575.0 * m).toFloat()
+        (((202.5 * m + 776.25).let { it * it } - 602564.0625) / 405.0 * ZONE_LENGTH_MULT).toFloat()
     } else 0f
     _simState.value = SimulationState(
         activeGhost = ghost,
@@ -1592,6 +1618,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (state.specialWorldId != null) activeDna = overrideEnvironment(activeDna, state.specialWorldId)
                 var updatedMsg = state.feedbackMessage
                 var nmTierThis = -1
+                var closeCallThisTick = false
+                var shieldHitThisTick = false
                 var nmBonusThisTick = 0
                 var sectorBannerText = state.sectorBannerText
                 var sectorBannerUntilTick = state.sectorBannerUntilTick
@@ -1911,6 +1939,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         updatedMsg = "DRIFT DEFLECTED: SHIELD BARRIER OVERLOADED"
                                     } else if (shieldLayersState > 0 && (kidMode || !isUnstoppableHazard)) {
                                         shieldLayersState--
+                                        shieldHitThisTick = true
                                         PilotShieldFx.onHit()
                                         soundEngine.playShieldBreak()
                                         updatedMsg = if (shieldLayersState > 0) "SHIELD HELD! $shieldLayersState LEFT" else "SHIELD BROKEN! FLY CAREFULLY"
@@ -1956,7 +1985,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 soundEngine.playNearMiss()
                                 updatedMsg = "CLOSE CALL!"
                             }
-                            HullFx.closeCallTick = tick; hangar.onCloseCall(prof.activeSkinId); seasonPass.onToken(SeasonPass.TOKENS_CLOSE_CALL)
+                            closeCallThisTick = true; HullFx.closeCallTick = tick; hangar.onCloseCall(prof.activeSkinId); seasonPass.onToken(SeasonPass.TOKENS_CLOSE_CALL)
                             if (assist > 0f && assistGemsGiven < 8) { // first run only: small gem reward
                                 assistGemsGiven++
                                 gemsGathered += 1
@@ -2083,7 +2112,10 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         pickedFuel = hintPicked.any { it.type == "fuel" },
                         pickedPowerupId = hintPicked.firstOrNull { it.type == "powerup" }?.subType,
                         refuelTapped = hintRefuelTapped,
-                        elements = finalElements
+                        elements = finalElements,
+                        shieldLayers = shieldLayersState,
+                        shieldHit = shieldHitThisTick,
+                        closeCall = closeCallThisTick
                     )
                 )
                 hintRefuelTapped = false
@@ -2418,6 +2450,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (state.specialWorldId != null) activeDna = overrideEnvironment(activeDna, state.specialWorldId)
                 var updatedMsg = state.feedbackMessage
                 var nmTierThis = -1
+                var closeCallThisTick = false
+                var shieldHitThisTick = false
                 var nmBonusThisTick = 0
                 var sectorBannerText = state.sectorBannerText
                 var sectorBannerUntilTick = state.sectorBannerUntilTick
@@ -2713,6 +2747,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         updatedMsg = "SHIELD BROKEN!"
                                     } else if (shieldLayersState > 0 && (kidMode || !isUnstoppableHazard)) {
                                         shieldLayersState--
+                                        shieldHitThisTick = true
                                         PilotShieldFx.onHit()
                                         soundEngine.playShieldBreak()
                                         updatedMsg = if (shieldLayersState > 0) "SHIELD HELD! $shieldLayersState LEFT" else "SHIELD BROKEN! FLY CAREFULLY"
@@ -2757,7 +2792,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 soundEngine.playNearMiss()
                                 updatedMsg = "CLOSE CALL!"
                             }
-                            HullFx.closeCallTick = tick; hangar.onCloseCall(prof.activeSkinId); seasonPass.onToken(SeasonPass.TOKENS_CLOSE_CALL)
+                            closeCallThisTick = true; HullFx.closeCallTick = tick; hangar.onCloseCall(prof.activeSkinId); seasonPass.onToken(SeasonPass.TOKENS_CLOSE_CALL)
                             if (assist > 0f && assistGemsGiven < 8) { // first run only: small gem reward
                                 assistGemsGiven++
                                 gemsGathered += 1
@@ -2870,7 +2905,10 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         pickedFuel = hintPicked.any { it.type == "fuel" },
                         pickedPowerupId = hintPicked.firstOrNull { it.type == "powerup" }?.subType,
                         refuelTapped = hintRefuelTapped,
-                        elements = finalElements
+                        elements = finalElements,
+                        shieldLayers = shieldLayersState,
+                        shieldHit = shieldHitThisTick,
+                        closeCall = closeCallThisTick
                     )
                 )
                 hintRefuelTapped = false
