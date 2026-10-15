@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
@@ -55,8 +56,8 @@ fun DrawScope.drawPilotShield(layers: Int, x: Float, y: Float, h: Float, w: Floa
 
     val maxL = maxOf(PilotShieldFx.maxLayers, layers, 1)
     val center = Offset(x + w * 0.02f, y)
-    val rx = maxOf(h * 0.5f, w * 0.46f)
-    val ry = h * 0.6f
+    val rx = h * 0.40f
+    val ry = h * 0.52f
     val ky = ry / rx
 
     // pop-in on activation: grows past full size, settles back
@@ -73,31 +74,41 @@ fun DrawScope.drawPilotShield(layers: Int, x: Float, y: Float, h: Float, w: Floa
     withTransform({ scale(pop, pop, pivot = center) }) {
         for (i in 0 until layers) {
             val outer = i == layers - 1
-            val s = 0.93f + 0.095f * i
+            val s = 0.94f + 0.07f * i
             val rr = rx * s
-            val layerAlpha = popAlpha * (if (outer) 1f else 0.75f)
+            val layerAlpha = popAlpha * (if (outer) 1f else 0.7f)
 
             withTransform({ scale(1f, ky, pivot = center) }) {
-                // glassy body: clear in the middle, glowing at the edge
+                // clear glass: empty in the middle so the pilot, trail and hull stay fully visible, a soft glow only at the edge
                 drawCircle(
                     brush = Brush.radialGradient(
                         0.0f to Color.Transparent,
-                        0.62f to c2.copy(alpha = 0.05f * layerAlpha),
-                        0.9f to c1.copy(alpha = (0.20f + 0.08f * breath + 0.35f * hitFlash) * layerAlpha),
-                        1.0f to c1.copy(alpha = 0.55f * layerAlpha),
+                        0.70f to Color.Transparent,
+                        0.92f to c1.copy(alpha = (0.08f + 0.04f * breath + 0.30f * hitFlash) * layerAlpha),
+                        1.0f to c1.copy(alpha = 0.28f * layerAlpha),
                         center = center, radius = rr
                     ),
                     radius = rr, center = center
                 )
-                // bright rim
+                // thin bright rim
                 drawCircle(
-                    color = c1.copy(alpha = (0.55f + 0.3f * breath) * layerAlpha),
+                    color = c1.copy(alpha = (0.34f + 0.22f * breath) * layerAlpha),
                     radius = rr, center = center,
-                    style = Stroke(width = h * (if (outer) 0.022f else 0.014f))
+                    style = Stroke(width = h * (if (outer) 0.014f else 0.009f))
                 )
                 if (outer) {
-                    drawCircle(Color.White.copy(alpha = (0.22f + 0.2f * hitFlash) * layerAlpha), radius = rr * 0.985f, center = center,
-                        style = Stroke(width = h * 0.006f))
+                    drawCircle(Color.White.copy(alpha = (0.12f + 0.25f * hitFlash) * layerAlpha), radius = rr * 0.985f, center = center,
+                        style = Stroke(width = h * 0.005f))
+                    // glass reflections: the curved highlight that makes it read as a transparent dome
+                    drawArc(Color.White.copy(alpha = 0.42f * layerAlpha), startAngle = 198f, sweepAngle = 44f, useCenter = false,
+                        topLeft = Offset(center.x - rr * 0.9f, center.y - rr * 0.9f), size = androidx.compose.ui.geometry.Size(rr * 1.8f, rr * 1.8f),
+                        style = Stroke(width = h * 0.016f, cap = StrokeCap.Round))
+                    drawArc(Color.White.copy(alpha = 0.32f * layerAlpha), startAngle = 250f, sweepAngle = 9f, useCenter = false,
+                        topLeft = Offset(center.x - rr * 0.9f, center.y - rr * 0.9f), size = androidx.compose.ui.geometry.Size(rr * 1.8f, rr * 1.8f),
+                        style = Stroke(width = h * 0.016f, cap = StrokeCap.Round))
+                    drawArc(Color.White.copy(alpha = 0.22f * layerAlpha), startAngle = 18f, sweepAngle = 24f, useCenter = false,
+                        topLeft = Offset(center.x - rr * 0.9f, center.y - rr * 0.9f), size = androidx.compose.ui.geometry.Size(rr * 1.8f, rr * 1.8f),
+                        style = Stroke(width = h * 0.011f, cap = StrokeCap.Round))
                 }
             }
 
@@ -105,13 +116,14 @@ fun DrawScope.drawPilotShield(layers: Int, x: Float, y: Float, h: Float, w: Floa
                 honeycomb(center, rx * s, ry * s, h, t, c1, layerAlpha, low)
                 sparks(center, rx * s, ry * s, h, t, c1, layers, layerAlpha)
                 cracks(center, rx * s, ry * s, h, maxL - layers, layerAlpha, c1)
+                shieldCrest(center, rx * s, ry * s, h, c1, c2, layers, maxL, layerAlpha, hitFlash, breath)
             }
         }
 
-        // white flash across the whole bubble when something hits it
+        // quick light pulse across the bubble when something hits it
         if (hitFlash > 0f && layers > 0) {
             withTransform({ scale(1f, ky, pivot = center) }) {
-                drawCircle(Color.White.copy(alpha = 0.35f * hitFlash), radius = rx * 1.0f, center = center, blendMode = BlendMode.Plus)
+                drawCircle(Color.White.copy(alpha = 0.20f * hitFlash), radius = rx * 1.0f, center = center, blendMode = BlendMode.Plus)
             }
         }
     }
@@ -121,7 +133,7 @@ fun DrawScope.drawPilotShield(layers: Int, x: Float, y: Float, h: Float, w: Floa
         val f = hitAge / 650f
         val ease = 1f - (1f - f) * (1f - f)
         val a = (1f - f).coerceIn(0f, 1f)
-        val s = (0.93f + 0.095f * layers) + 0.55f * ease
+        val s = (0.94f + 0.07f * layers) + 0.5f * ease
         withTransform({ scale(1f, ky, pivot = center) }) {
             drawCircle(ICE.copy(alpha = 0.7f * a), radius = rx * s, center = center, style = Stroke(width = h * 0.03f * (1f - 0.7f * f)))
             drawCircle(Color.White.copy(alpha = 0.5f * a), radius = rx * s * 0.97f, center = center, style = Stroke(width = h * 0.008f))
@@ -173,32 +185,36 @@ private fun DrawScope.honeycomb(c: Offset, rx: Float, ry: Float, h: Float, t: Fl
         }
         yy += dy; row++
     }
+    // only the outer band of the bubble gets the honeycomb, so the middle stays clear
+    val inner = Path().apply { addOval(androidx.compose.ui.geometry.Rect(c.x - rx * 0.74f, c.y - ry * 0.74f, c.x + rx * 0.74f, c.y + ry * 0.74f)) }
     clipPath(clip) {
-        drawPath(grid, col.copy(alpha = 0.16f * alpha), style = Stroke(width = h * 0.006f, join = StrokeJoin.Round))
-        // sweeping highlight: a soft diagonal band rising through the bubble (faster when low)
-        val ph = ((t * (if (low) 0.9f else 0.45f)) % 1f)
-        val by = c.y + ry - ph * ry * 2.4f
-        drawRect(
-            brush = Brush.verticalGradient(
-                listOf(Color.Transparent, Color.White.copy(alpha = 0.22f * alpha), Color.Transparent),
-                startY = by - h * 0.16f, endY = by + h * 0.16f
-            ),
-            topLeft = Offset(c.x - rx, by - h * 0.16f), size = androidx.compose.ui.geometry.Size(rx * 2f, h * 0.32f),
-            blendMode = BlendMode.Plus
-        )
+        clipPath(inner, ClipOp.Difference) {
+            drawPath(grid, col.copy(alpha = 0.22f * alpha), style = Stroke(width = h * 0.005f, join = StrokeJoin.Round))
+            // light band that travels around the ring (faster when low)
+            val ph = ((t * (if (low) 0.9f else 0.45f)) % 1f)
+            val by = c.y + ry - ph * ry * 2.4f
+            drawRect(
+                brush = Brush.verticalGradient(
+                    listOf(Color.Transparent, Color.White.copy(alpha = 0.26f * alpha), Color.Transparent),
+                    startY = by - h * 0.14f, endY = by + h * 0.14f
+                ),
+                topLeft = Offset(c.x - rx, by - h * 0.14f), size = androidx.compose.ui.geometry.Size(rx * 2f, h * 0.28f),
+                blendMode = BlendMode.Plus
+            )
+        }
     }
 }
 
 /** Glints orbiting the bubble: more layers = more of them. */
 private fun DrawScope.sparks(c: Offset, rx: Float, ry: Float, h: Float, t: Float, col: Color, layers: Int, alpha: Float) {
-    val n = 2 + layers * 2
+    val n = 2 + layers
     for (k in 0 until n) {
         val a = t * (1.1f + 0.15f * (k % 2)) + k * (2f * PI.toFloat() / n)
         val px = c.x + cos(a) * rx
         val py = c.y + sin(a) * ry
         val tw = 0.55f + 0.45f * abs(sin(t * 3f + k))
-        drawCircle(col.copy(alpha = 0.35f * alpha * tw), radius = h * 0.03f, center = Offset(px, py), blendMode = BlendMode.Plus)
-        drawCircle(Color.White.copy(alpha = 0.9f * alpha * tw), radius = h * 0.011f, center = Offset(px, py))
+        drawCircle(col.copy(alpha = 0.28f * alpha * tw), radius = h * 0.022f, center = Offset(px, py), blendMode = BlendMode.Plus)
+        drawCircle(Color.White.copy(alpha = 0.9f * alpha * tw), radius = h * 0.008f, center = Offset(px, py))
     }
 }
 
@@ -222,5 +238,38 @@ private fun DrawScope.cracks(c: Offset, rx: Float, ry: Float, h: Float, lost: In
         }
         drawPath(p, Color.White.copy(alpha = 0.8f * alpha), style = Stroke(width = h * 0.008f, cap = StrokeCap.Round, join = StrokeJoin.Round))
         drawPath(p, col.copy(alpha = 0.5f * alpha), style = Stroke(width = h * 0.016f, cap = StrokeCap.Round, join = StrokeJoin.Round), blendMode = BlendMode.Plus)
+    }
+}
+
+/**
+ * A small heraldic shield emblem set into the lower-front of the rim. It is the universal "this is a shield" sign,
+ * and its pips show the hits left (lit = left, dark = used). Kept small and clear of the pilot's parts.
+ */
+private fun DrawScope.shieldCrest(c: Offset, rx: Float, ry: Float, h: Float, c1: Color, c2: Color, layers: Int, maxL: Int, alpha: Float, hitFlash: Float, breath: Float) {
+    val ang = 0.62f                                   // ~35 degrees below the front
+    val px = c.x + cos(ang) * rx
+    val py = c.y + sin(ang) * ry
+    val u = h * 0.066f * (1f + 0.25f * hitFlash)
+    val body = Path().apply {
+        moveTo(px - u, py - u * 0.85f)
+        lineTo(px + u, py - u * 0.85f)
+        lineTo(px + u, py + u * 0.05f)
+        quadraticBezierTo(px + u, py + u * 0.8f, px, py + u * 1.2f)
+        quadraticBezierTo(px - u, py + u * 0.8f, px - u, py + u * 0.05f)
+        close()
+    }
+    drawCircle(Brush.radialGradient(listOf(c1.copy(alpha = 0.35f * alpha), Color.Transparent), center = Offset(px, py), radius = u * 2.1f),
+        radius = u * 2.1f, center = Offset(px, py), blendMode = BlendMode.Plus)
+    drawPath(body, Brush.verticalGradient(listOf(c1.copy(alpha = 0.55f * alpha), c2.copy(alpha = 0.55f * alpha)), startY = py - u, endY = py + u * 1.2f))
+    drawPath(body, Color.White.copy(alpha = (0.75f + 0.2f * breath) * alpha), style = Stroke(width = u * 0.16f, join = StrokeJoin.Round))
+    // pips: one per hit the shield can take, lit while that hit is still available
+    val n = maxL.coerceIn(1, 4)
+    val gap = u * 0.62f
+    val x0 = px - gap * (n - 1) / 2f
+    for (k in 0 until n) {
+        val lit = k < layers
+        val pc = Offset(x0 + gap * k, py - u * 0.05f)
+        if (lit) drawCircle(Color.White.copy(alpha = 0.95f * alpha), radius = u * 0.2f, center = pc)
+        else drawCircle(Color.White.copy(alpha = 0.35f * alpha), radius = u * 0.2f, center = pc, style = Stroke(width = u * 0.07f))
     }
 }
