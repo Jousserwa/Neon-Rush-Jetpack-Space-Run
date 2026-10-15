@@ -33,6 +33,9 @@ import androidx.compose.ui.window.Dialog
 import com.neonrush.game.ui.theme.CyberOnSurface
 import com.neonrush.game.ui.theme.CyberSurface
 
+/** A progress fraction that can never be NaN or out of range (a NaN width crashes Compose layout). */
+fun safeFrac(f: Float): Float = if (f.isNaN()) 0f else f.coerceIn(0f, 1f)
+
 /** What a locked item needs. Shown when the player taps the locked card. */
 data class LockInfo(
     val emoji: String,
@@ -70,7 +73,7 @@ fun LockInfoDialog(info: LockInfo, onDismiss: () -> Unit) {
             }
             if (info.progress != null) {
                 Box(Modifier.padding(top = 12.dp).fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.12f))) {
-                    Box(Modifier.fillMaxWidth(info.progress.coerceIn(0f, 1f)).height(8.dp).background(info.accent))
+                    Box(Modifier.fillMaxWidth(safeFrac(info.progress)).height(8.dp).background(info.accent))
                 }
                 if (info.progressLabel != null) Text(info.progressLabel, color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace, modifier = Modifier.padding(top = 4.dp))
