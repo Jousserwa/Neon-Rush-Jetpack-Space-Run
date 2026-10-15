@@ -2,6 +2,7 @@ package com.neonrush.game.ui
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -21,6 +22,16 @@ class PartPainter(private val ds: DrawScope, private val ax: Float, private val 
     private var swDeg = 0f
     private var swF = 1f
     fun sway(deg: Float, f: Float) { swDeg = deg; swF = f }
+    private var sc = 1f
+    /** Shrinks everything drawn after this call (positions, radii and line widths) around the anchor. */
+    fun scale(f: Float) { sc = f }
+    /** Suit accent colour (0 = none). Parts mix a little of it into their metal so they look made for the suit. */
+    var tint: Long = 0L
+    fun mix(c: Long, k: Float = 0.16f): Long {
+        if (tint == 0L) return c
+        fun ch(sh: Int): Long { val a = (c shr sh) and 0xFF; val b = (tint shr sh) and 0xFF; return (a + (b - a) * k).toLong().coerceIn(0L, 255L) }
+        return 0xFF000000L or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
+    }
 
     private fun pt(x: Float, y: Float): Offset {
         var px = x; var py = y
@@ -29,7 +40,7 @@ class PartPainter(private val ds: DrawScope, private val ax: Float, private val 
             val c = cos(a); val s = sin(a)
             px = x * c - y * s; py = x * s + y * c
         }
-        return Offset(ax + px * r, ay + py * r)
+        return Offset(ax + px * sc * r, ay + py * sc * r)
     }
 
     fun poly(fill: Long, stroke: Long, w: Float, vararg xy: Float) {
@@ -43,26 +54,51 @@ class PartPainter(private val ds: DrawScope, private val ax: Float, private val 
         }
         path.close()
         if (fill != 0L) ds.drawPath(path, Color(fill))
-        if (stroke != 0L && w > 0f) ds.drawPath(path, Color(stroke), style = Stroke(width = w * r, join = StrokeJoin.Round))
+        if (stroke != 0L && w > 0f) ds.drawPath(path, Color(stroke), style = Stroke(width = w * sc * r, join = StrokeJoin.Round))
     }
 
     fun circle(cx: Float, cy: Float, rad: Float, fill: Long, stroke: Long, w: Float) {
         val c = pt(cx, cy)
-        if (fill != 0L) ds.drawCircle(Color(fill), radius = rad * r, center = c)
-        if (stroke != 0L && w > 0f) ds.drawCircle(Color(stroke), radius = rad * r, center = c, style = Stroke(width = w * r))
+        if (fill != 0L) ds.drawCircle(Color(fill), radius = rad * sc * r, center = c)
+        if (stroke != 0L && w > 0f) ds.drawCircle(Color(stroke), radius = rad * sc * r, center = c, style = Stroke(width = w * sc * r))
     }
 
     fun ellipse(cx: Float, cy: Float, rx: Float, ry: Float, fill: Long, stroke: Long, w: Float) {
         val c = pt(cx, cy)
-        val tl = Offset(c.x - rx * r, c.y - ry * r)
-        val sz = Size(rx * 2f * r, ry * 2f * r)
+        val tl = Offset(c.x - rx * sc * r, c.y - ry * sc * r)
+        val sz = Size(rx * 2f * sc * r, ry * 2f * sc * r)
         if (fill != 0L) ds.drawOval(Color(fill), topLeft = tl, size = sz)
-        if (stroke != 0L && w > 0f) ds.drawOval(Color(stroke), topLeft = tl, size = sz, style = Stroke(width = w * r))
+        if (stroke != 0L && w > 0f) ds.drawOval(Color(stroke), topLeft = tl, size = sz, style = Stroke(width = w * sc * r))
     }
 
     fun line(x0: Float, y0: Float, x1: Float, y1: Float, color: Long, w: Float) {
-        ds.drawLine(Color(color), pt(x0, y0), pt(x1, y1), strokeWidth = w * r, cap = StrokeCap.Round)
+        ds.drawLine(Color(color), pt(x0, y0), pt(x1, y1), strokeWidth = w * sc * r, cap = StrokeCap.Round)
     }
+
+    /** Polygon filled with a top-to-bottom light-to-dark gradient, so armour looks rounded instead of flat. */
+    fun gpoly(top: Long, bottom: Long, stroke: Long, w: Float, vararg xy: Float) {
+        if (xy.size < 6) return
+        val path = Path()
+        var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+        var i = 0
+        while (i + 1 < xy.size) {
+            val o = pt(xy[i], xy[i + 1])
+            if (i == 0) path.moveTo(o.x, o.y) else path.lineTo(o.x, o.y)
+            if (o.y < minY) minY = o.y; if (o.y > maxY) maxY = o.y
+            i += 2
+        }
+        path.close()
+        val x0 = pt(xy[0], xy[1]).x
+        ds.drawPath(path, Brush.linearGradient(listOf(Color(top), Color(bottom)), start = Offset(x0, minY), end = Offset(x0, maxY + 0.001f)))
+        if (stroke != 0L && w > 0f) ds.drawPath(path, Color(stroke), style = Stroke(width = w * sc * r, join = StrokeJoin.Round))
+    }
+
+    /** Soft dark blob under a part: the contact shadow that makes it sit ON the suit. */
+    fun shadow(cx: Float, cy: Float, rad: Float, alpha: Float) {
+        val c = pt(cx, cy); val rr = rad * sc * r
+        ds.drawCircle(Brush.radialGradient(listOf(Color(0xFF000000).copy(alpha = alpha.coerceIn(0f, 1f)), Color.Transparent), center = c, radius = rr), radius = rr, center = c)
+    }
+
 
     /** A waving strip of cloth. angDeg is the direction it trails in (y down), amp/freq shape the flutter. */
     fun ribbon(ox: Float, oy: Float, angDeg: Float, len: Float, w0: Float, w1: Float, amp: Float, freq: Float, fill: Long, stroke: Long, sw: Float) {
@@ -194,50 +230,94 @@ private fun part_gold_chain(P: PartPainter) {
     P.poly(0xFFFF1744, 0xFF0B0A14, 0.1f, 0f, 0.95f, 0.28f, 1.3f, 0f, 1.75f, -0.28f, 1.3f)
 }
 
+/**
+ * Shared shoulder mount: a contact shadow, a dark padded under-shoulder in suit colour, and a strap wrapped round
+ * the upper arm with rivets - so every shoulder piece is clearly fixed to the suit instead of floating on it.
+ */
+private fun shoulderMount(P: PartPainter) {
+    P.scale(0.78f)
+    P.shadow(0.05f, 0.45f, 1.45f, 0.42f)
+    // padded under-shoulder (the suit's own sleeve cap)
+    P.gpoly(P.mix(0xFF2B3342), P.mix(0xFF0F131B), 0xFF05070B, 0.05f,
+        -1.0f, 0.55f, -0.95f, 0.05f, -0.6f, -0.35f, 0f, -0.5f, 0.6f, -0.35f, 0.95f, 0.05f, 1.0f, 0.55f, 0.5f, 0.75f, -0.5f, 0.75f)
+    // arm strap
+    P.gpoly(P.mix(0xFF3A4254), P.mix(0xFF141922), 0xFF05070B, 0.045f,
+        -0.82f, 0.62f, -0.5f, 0.55f, 0.5f, 0.55f, 0.82f, 0.62f, 0.78f, 1.0f, 0.45f, 1.08f, -0.45f, 1.08f, -0.78f, 1.0f)
+    P.line(-0.7f, 0.72f, 0.7f, 0.72f, 0xFF6C778C, 0.03f)
+    P.circle(-0.52f, 0.84f, 0.075f, 0xFFB0BAC9, 0xFF05070B, 0.03f)
+    P.circle(0.52f, 0.84f, 0.075f, 0xFFB0BAC9, 0xFF05070B, 0.03f)
+}
+
 private fun part_spike_pauldron(P: PartPainter) {
-    P.poly(0xFF78909C, 0xFF0B0A14, 0.14f, -1f, 0.5f, -0.9f, -0.2f, -0.4f, -0.7f, 0.4f, -0.7f, 0.95f, -0.1f, 1.05f, 0.5f, 0.2f, 0.8f, -0.6f, 0.8f)
-    P.poly(0xFFCFD8DC, 0xFF0B0A14, 0.12f, -0.8f, -0.3f, -0.5f, -1.7f, -0.2f, -0.6f)
-    P.poly(0xFFCFD8DC, 0xFF0B0A14, 0.12f, -0.15f, -0.65f, 0.25f, -1.95f, 0.55f, -0.65f)
-    P.poly(0xFFCFD8DC, 0xFF0B0A14, 0.12f, 0.6f, -0.5f, 1.05f, -1.35f, 1f, -0.05f)
-    P.poly(0xFF455A64, 0L, 0f, -0.7f, 0.1f, 0f, -0.35f, 0.7f, 0.05f, 0f, 0.2f)
+    shoulderMount(P)
+    // spikes grow out of the plate (drawn first so the plate overlaps their roots)
+    P.gpoly(0xFFECEFF1, 0xFF78909C, 0xFF1C262B, 0.05f, -0.72f, -0.25f, -0.6f, -1.3f, -0.22f, -0.5f)
+    P.gpoly(0xFFF5F7F8, 0xFF78909C, 0xFF1C262B, 0.05f, -0.22f, -0.5f, 0.04f, -1.55f, 0.32f, -0.5f)
+    P.gpoly(0xFFECEFF1, 0xFF78909C, 0xFF1C262B, 0.05f, 0.34f, -0.45f, 0.82f, -1.2f, 0.82f, -0.1f)
+    // curved steel plate
+    P.gpoly(P.mix(0xFFB0BEC5), P.mix(0xFF37474F), 0xFF1C262B, 0.06f,
+        -1.0f, 0.5f, -0.95f, 0.0f, -0.62f, -0.4f, 0f, -0.55f, 0.62f, -0.4f, 0.95f, 0.0f, 1.0f, 0.5f, 0.4f, 0.7f, -0.4f, 0.7f)
+    // panel seams + rim light so it reads as shaped metal
+    P.line(-0.32f, -0.45f, -0.4f, 0.62f, 0xFF263238, 0.04f)
+    P.line(0.32f, -0.45f, 0.4f, 0.62f, 0xFF263238, 0.04f)
+    P.line(-0.7f, -0.12f, 0.55f, -0.38f, 0xCCFFFFFF, 0.05f)
+    P.circle(-0.62f, 0.12f, 0.07f, 0xFFCFD8DC, 0xFF1C262B, 0.025f)
+    P.circle(0.62f, 0.12f, 0.07f, 0xFFCFD8DC, 0xFF1C262B, 0.025f)
 }
 
 private fun part_gold_epaulette(P: PartPainter) {
-    P.ellipse(0f, 0.05f, 1.25f, 0.85f, 0xFFFFC107, 0xFF0B0A14, 0.14f)
-    P.ellipse(0f, -0.05f, 0.8f, 0.5f, 0xFFFFE082, 0L, 0f)
-    P.line(-1f, 0.7f, -1.05f, 1.45f, 0xFF0B0A14, 0.2f)
-    P.line(-1f, 0.7f, -1.05f, 1.45f, 0xFFFFD23F, 0.1f)
-    P.line(-0.67f, 0.7f, -0.72f, 1.45f, 0xFF0B0A14, 0.2f)
-    P.line(-0.67f, 0.7f, -0.72f, 1.45f, 0xFFFFD23F, 0.1f)
-    P.line(-0.34f, 0.7f, -0.39f, 1.45f, 0xFF0B0A14, 0.2f)
-    P.line(-0.34f, 0.7f, -0.39f, 1.45f, 0xFFFFD23F, 0.1f)
-    P.line(-0.01f, 0.7f, -0.06f, 1.45f, 0xFF0B0A14, 0.2f)
-    P.line(-0.01f, 0.7f, -0.06f, 1.45f, 0xFFFFD23F, 0.1f)
-    P.line(0.32f, 0.7f, 0.27f, 1.45f, 0xFF0B0A14, 0.2f)
-    P.line(0.32f, 0.7f, 0.27f, 1.45f, 0xFFFFD23F, 0.1f)
-    P.line(0.65f, 0.7f, 0.6f, 1.45f, 0xFF0B0A14, 0.2f)
-    P.line(0.65f, 0.7f, 0.6f, 1.45f, 0xFFFFD23F, 0.1f)
-    P.line(0.98f, 0.7f, 0.93f, 1.45f, 0xFF0B0A14, 0.2f)
-    P.line(0.98f, 0.7f, 0.93f, 1.45f, 0xFFFFD23F, 0.1f)
-    P.circle(0f, 0f, 0.2f, 0xFFFF1744, 0xFF0B0A14, 0.08f)
+    shoulderMount(P)
+    // short fringe hanging from the board edge, following the arm
+    for (k in 0..6) {
+        val x = -0.9f + k * 0.3f
+        P.line(x, 0.5f, x - 0.04f, 1.25f, 0xFFB8860B, 0.14f)
+        P.line(x, 0.5f, x - 0.04f, 1.25f, 0xFFFFD23F, 0.08f)
+    }
+    // rounded gold board
+    P.gpoly(P.mix(0xFFFFE082, 0.1f), P.mix(0xFFB8860B, 0.1f), 0xFF5D4300, 0.06f,
+        -1.0f, 0.5f, -0.98f, 0.05f, -0.62f, -0.38f, 0f, -0.5f, 0.62f, -0.38f, 0.98f, 0.05f, 1.0f, 0.5f, 0.45f, 0.68f, -0.45f, 0.68f)
+    // rank bars and braided cord
+    P.line(-0.55f, -0.12f, 0.55f, -0.2f, 0xFF8A6508, 0.07f)
+    P.line(-0.6f, 0.12f, 0.6f, 0.05f, 0xFF8A6508, 0.07f)
+    P.line(-0.55f, -0.14f, 0.55f, -0.22f, 0xFFFFF1B0, 0.03f)
+    P.circle(0f, 0.02f, 0.22f, 0xFFD50032, 0xFF5D4300, 0.05f)
+    P.circle(-0.06f, -0.05f, 0.07f, 0xAAFFFFFF, 0L, 0f)
 }
 
 private fun part_crystal_shard(P: PartPainter) {
-    P.poly(0xFF4DD0E1, 0xFF0B0A14, 0.14f, -0.3f, 0.6f, -0.55f, -0.4f, -0.2f, -1.9f, 0.15f, -0.4f, 0.2f, 0.6f)
-    P.poly(0xFF80DEEA, 0xFF0B0A14, 0.14f, 0.2f, 0.6f, 0.15f, -0.2f, 0.7f, -1.35f, 0.95f, -0.1f, 0.85f, 0.6f)
-    P.poly(0xFF26C6DA, 0xFF0B0A14, 0.14f, -0.9f, 0.6f, -0.95f, -0.1f, -0.7f, -1f, -0.4f, -0.1f, -0.35f, 0.6f)
-    P.poly(0xFFFFFFFF, 0L, 0f, -0.2f, -1.7f, -0.1f, -0.5f, 0f, -0.5f)
+    shoulderMount(P)
+    P.shadow(0f, -0.1f, 1.1f, 0.0f)
+    // rocky collar the crystals grow from
+    P.gpoly(P.mix(0xFF37526B), P.mix(0xFF152331), 0xFF07121C, 0.05f,
+        -1.0f, 0.5f, -0.9f, 0.0f, -0.5f, -0.3f, 0f, -0.38f, 0.5f, -0.3f, 0.9f, 0.0f, 1.0f, 0.5f, 0.4f, 0.66f, -0.4f, 0.66f)
+    // glow at the roots
+    P.shadow(0f, -0.25f, 0.9f, 0f)
+    P.gpoly(0xFFB2EBF2, 0xFF00ACC1, 0xFF07323B, 0.05f, -0.62f, -0.15f, -0.78f, -0.85f, -0.4f, -1.45f, -0.18f, -0.8f, -0.12f, -0.2f)
+    P.gpoly(0xFFE0F7FA, 0xFF26C6DA, 0xFF07323B, 0.05f, -0.05f, -0.2f, -0.1f, -1.0f, 0.22f, -1.9f, 0.5f, -1.0f, 0.5f, -0.2f)
+    P.gpoly(0xFFB2EBF2, 0xFF0097A7, 0xFF07323B, 0.05f, 0.5f, -0.2f, 0.62f, -0.75f, 0.95f, -1.25f, 1.05f, -0.6f, 0.95f, -0.1f)
+    // facet highlights
+    P.poly(0xCCFFFFFF, 0L, 0f, 0.14f, -0.6f, 0.2f, -1.6f, 0.28f, -0.7f)
+    P.poly(0x99FFFFFF, 0L, 0f, -0.52f, -0.35f, -0.48f, -1.1f, -0.4f, -0.4f)
 }
 
 private fun part_skull_guard(P: PartPainter) {
-    P.circle(0f, 0f, 1f, 0xFFECEFF1, 0xFF0B0A14, 0.14f)
-    P.circle(-0.35f, -0.1f, 0.26f, 0xFF263238, 0L, 0f)
-    P.circle(0.35f, -0.1f, 0.26f, 0xFF263238, 0L, 0f)
-    P.poly(0xFF263238, 0L, 0f, 0f, 0.15f, -0.12f, 0.42f, 0.12f, 0.42f)
-    P.line(-0.3f, 0.62f, -0.3f, 0.85f, 0xFF263238, 0.07f)
-    P.line(-0.1f, 0.62f, -0.1f, 0.85f, 0xFF263238, 0.07f)
-    P.line(0.1f, 0.62f, 0.1f, 0.85f, 0xFF263238, 0.07f)
-    P.line(0.3f, 0.62f, 0.3f, 0.85f, 0xFF263238, 0.07f)
+    shoulderMount(P)
+    // dark metal cradle holding the skull
+    P.gpoly(P.mix(0xFF4A5568), P.mix(0xFF1B212C), 0xFF05070B, 0.05f,
+        -1.0f, 0.5f, -0.9f, 0.0f, -0.55f, -0.3f, 0f, -0.4f, 0.55f, -0.3f, 0.9f, 0.0f, 1.0f, 0.5f, 0.4f, 0.68f, -0.4f, 0.68f)
+    // skull, sunk into the cradle
+    P.circle(0f, -0.28f, 0.68f, 0xFFE9E4D6, 0xFF3B3A34, 0.05f)
+    P.ellipse(0.12f, -0.12f, 0.5f, 0.42f, 0x22000000, 0L, 0f)
+    P.ellipse(-0.27f, -0.32f, 0.2f, 0.22f, 0xFF1A1E24, 0L, 0f)
+    P.ellipse(0.27f, -0.32f, 0.2f, 0.22f, 0xFF1A1E24, 0L, 0f)
+    P.poly(0xFF1A1E24, 0L, 0f, 0f, -0.14f, -0.09f, 0.04f, 0.09f, 0.04f)
+    // jaw clamp strap over the lower skull
+    P.gpoly(P.mix(0xFF6C778C), P.mix(0xFF2A3140), 0xFF05070B, 0.04f, -0.7f, 0.18f, 0f, 0.08f, 0.7f, 0.18f, 0.66f, 0.42f, 0f, 0.34f, -0.66f, 0.42f)
+    P.line(-0.3f, 0.2f, -0.3f, 0.4f, 0xFF1A1E24, 0.04f)
+    P.line(0f, 0.17f, 0f, 0.37f, 0xFF1A1E24, 0.04f)
+    P.line(0.3f, 0.2f, 0.3f, 0.4f, 0xFF1A1E24, 0.04f)
+    P.circle(-0.56f, 0.3f, 0.06f, 0xFFB0BAC9, 0xFF05070B, 0.025f)
+    P.circle(0.56f, 0.3f, 0.06f, 0xFFB0BAC9, 0xFF05070B, 0.025f)
 }
 
 private fun part_royal_cape(P: PartPainter) {
@@ -396,10 +476,18 @@ private fun part_void_cloak(P: PartPainter) {
 }
 
 private fun part_claw_spikes(P: PartPainter) {
-    P.poly(0xFFFFE0B2, 0xFF0B0A14, 0.12f, -0.7f, -0.2f, -0.2f, -2f, 0f, -0.5f)
-    P.poly(0xFFFFE0B2, 0xFF0B0A14, 0.12f, 0.1f, -0.5f, 0.7f, -1.9f, 0.9f, -0.1f)
-    P.poly(0xFFFFE0B2, 0xFF0B0A14, 0.12f, 0.8f, -0.4f, 1.5f, -1.2f, 1.3f, 0.2f)
-    P.ellipse(0f, 0.1f, 0.8f, 0.4f, 0xFF6D4C41, 0xFF0B0A14, 0.14f)
+    shoulderMount(P)
+    // curved bone claws growing out of a leather-and-bone cap
+    P.gpoly(0xFFFFF3E0, 0xFFC9A57A, 0xFF4E342E, 0.05f, -0.8f, -0.1f, -0.7f, -1.0f, -0.35f, -1.75f, -0.18f, -0.9f, -0.15f, -0.3f)
+    P.gpoly(0xFFFFF8EC, 0xFFC9A57A, 0xFF4E342E, 0.05f, -0.12f, -0.4f, 0.05f, -1.4f, 0.55f, -2.0f, 0.5f, -1.1f, 0.5f, -0.35f)
+    P.gpoly(0xFFFFF3E0, 0xFFB8946A, 0xFF4E342E, 0.05f, 0.45f, -0.25f, 0.75f, -0.95f, 1.35f, -1.3f, 1.12f, -0.6f, 0.95f, -0.05f)
+    P.gpoly(P.mix(0xFF8D6E63), P.mix(0xFF3E2723), 0xFF1F110D, 0.06f,
+        -1.0f, 0.5f, -0.95f, 0.0f, -0.6f, -0.38f, 0f, -0.5f, 0.6f, -0.38f, 0.95f, 0.0f, 1.0f, 0.5f, 0.4f, 0.68f, -0.4f, 0.68f)
+    // stitching + bone studs
+    P.line(-0.7f, 0.18f, 0.7f, 0.18f, 0xFFD7B98E, 0.03f)
+    P.circle(-0.5f, -0.05f, 0.09f, 0xFFFFF3E0, 0xFF4E342E, 0.03f)
+    P.circle(0f, -0.15f, 0.09f, 0xFFFFF3E0, 0xFF4E342E, 0.03f)
+    P.circle(0.5f, -0.05f, 0.09f, 0xFFFFF3E0, 0xFF4E342E, 0.03f)
 }
 
 private fun part_shackle_chain(P: PartPainter) {
