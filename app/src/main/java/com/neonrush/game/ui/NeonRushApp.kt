@@ -5575,7 +5575,8 @@ fun TutorialScreen(onBack: () -> Unit) {
                     TutorialBullet("The fuel bar at the bottom of the screen shows your tank. It drains as you fly.")
                     TutorialBullet("TAP THE FUEL BAR to refuel. It is a button: each tap spends gems and refills your tank.")
                     TutorialBullet("The bar text shows your fuel %, the gem cost (TAP: 20💎) and how many refuels you have left.")
-                    TutorialBullet("The cost goes up with each refuel in the same life. Free players get 6 refuels per life — every revive gives you a fresh set of 6.")
+                    TutorialBullet("The cost goes up with each refuel in the same life. Free players get 5 refuels per life — every revive gives you a fresh set of 5.")
+                    TutorialBullet("On EASY, every refuel also puts a fresh shield back on your pilot.")
                     TutorialBullet("Bar color = urgency: cyan is fine, orange is getting low, flashing red means refuel now!")
                     TutorialBullet("If your fuel hits 0, your run ends and you're offered a revive.")
                 }
@@ -5584,6 +5585,9 @@ fun TutorialScreen(onBack: () -> Unit) {
                     TutorialBullet("Permanent upgrades that make every tank last longer — for every run, forever.")
                     TutorialBullet("There are 5 tiers. Each tier adds +20% fuel longevity, up to +100% at tier 5.")
                     TutorialBullet("Tiers are bought in order: you need tier 1 before tier 2, and so on.")
+                    TutorialBullet("Tiers 3 to 5 are loyalty-locked. Tier 3: 3 months in a row as Pro, or 4 months in a row on the free tier. Tier 4: 6 Pro months or 7 free months. Tier 5: 24 months in a row either way.")
+                    TutorialBullet("A free month counts when you play on 15 or more different days. Skip a month and the count starts again.")
+                    TutorialBullet("Tap a locked tier to see exactly how far along you are.")
                     TutorialBullet("Find them in the Skins tab, under \"FUEL TANK UPGRADES\".")
                     TutorialBullet("Once you own one, every run starts with a \"CURRENT LONGEVITY\" reminder.")
                 }
@@ -5591,6 +5595,33 @@ fun TutorialScreen(onBack: () -> Unit) {
                 TutorialCard("💔", "REVIVES", accent = Color(0xFFFF5252)) {
                     TutorialBullet("When your run ends you can revive with gems or by watching a short ad and keep flying from where you fell.")
                     TutorialBullet("Free players get up to 3 revives per run. After that it's game over and your run is saved to your profile.")
+                    TutorialBullet("Every revive also wraps your pilot in a fresh shield (see PILOT SHIELD below).")
+                }
+
+                TutorialCard("🛡️", "PILOT SHIELD", accent = Color(0xFF5CE1FF)) {
+                    TutorialBullet("A glowing bubble wraps your pilot. It soaks up hits so they cost you no fuel.")
+                    TutorialBullet("Each ring around the pilot is one hit it can take. A small shield badge on the bubble shows the hits left: filled dots are left, hollow dots are used.")
+                    TutorialBullet("When a hit lands, the outer ring shatters and cracks appear. On its last hit the bubble turns amber and pulses faster, so you know it is nearly gone.")
+                    TutorialBullet("EASY: a 2-hit shield at the start of every run, after every refuel and after every revive.")
+                    TutorialBullet("MEDIUM: a 2-hit shield after every revive.  HARD and LEGENDARY: a 1-hit shield after every revive.")
+                    TutorialBullet("Blink Strike creatures ignore the shield on Medium, Hard and Legendary. On EASY the shield stops them too.")
+                    TutorialBullet("This is different from the Shield power-up, which is a timed bubble you pick up in the zone.")
+                }
+
+                TutorialCard("🎚️", "DIFFICULTY", accent = Color(0xFF69F0AE)) {
+                    TutorialBullet("Pick EASY, MEDIUM, HARD or LEGENDARY on the home screen. Your choice is remembered.")
+                    TutorialBullet("EASY is calm and friendly, great for new pilots and kids: slower speed, far fewer obstacles, a gentle boss, a forgiving hitbox, and hits cost less fuel.")
+                    TutorialBullet("HARD and LEGENDARY are faster and denser, and they pay out more gems. LEGENDARY is for Pro pilots.")
+                    TutorialBullet("Speed rises gradually as you fly, and the danger rises much more slowly, so every level stays fair.")
+                    TutorialBullet("Each difficulty has its own leaderboard and its own personal best.")
+                }
+
+                TutorialCard("💨", "CLOSE CALLS", accent = Color(0xFF00E5FF)) {
+                    TutorialBullet("Slip past an obstacle by a hair and you score a CLOSE CALL bonus.")
+                    TutorialBullet("Chain close calls to build a combo. A long chain triggers OVERDRIVE, with a golden frame and bonus points.")
+                    TutorialBullet("A razor-thin pass is worth the most and gives a gold flash. Razor dodges also count toward Locker milestones.")
+                    TutorialBullet("Any hit that gets past your shield breaks the combo.")
+                    TutorialBullet("Screen shake and edge flash can be switched off in Profile > Settings.")
                 }
 
                 TutorialCard("⚡", "POWER-UPS", accent = Color(0xFF69F0AE)) {
@@ -5642,8 +5673,9 @@ fun TutorialScreen(onBack: () -> Unit) {
                         accent = Color(0xFFFF1744)
                     )
                     TutorialBullet("They flicker: visible for about 1 second, then a faint ghost for about 2 seconds.")
+                    TutorialBullet("Big sweeping hazards, like lightning walls, lava and mountains, always show a warning first. Watch for the glow and slip through the gap they leave.")
                     TutorialBullet("They only hurt you while VISIBLE. While faded they are harmless — time your pass!")
-                    TutorialBullet("Shields, Ghost Mode and Invincibility do NOT stop a visible Blink Strike creature. Dodge it.")
+                    TutorialBullet("Shields, Ghost Mode and Invincibility do NOT stop a visible Blink Strike creature (except the EASY pilot shield). Dodge it.")
                     Spacer(modifier = Modifier.height(6.dp))
                     TutorialIconRow(
                         drone, "Drone",
@@ -5695,9 +5727,25 @@ fun TutorialScreen(onBack: () -> Unit) {
 
                 TutorialCard("🌍", "WORLDS & PROGRESSION") {
                     TutorialBullet("5 main worlds carry the story. Each one comes back later in tougher phases, with new story beats.")
+                    TutorialBullet("Zones are long hauls: it takes real flying to cross a world, so pace yourself and keep your runs clean. A banner announces every new zone and world.")
                     TutorialBullet("Special Mission worlds unlock as you complete Daily, Weekly and Monthly missions.")
                     TutorialBullet("New Game+ worlds unlock after you beat the Apex Signal boss — the true endgame.")
                     TutorialBullet("The game also gets sharper the more you play: your experience raises the baseline speed and density a little every run.")
+                }
+
+                TutorialCard("🧑‍🚀", "SUITS, PARTS, HULLS & TRAILS", accent = Color(0xFFE040FB)) {
+                    TutorialBullet("Everything cosmetic arrives on a monthly calendar, so there is always something new to look forward to. Tap any locked item to see what it needs and when it opens.")
+                    TutorialBullet("PILOT SUITS: one new suit each month. Once it has dropped, defeat a boss to earn the right to buy it.")
+                    TutorialBullet("PILOT PARTS: 2 new parts each month. Each one needs you to reach a zone (shown on the card) before you can buy it. Mix parts onto any suit.")
+                    TutorialBullet("SHIP HULLS: a new classic hull every 2 months, and premium hulls on the monthly drop. Pro pilots get a 4-day head start on premium drops.")
+                    TutorialBullet("THRUSTER TRAILS: a new trail drops each month. Some are bought, some are earned by playing for months, and some are Pro rewards. Trails work with any hull and suit.")
+                    TutorialBullet("Shop items cost real money or gems as shown on their card. Anything bought with real money is one-time and restores on a new phone with RESTORE PURCHASES.")
+                    TutorialBullet("Turn on the bell to get an alert the moment a new drop opens.")
+                }
+
+                TutorialCard("🗄️", "LOCKER & SEASON PASS", accent = Color(0xFFFFC107)) {
+                    TutorialBullet("The Locker tracks everything you collect. Hit its milestones to claim gem rewards, and tap CLAIM ALL to collect them at once.")
+                    TutorialBullet("The Season Pass fills as you fly: bosses, close calls and finished runs earn tokens that unlock rewards tier by tier.")
                 }
 
                 TutorialCard("🎯", "MISSIONS") {
@@ -5707,6 +5755,7 @@ fun TutorialScreen(onBack: () -> Unit) {
                 TutorialCard("👑", "PRO", accent = Color(0xFFFFD700)) {
                     TutorialBullet("Unlocks Worlds 4 and 5 and every world's later phases.")
                     TutorialBullet("No revive limit, no refuel limit, and no ad prompts.")
+                    TutorialBullet("Unlocks LEGENDARY difficulty and Pro-only trails, plus a 4-day head start on every new premium drop.")
                     TutorialBullet("Everything you've earned stays yours either way.")
                 }
 
@@ -5714,6 +5763,8 @@ fun TutorialScreen(onBack: () -> Unit) {
                     TutorialBullet("Look ahead, not at your pilot — react to what's coming.")
                     TutorialBullet("Refuel early in a calm stretch, not in the middle of a boss fight.")
                     TutorialBullet("Save Shield and Boom Clear for boss zones and dense sectors.")
+                    TutorialBullet("Your pilot shield is a free life: when its ring turns amber, fly extra carefully.")
+                    TutorialBullet("Found a bug or have an idea? Profile > Settings > REPORT A BUG / SEND FEEDBACK.")
                     TutorialBullet("Blink Strike creatures: wait for the fade, then go.")
                 }
                 Spacer(modifier = Modifier.height(24.dp))
