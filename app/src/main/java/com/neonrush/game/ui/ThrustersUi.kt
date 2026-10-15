@@ -89,6 +89,7 @@ fun ThrustersPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
         (upcoming?.let { "  Next drop: ${it.name} on ${dropDate(it)} (Pro get it first)." } ?: ""),
         color = CyberOnSurface.copy(alpha = 0.7f), fontSize = 12.sp, modifier = Modifier.padding(bottom = 12.dp))
 
+    val trailActivity = androidx.compose.ui.platform.LocalContext.current.findActivity()
     var lockInfo by remember { mutableStateOf<LockInfo?>(null) }
     lockInfo?.let { LockInfoDialog(it) { lockInfo = null } }
     ThrusterCatalog.ALL.forEach { th ->
@@ -148,6 +149,7 @@ fun ThrustersPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
                         }
                         Text(line, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, color = Color(0xFFFFD23F), modifier = Modifier.padding(top = 3.dp))
                     }
+                    if (th.realMoney && !owned) Text("${th.usd} · one-time purchase", fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, color = Color(0xFF69F0AE), modifier = Modifier.padding(top = 2.dp))
                     if (th.id in st.newDrops) Text("NEW", fontSize = 10.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, color = Color(0xFF69F0AE), modifier = Modifier.padding(top = 2.dp))
                     if (!owned && th.kind != ThrusterKind.GEMS && th.kind != ThrusterKind.FREE) {
                         Text("🎯 ${th.requirement}" + (st.progress[th.id]?.let { "  ($it)" } ?: ""), fontSize = 10.sp, fontWeight = FontWeight.Bold,
@@ -164,6 +166,10 @@ fun ThrustersPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
                         shape = RoundedCornerShape(4.dp), modifier = Modifier.border(1.dp, CyberPrimary, RoundedCornerShape(4.dp))
                     ) { Text("EQUIP", color = CyberPrimary, fontFamily = FontFamily.Monospace, fontSize = 11.sp) }
                     th.kind == ThrusterKind.GEMS && ThrusterCatalog.buyableAtMs(th, pro) > nowMs -> Text("🔒", fontSize = 16.sp)
+                    th.kind == ThrusterKind.GEMS && th.realMoney -> Button(
+                        onClick = { trailActivity?.let { viewModel.purchaseTrail(it, th.id) } },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853)), shape = RoundedCornerShape(4.dp)
+                    ) { Text("BUY ${th.usd}", color = Color.White, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 11.sp) }
                     th.kind == ThrusterKind.GEMS -> Button(
                         onClick = { viewModel.thrusters.buy(th.id) },
                         colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary), shape = RoundedCornerShape(4.dp)
@@ -197,7 +203,7 @@ private fun trailLockInfo(th: com.neonrush.game.Thruster, pro: Boolean, nowMs: L
             lines.add("Pro early access is live. It opens for you in ${countdown(at - nowMs)}.")
             lines.add("Subscribe to Pro to buy it right now.")
         }
-        lines.add("After it opens, you buy it with 💎 ${th.gemCost}.")
+        lines.add(if (th.realMoney) "After it opens, you can buy it for ${th.usd} (one-time purchase)." else "After it opens, you buy it with 💎 ${th.gemCost}.")
         return LockInfo(th.emoji, th.name, "Not released to you yet.", lines, null, null, accent)
     }
     if (th.kind == ThrusterKind.PRO) {
