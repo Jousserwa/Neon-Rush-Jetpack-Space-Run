@@ -109,7 +109,7 @@ private fun TankIcon(tier: Int, color: Color, owned: Boolean, locked: Boolean, p
 @Composable
 private fun MiniBar(frac: Float, color: Color) {
     Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = 0.1f))) {
-        Box(Modifier.fillMaxWidth(frac.coerceIn(0f, 1f)).height(5.dp).background(color))
+        Box(Modifier.fillMaxWidth(safeFrac(frac)).height(5.dp).background(color))
     }
 }
 
@@ -193,8 +193,13 @@ fun FuelTankPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
 }
 
 private fun fuelLockInfo(tier: Int, prog: com.neonrush.game.FuelProgress, prevOwned: Boolean, accent: Color): LockInfo {
-    val pNeed = FuelGate.proNeed(tier); val fNeed = FuelGate.freeNeed(tier)
     val lines = ArrayList<String>()
+    if (!FuelGate.gated(tier)) {
+        lines.add("Install Tier ${tier - 1} first. Tiers are installed in order.")
+        lines.add("Then it is open to buy right away.")
+        return LockInfo("⛽", "Tier $tier · ${TIER_NAMES[tier - 1]}", "Locked until the tier before it is installed.", lines, null, null, accent)
+    }
+    val pNeed = FuelGate.proNeed(tier); val fNeed = FuelGate.freeNeed(tier)
     if (!prevOwned) lines.add("Install Tier ${tier - 1} first. Tiers are installed in order.")
     if (pNeed == fNeed) {
         lines.add("Play $fNeed months in a row, whether you are Free or Pro. Free months need ${FuelGate.DAYS_PER_MONTH}+ different play days.")
