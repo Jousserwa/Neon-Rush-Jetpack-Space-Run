@@ -212,6 +212,19 @@ class NeonRushViewModel(
     // Pilot parts (head/neck/shoulder/back/wrist/boots gear bought with gems, worn on any suit).
     val parts = PartsLocker(gameDao, hangarStore, viewModelScope) { msg -> _suitGateCelebration.tryEmit(msg) }
     val fuelGate = FuelGate(hangarStore, viewModelScope)
+    // One pilot suit per month: when it is released, defeating a boss earns the right to buy it.
+    val suitDrops = SuitDropper(hangarStore, viewModelScope) { skinId ->
+        _suitGatesOpen.value = _suitGatesOpen.value + skinId
+        val skin = Skins.ALL.firstOrNull { it.id == skinId }
+        soundEngine.playUnlockSkin()
+        _suitGateCelebration.tryEmit("🔓 BOSS DOWN. SUIT UNLOCKED FOR PURCHASE: ${skin?.name ?: skinId} (${skin?.priceUsd ?: ""}). Find it in Shop > Pilot Suits.")
+    }
+    fun onBossDefeatedForDrops() {
+        viewModelScope.launch {
+            val owned = try { gameDao.getProfileDirect()?.unlockedPilotSkinsCsv?.split(",")?.filter { it.isNotBlank() }?.toSet() ?: emptySet() } catch (_: Exception) { emptySet() }
+            suitDrops.onBossWin(owned)
+        }
+    }
     val locker = LockerRewards(gameDao, hangarStore, viewModelScope) { msg -> _suitGateCelebration.tryEmit(msg) }
     private suspend fun loadSuitGates() {
         parts.load()
@@ -222,7 +235,7 @@ class NeonRushViewModel(
         thrusters.load()
         try { gameDao.getProfileDirect()?.let { thrusters.evaluate(it) } } catch (_: Exception) {}
         _suitGatesOpen.value = SuitGates.ALL.filter { try { hangarStore.get(SuitGates.key(it.skinId)) == "1" } catch (_: Exception) { false } }
-            .map { it.skinId }.toSet()
+            .map { it.skinId }.toSet() + suitDrops.load()
     }
     private suspend fun openSuitGate(skinId: String, announce: Boolean) {
         if (skinId in _suitGatesOpen.value) return
@@ -363,6 +376,7 @@ class NeonRushViewModel(
         }
         // Real-money pilot parts (non-consumable neonrush_part_<id>) restore on every store sync.
         parts.grantFromStore(owned.map { it.substringBefore(':') }.filter { it.startsWith("neonrush_part_") }.map { it.removePrefix("neonrush_part_") })
+        if (fromStore) parts.syncRealMoney(owned.map { it.substringBefore(':') }.filter { it.startsWith("neonrush_part_") }.map { it.removePrefix("neonrush_part_") })
         // Pro + ads-removed: profile.subscriptionPro / adsRemoved were never written from the store before.
         val pro = RevenueCatManager.isPro.value
         val ads = RevenueCatManager.isAdsRemoved.value
@@ -632,6 +646,13 @@ fun doubleGemsForRun() {
 fun purchasePilotSkin(activity: Activity, skinId: String, productId: String) {
     if (SuitGates.forSkin(skinId) != null && skinId !in _suitGatesOpen.value) {
         _purchaseErrorEvent.tryEmit(SuitGates.lockedMessage(skinId))
+        return
+    }
+    if (DropSchedule.isDropSuit(skinId) && !DropSchedule.TEST_OPEN && skinId !in _suitGatesOpen.value) {
+        _purchaseErrorEvent.tryEmit(
+            if (!DropSchedule.suitReleased(skinId, ServerClock.bestNowMs())) "🔒 This suit drops on ${DropSchedule.dateLabel(DropSchedule.suitReleaseMs(skinId))}."
+            else "🔒 Defeat a boss to earn the right to buy this suit."
+        )
         return
     }
     RevenueCatManager.purchasePilotSuit(activity, productId) { success ->
@@ -1631,7 +1652,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         }
                         if (wasNewlyRewarded) {
                             soundEngine.playTone(990f, 400, "sine")
-                            updatedMsg = "BOSS DEFEATED! Prestige Reward Cells gathered!"; seasonPass.onToken(SeasonPass.TOKENS_BOSS)
+                            updatedMsg = "BOSS DEFEATED! Prestige Reward Cells gathered!"; seasonPass.onToken(SeasonPass.TOKENS_BOSS); onBossDefeatedForDrops()
                             _simState.value = _simState.value.copy(bossGemsThisRun = _simState.value.bossGemsThisRun + bossReward)
                         }
                         // Special/prestige worlds (6-11) don't have a real
@@ -2384,7 +2405,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     bossHealthState -= 0.04f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
                     if (bossHealthState <= 0f) {
                         soundEngine.playTone(990f, 400, "sine")
-                        updatedMsg = "BOSS DEFEATED!"; seasonPass.onToken(SeasonPass.TOKENS_BOSS)
+                        updatedMsg = "BOSS DEFEATED!"; seasonPass.onToken(SeasonPass.TOKENS_BOSS); onBossDefeatedForDrops()
                         // Same completion tracking as the main loop: this is
                         // what marks a special/prestige world "beaten" since
                         // its zone range never naturally ends.
