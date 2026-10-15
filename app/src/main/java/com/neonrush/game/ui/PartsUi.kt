@@ -143,7 +143,7 @@ fun PartsPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
     Text("Parts arrive 2 a month, and each needs a zone milestone. Gems and money follow the same calendar.",
         color = Color(0xFFFFD23F).copy(alpha = 0.8f), fontSize = 10.sp, modifier = Modifier.padding(bottom = 6.dp))
 
-    visible. { slotFilter == null || it.slot == slotFilter }
+    visible.filter { slotFilter == null || it.slot == slotFilter }
         .sortedWith(compareBy<PilotPart>({ it.slot.ordinal }, { it.rarity.ordinal }, { it.gems }))
         .forEach { part -> PartCard(viewModel, profile, part, st.owned, st.equipped, frames, suitId, clock, tryId == part.id, { lockInfo = it }) { tryId = if (tryId == part.id) null else part.id } }
 }
