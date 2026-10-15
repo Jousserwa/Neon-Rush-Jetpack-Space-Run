@@ -91,6 +91,7 @@ import com.neonrush.game.RewardedSlot
 import com.neonrush.game.DailyMutations
 import com.neonrush.game.MutationDay
 import com.neonrush.game.NearMissFx
+import com.neonrush.game.DropSchedule
 import com.neonrush.game.NeonRushViewModel
 import com.neonrush.game.LeaderboardPilot
 import com.neonrush.game.RevenueCatManager
@@ -2937,7 +2938,9 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                 val isActive = profile.activePilotSkinId == skin.id
                 val isStorySkin = skin.unlockWorldId != null
                 val suitGate = SuitGates.forSkin(skin.id)
-                val gateOpen = suitGate == null || gatesOpen.contains(skin.id)
+                val dropSuit = DropSchedule.isDropSuit(skin.id)
+                val dropReleased = !dropSuit || DropSchedule.suitReleased(skin.id, com.neonrush.game.ServerClock.bestNowMs())
+                val gateOpen = (suitGate == null && !dropSuit) || gatesOpen.contains(skin.id) || (dropSuit && DropSchedule.TEST_OPEN)
 
                 Row(
                     modifier = Modifier
@@ -2970,6 +2973,18 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                             fontSize = 11.sp,
                             color = CyberPrimary.copy(alpha = 0.7f)
                         )
+                        if (dropSuit && !isUnlocked) {
+                            Text(
+                                text = when {
+                                    gateOpen -> "🔓 UNLOCKED FOR PURCHASE"
+                                    !dropReleased -> "🗓 Drops ${DropSchedule.dateLabel(DropSchedule.suitReleaseMs(skin.id))}"
+                                    else -> "🎯 Defeat a boss to earn the right to buy"
+                                },
+                                fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace,
+                                color = if (gateOpen) Color(0xFF69F0AE) else Color(0xFFFFD23F),
+                                modifier = Modifier.padding(top = 3.dp)
+                            )
+                        }
                         if (suitGate != null && !isUnlocked) {
                             Text(
                                 text = if (gateOpen) "🔓 UNLOCKED FOR PURCHASE" else "🎯 ${suitGate.requirement}",
@@ -5888,6 +5903,19 @@ fun android.content.Context.findActivity(): Activity? {
 
 private fun suitLockInfo(skin: com.neonrush.game.Skin, gate: com.neonrush.game.SuitGate?): LockInfo {
     val lines = ArrayList<String>()
+    if (DropSchedule.isDropSuit(skin.id)) {
+        val rel = DropSchedule.suitReleaseMs(skin.id)
+        if (!DropSchedule.suitReleased(skin.id, com.neonrush.game.ServerClock.bestNowMs())) {
+            lines.add("This suit is released on ${DropSchedule.dateLabel(rel)}.")
+            lines.add("One new suit arrives every month.")
+            lines.add("After it is out, defeat a boss to earn the right to buy it.")
+            return LockInfo("🧑‍🚀", skin.name, "Not released yet.", lines)
+        }
+        lines.add("Defeat a zone boss in any run.")
+        lines.add("Each boss victory opens one released suit for purchase, oldest first.")
+        lines.add("Money cannot skip this. Once earned, the BUY button stays open forever.")
+        return LockInfo("🧑‍🚀", skin.name, "Win a boss to earn the right to buy.", lines)
+    }
     if (gate != null) {
         lines.add(gate.requirement)
         lines.add("Once you earn it, the BUY button opens and stays open forever.")
