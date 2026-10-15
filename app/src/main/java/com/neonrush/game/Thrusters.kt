@@ -30,8 +30,12 @@ data class Thruster(
     val requirement: String = "",
     val loyalty: String = "",   // PRO_3M, PRO_12M, FREE_4M, VETERAN_2Y (see ThrusterLocker.evaluate)
     val dropMonth: Int = 0,      // 0 = always available; k>0 = monthly drop k (same calendar as the hull drops)
+    val usd: String = "",        // real-money price ("$1.99"); empty = bought with gems / earned. Product id: neonrush_trail_<id>
     val earned: (GameProfile) -> Boolean = { false }
-)
+) {
+    val productId: String get() = "neonrush_trail_$id"
+    val realMoney: Boolean get() = usd.isNotEmpty()
+}
 
 object ThrusterCatalog {
     const val DEFAULT = "contrail"
@@ -46,16 +50,17 @@ object ThrusterCatalog {
      */
     val ALL: List<Thruster> = listOf(
         Thruster("contrail", "Contrail", "✈️", "Clean white dashes laid along your exact flight path.", ThrusterKind.FREE, Rarity.COMMON),
-        Thruster("pixel_trail", "Pixel Trail", "🟦", "Chunky 8-bit blocks that stay where you flew.", ThrusterKind.MILESTONE, Rarity.COMMON,
-            requirement = "Finish 100 runs", earned = { it.totalRuns >= 100 }),
-        Thruster("code_stream", "Code Stream", "💻", "Binary digits drop out of your jetpack like a hacked terminal.", ThrusterKind.MILESTONE, Rarity.RARE,
-            requirement = "Score 3,000 in one run", earned = { it.bestScore >= 3000 }),
+        Thruster("pixel_trail", "Pixel Trail", "🟦", "Chunky 8-bit blocks that stay where you flew.", ThrusterKind.GEMS, Rarity.COMMON,
+            usd = "$1.99", requirement = "Available at launch", dropMonth = 0),
+        Thruster("code_stream", "Code Stream", "💻", "Binary digits drop out of your jetpack like a hacked terminal.", ThrusterKind.GEMS, Rarity.RARE,
+            usd = "$1.99", requirement = "Monthly drop", dropMonth = 1),
         Thruster("ink_blots", "Ink Blots", "🖋️", "Heavy ink that splats, drips and falls behind you.", ThrusterKind.MILESTONE, Rarity.RARE,
             requirement = "Keep a 14-day play streak", earned = { it.currentStreak >= 14 }),
-        Thruster("leaf_wake", "Leaf Wake", "🍃", "Tumbling leaves, a trophy from Green Hell.", ThrusterKind.MILESTONE, Rarity.RARE,
-            requirement = "Reach Zone 33 (clear Green Hell)", earned = { it.bestZoneReached >= 33 }),
-        Thruster("constellation", "Constellation", "✨", "Stars joined by thin lines, drawing your route across the sky.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 900),
-        Thruster("prism_shards", "Prism Shards", "💎", "Tumbling crystal facets in every colour.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1500),
+        Thruster("leaf_wake", "Leaf Wake", "🍃", "Tumbling leaves, a trophy from Green Hell.", ThrusterKind.GEMS, Rarity.RARE,
+            usd = "$1.99", requirement = "Monthly drop", dropMonth = 2),
+        Thruster("constellation", "Constellation", "✨", "Stars joined by thin lines, drawing your route across the sky.", ThrusterKind.GEMS, Rarity.EPIC,
+            usd = "$1.99", requirement = "Monthly drop", dropMonth = 3),
+        Thruster("prism_shards", "Prism Shards", "💎", "Tumbling crystal facets in every colour.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1500, requirement = "Monthly drop", dropMonth = 10),
         Thruster("circuit_trace", "Circuit Trace", "🔌", "A copper circuit board prints itself behind you, with a pulse running down it. A Pro reward.", ThrusterKind.PRO, Rarity.EPIC,
             requirement = "Pro member + reach Zone 20", earned = { it.bestZoneReached >= 20 }),
         Thruster("sonic_rings", "Sonic Rings", "🔊", "Sonar arcs ripple out behind every move. A Pro reward.", ThrusterKind.PRO, Rarity.EPIC,
@@ -70,12 +75,12 @@ object ThrusterCatalog {
         Thruster("veteran_comet", "Veteran Comet", "☄️", "A long icy comet tail that bends with your flight. For pilots who have flown 2 years.", ThrusterKind.LOYALTY, Rarity.LEGENDARY,
             requirement = "Fly with Neon Rush for 2 years", loyalty = "VETERAN_2Y"),
         // ---- monthly drops: one new trail a month on the SAME calendar as the hulls (Pro get it first, everyone else after the early-access window)
-        Thruster("paper_planes", "Paper Planes", "🛩️", "Folded paper planes glide off your pack and tumble in your wake.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1200, requirement = "Monthly drop", dropMonth = 1),
-        Thruster("snowflakes", "Snowflakes", "❄️", "Six-armed crystal flakes drift down out of your flight path.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1200, requirement = "Monthly drop", dropMonth = 2),
-        Thruster("sakura_petals", "Sakura Petals", "🌸", "Pink petals spin loose behind you like a spring storm.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1200, requirement = "Monthly drop", dropMonth = 3),
-        Thruster("dice_roll", "Dice Roll", "🎲", "Tumbling dice, every one a different roll. Feeling lucky?", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1200, requirement = "Monthly drop", dropMonth = 4),
-        Thruster("sheet_music", "Sheet Music", "🎵", "Neon notes pop off a bobbing staff as you fly.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1200, requirement = "Monthly drop", dropMonth = 5),
-        Thruster("soap_bubbles", "Soap Bubbles", "🫧", "Shimmering bubbles float up from your wake and drift.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1200, requirement = "Monthly drop", dropMonth = 6)
+        Thruster("paper_planes", "Paper Planes", "🛩️", "Folded paper planes glide off your pack and tumble in your wake.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1200, requirement = "Monthly drop", dropMonth = 4),
+        Thruster("snowflakes", "Snowflakes", "❄️", "Six-armed crystal flakes drift down out of your flight path.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1200, requirement = "Monthly drop", dropMonth = 5),
+        Thruster("sakura_petals", "Sakura Petals", "🌸", "Pink petals spin loose behind you like a spring storm.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1200, requirement = "Monthly drop", dropMonth = 6),
+        Thruster("dice_roll", "Dice Roll", "🎲", "Tumbling dice, every one a different roll. Feeling lucky?", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1200, requirement = "Monthly drop", dropMonth = 7),
+        Thruster("sheet_music", "Sheet Music", "🎵", "Neon notes pop off a bobbing staff as you fly.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1200, requirement = "Monthly drop", dropMonth = 8),
+        Thruster("soap_bubbles", "Soap Bubbles", "🫧", "Shimmering bubbles float up from your wake and drift.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1200, requirement = "Monthly drop", dropMonth = 9)
     )
     fun byId(id: String) = ALL.firstOrNull { it.id == id } ?: ALL.first()
 }
@@ -188,6 +193,36 @@ class ThrusterLocker(
         fresh.forEach { announce("${it.emoji} NEW THRUSTER TRAIL UNLOCKED: ${it.name}! Equip it in Shop > Trails.") }
     }
 
+    /** A real-money trail was just bought through the store. */
+    fun grantPurchased(id: String) {
+        val t = ThrusterCatalog.ALL.firstOrNull { it.id == id } ?: return
+        if (!t.realMoney) return
+        _state.value = _state.value.copy(owned = _state.value.owned + id, active = id)
+        scope.launch { save() }
+    }
+
+    /** Real-money trails the store says the player owns (restore after reinstall / new phone). */
+    fun grantFromStore(ids: Collection<String>) {
+        val have = ids.filter { ThrusterCatalog.ALL.firstOrNull { t -> t.id == it }?.realMoney == true }.toSet()
+        if (have.isEmpty() || _state.value.owned.containsAll(have)) return
+        _state.value = _state.value.copy(owned = _state.value.owned + have)
+        scope.launch { save() }
+    }
+
+    /**
+     * After a real store sync: a real-money trail that is not backed by a store purchase (old test builds, or a trail that
+     * used to be earned or bought with gems) goes back to the shop and is taken off.
+     */
+    fun syncRealMoney(ids: Collection<String>) {
+        val have = ids.toSet()
+        val keep = _state.value.owned.filter { id -> ThrusterCatalog.ALL.firstOrNull { it.id == id }?.realMoney != true || id in have }.toSet() + ThrusterCatalog.DEFAULT
+        if (keep != _state.value.owned) {
+            val active = if (_state.value.active in keep) _state.value.active else ThrusterCatalog.DEFAULT
+            _state.value = _state.value.copy(owned = keep, active = active)
+            scope.launch { save() }
+        }
+    }
+
     fun equip(id: String) {
         if (!usable(id)) return
         _state.value = _state.value.copy(active = id)
@@ -197,7 +232,7 @@ class ThrusterLocker(
     /** Returns a message for the UI, or null on success. */
     fun buy(id: String, onDone: () -> Unit = {}) {
         val t = ThrusterCatalog.byId(id)
-        if (t.kind != ThrusterKind.GEMS || id in _state.value.owned) return
+        if (t.kind != ThrusterKind.GEMS || t.realMoney || id in _state.value.owned) return
         if (ThrusterCatalog.buyableAtMs(t, isPro()) > ServerClock.bestNowMs()) { announce("${t.name} is not available to you yet."); return }
         scope.launch {
             var ok = false
