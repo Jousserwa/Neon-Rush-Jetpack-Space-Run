@@ -27,6 +27,16 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -1486,6 +1496,9 @@ fun ArcadeHomeView(
     // squeezing/hiding the buttons. On normal screens the layout is unchanged
     // (min height = screen height, so SpaceBetween still spreads items out).
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+    val homeFx = rememberInfiniteTransition(label = "homeFx")
+    val homePulse = homeFx.animateFloat(0f, 1f, infiniteRepeatable(tween(1400, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "hp")
+    val homeSweep = homeFx.animateFloat(-0.4f, 1.4f, infiniteRepeatable(tween(3000, easing = LinearEasing), RepeatMode.Restart), label = "hs")
     val minContentHeight = maxHeight
     Column(
     modifier = Modifier
@@ -1517,17 +1530,24 @@ fun ArcadeHomeView(
                 text = "BEST SCORE: ${profile.bestScore}",
                 color = CyberSecondary,
                 fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
-                fontFamily = FontFamily.Monospace
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                modifier = Modifier.clip(RoundedCornerShape(10.dp))
+                    .background(CyberSecondary.copy(alpha = 0.12f))
+                    .border(1.dp, CyberSecondary.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
             )
             val crateReady = DailyCrate.isReady(profile, isPro)
             Box(
                 modifier = Modifier
+                    .then(if (crateReady) Modifier.homeGlow(homePulse, Color(0xFFFFD23F), 0.18f, 0.5f) else Modifier)
                     .clip(RoundedCornerShape(12.dp))
                     .background(if (crateReady) Color(0xFFFFD23F) else CyberSurface)
                     .border(1.dp, Color(0xFFFFD23F), RoundedCornerShape(12.dp))
+                    .then(if (crateReady) Modifier.homeShine(homeSweep, 0.45f) else Modifier)
                     .clickable { showCrate = true }
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
             ) {
                 Text(
                     text = if (crateReady) "🎁 READY" else "🎁",
@@ -1541,8 +1561,13 @@ fun ArcadeHomeView(
                 text = "💎 ${profile.gems} GEMS",
                 color = CyberPrimary,
                 fontWeight = FontWeight.ExtraBold,
-                fontSize = 13.sp,
-                fontFamily = FontFamily.Monospace
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                modifier = Modifier.clip(RoundedCornerShape(10.dp))
+                    .background(CyberPrimary.copy(alpha = 0.12f))
+                    .border(1.dp, CyberPrimary.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
             )
         }
         Text(
@@ -1552,16 +1577,20 @@ fun ArcadeHomeView(
             color = CyberOnSurface.copy(alpha = 0.75f),
             fontFamily = FontFamily.Monospace,
             textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                .background(Color.White.copy(alpha = 0.05f)).padding(horizontal = 6.dp, vertical = 5.dp)
         )
           val activeMutation = DailyMutations.getActiveMutation()
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(44.dp)
-                .border(1.dp, CyberPrimary, RoundedCornerShape(8.dp))
-                .background(CyberSurface.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
-                .padding(horizontal = 12.dp),
+                .homeGlow(homePulse, CyberPrimary, 0.06f, 0.14f)
+                .heightIn(min = 48.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Brush.horizontalGradient(listOf(CyberPrimary.copy(alpha = 0.16f), CyberSurface.copy(alpha = 0.9f))))
+                .border(1.dp, CyberPrimary.copy(alpha = 0.8f), RoundedCornerShape(10.dp))
+                .homeShine(homeSweep, 0.07f)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             contentAlignment = Alignment.CenterStart
         ) {
             Row(
@@ -1584,7 +1613,7 @@ fun ArcadeHomeView(
                         text = activeMutation.description,
                         color = Color.White.copy(alpha = 0.75f),
                         fontSize = 9.sp,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
@@ -1594,7 +1623,7 @@ fun ArcadeHomeView(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp),
+                .height(68.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -1606,7 +1635,7 @@ fun ArcadeHomeView(
                 Text(
                     text = "NEON ",
                     color = Color(0xFFEC4899),
-                    fontSize = 24.sp,
+                    fontSize = 30.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace,
                     style = LocalTextStyle.current.copy(
@@ -1620,7 +1649,7 @@ fun ArcadeHomeView(
                 Text(
                     text = "RUSH",
                     color = Color.White,
-                    fontSize = 24.sp,
+                    fontSize = 30.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace,
                     style = LocalTextStyle.current.copy(
@@ -1664,8 +1693,11 @@ fun ArcadeHomeView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(44.dp)
-                    .border(1.dp, Color(0xFFD4AF37), RoundedCornerShape(8.dp))
-                    .background(Color(0xFFD4AF37).copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                    .homeGlow(homePulse, Color(0xFFD4AF37), 0.08f, 0.18f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Brush.horizontalGradient(listOf(Color(0x33D4AF37), Color(0x10D4AF37), Color(0x33D4AF37))))
+                    .border(1.dp, Color(0xFFD4AF37), RoundedCornerShape(10.dp))
+                    .homeShine(homeSweep, 0.14f)
                     .padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -1727,7 +1759,7 @@ fun ArcadeHomeView(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 8.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             val selectedTier by viewModel.difficultyFlow.collectAsState()
             listOf(
@@ -1738,23 +1770,30 @@ fun ArcadeHomeView(
             ).forEach { tier ->
                 val isLocked = tier == NeonRushViewModel.DifficultyTier.LEGENDARY && !isPro
                 val isSelected = selectedTier == tier
+                val tierColor = Color(tier.colorArgb)
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (isSelected) CyberPrimary else CyberSurface)
+                        .weight(1f)
+                        .then(if (isSelected) Modifier.homeGlow(homePulse, tierColor, 0.12f, 0.2f) else Modifier)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (isSelected) tierColor else tierColor.copy(alpha = 0.08f))
+                        .border(1.dp, tierColor.copy(alpha = if (isSelected) 1f else if (isLocked) 0.2f else 0.45f), RoundedCornerShape(10.dp))
                         .clickable {
                             if (!isLocked) {
                                 viewModel.setDifficulty(tier)
                             }
                         }
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                        .padding(horizontal = 4.dp, vertical = 9.dp),
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = if (isLocked) "\uD83D\uDD12 ${tier.label}" else tier.label,
                         color = if (isSelected) Color.Black else Color.White.copy(alpha = if (isLocked) 0.4f else 1f),
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
@@ -1778,6 +1817,8 @@ fun ArcadeHomeView(
                     Brush.horizontalGradient(listOf(Color(0xFFEC4899), Color(0xFFFF0055))),
                     RoundedCornerShape(12.dp)
                 )
+                .clip(RoundedCornerShape(12.dp))
+                .homeShine(homeSweep, 0.28f)
                 .testTag("start_rush_button")
         ) {
             Row(
@@ -1813,6 +1854,7 @@ fun ArcadeHomeView(
             Button(
                 onClick = onNavigateToGlobal,
                 colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                contentPadding = PaddingValues(horizontal = 4.dp),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .weight(1f)
@@ -1824,15 +1866,16 @@ fun ArcadeHomeView(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    Icon(Icons.Filled.List, contentDescription = "Global", tint = CyberPrimary, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("GLOBAL", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Filled.List, contentDescription = "Global", tint = CyberPrimary, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("GLOBAL", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
             }
 
             Button(
                 onClick = onNavigateToSkins,
                 colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                contentPadding = PaddingValues(horizontal = 4.dp),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .weight(1f)
@@ -1844,9 +1887,9 @@ fun ArcadeHomeView(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    Icon(Icons.Filled.ShoppingCart, contentDescription = "Skins", tint = CyberSecondary, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("SKINS", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Filled.ShoppingCart, contentDescription = "Skins", tint = CyberSecondary, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("SKINS", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
             }
 
@@ -1861,17 +1904,36 @@ fun ArcadeHomeView(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .border(1.dp, Color(0xFFFFD23F).copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .homeGlow(homePulse, Color(0xFFFFD23F), 0.08f, 0.2f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Brush.horizontalGradient(listOf(Color(0x44FFD23F), Color(0x10FFD23F))))
+                        .homeShine(homeSweep, 0.12f)
+                        .border(1.dp, Color(0xFFFFD23F).copy(alpha = 0.75f), RoundedCornerShape(12.dp))
                         .testTag("quick_checkpoints_button")
                 ) {
-                    Text(
-                        "🏁 SAVES ($cpCount)",
-                        color = Color(0xFFFFD23F),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                        Text("🏁", fontSize = 14.sp)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            "SAVES",
+                            color = Color(0xFFFFD23F),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            "$cpCount",
+                            color = Color(0xFF05060F),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black,
+                            maxLines = 1,
+                            modifier = Modifier.background(Color(0xFFFFD23F), RoundedCornerShape(8.dp)).padding(horizontal = 6.dp, vertical = 1.dp)
+                        )
+                    }
                 }
             }
         }
@@ -1893,7 +1955,8 @@ fun ArcadeHomeView(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .border(1.dp, CyberPrimary.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                    .background(Brush.horizontalGradient(listOf(Color(0x33FFC107), Color.Transparent)), RoundedCornerShape(12.dp))
+                    .border(1.dp, Color(0xFFFFC107).copy(alpha = 0.5f), RoundedCornerShape(12.dp))
             ) {
                 Text(
                     text = "⛽ FUEL TANK",
@@ -1915,7 +1978,10 @@ fun ArcadeHomeView(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .border(1.dp, Color(0xFF9C27B0).copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                    .then(if (specialWorld != null) Modifier.homeGlow(homePulse, Color(0xFFCE93D8), 0.1f, 0.2f) else Modifier)
+                    .clip(RoundedCornerShape(12.dp))
+                    .then(if (specialWorld != null) Modifier.homeShine(homeSweep, 0.16f) else Modifier)
+                    .border(1.dp, Color(0xFF9C27B0).copy(alpha = 0.55f), RoundedCornerShape(12.dp))
             ) {
                 Text(
                     text = if (specialWorld != null) "⚡ WORLD" else "🔒 MISSIONS",
@@ -5928,4 +5994,18 @@ private fun suitLockInfo(skin: com.neonrush.game.Skin, gate: com.neonrush.game.S
     lines.add("This suit cannot be bought. It is a reward for completing missions.")
     lines.add("Keep claiming missions to earn it.")
     return LockInfo("🧑‍🚀", skin.name, "Mission reward.", lines)
+}
+
+/** Home-screen polish helpers. They only draw; they never change layout or behaviour. */
+private fun Modifier.homeShine(sweep: androidx.compose.runtime.State<Float>, alpha: Float = 0.18f): Modifier = this.drawWithContent {
+    drawContent()
+    val x = size.width * sweep.value
+    drawRect(
+        Brush.horizontalGradient(listOf(Color.Transparent, Color.White.copy(alpha = alpha.coerceIn(0f, 1f)), Color.Transparent), startX = x - 120f, endX = x + 120f)
+    )
+}
+
+private fun Modifier.homeGlow(pulse: androidx.compose.runtime.State<Float>, color: Color, base: Float = 0.12f, amp: Float = 0.22f): Modifier = this.drawBehind {
+    val a = (base + amp * pulse.value).coerceIn(0f, 1f)
+    drawRoundRect(color.copy(alpha = a), cornerRadius = CornerRadius(28f), style = Stroke(width = 7f + 6f * pulse.value))
 }
