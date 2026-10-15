@@ -20,6 +20,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -86,6 +89,8 @@ fun ThrustersPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
         (upcoming?.let { "  Next drop: ${it.name} on ${dropDate(it)} (Pro get it first)." } ?: ""),
         color = CyberOnSurface.copy(alpha = 0.7f), fontSize = 12.sp, modifier = Modifier.padding(bottom = 12.dp))
 
+    var lockInfo by remember { mutableStateOf<LockInfo?>(null) }
+    lockInfo?.let { LockInfoDialog(it) { lockInfo = null } }
     ThrusterCatalog.ALL.forEach { th ->
         val owned = th.id in st.owned && (th.kind != ThrusterKind.PRO || pro)
         val active = st.active == th.id && owned
@@ -94,6 +99,10 @@ fun ThrustersPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
         Column(
             Modifier.fillMaxWidth().padding(vertical = 5.dp).clip(shape).background(CyberSurface)
                 .border(if (active) 2.5.dp else 1.5.dp, rc.copy(alpha = if (active) 1f else 0.6f), shape)
+                .then(
+                    if (!owned && !(th.kind == ThrusterKind.GEMS && ThrusterCatalog.buyableAtMs(th, pro) <= nowMs))
+                        Modifier.clickable { lockInfo = trailLockInfo(th, pro, nowMs, st.progress[th.id], rc) } else Modifier
+                )
         ) {
             Canvas(Modifier.fillMaxWidth().height(92.dp).background(Brush.verticalGradient(listOf(Color(0xFF04071A), rc.copy(alpha = 0.22f))))) {
                 val tm = clock.value + (th.id.hashCode() and 0xff) * 0.01f
@@ -174,4 +183,30 @@ private fun countdown(ms: Long): String {
     val m = (ms / 60000L).coerceAtLeast(0L)
     val d = m / 1440L; val hh = (m % 1440L) / 60L; val mm = m % 60L
     return if (d > 0) "${d}d ${hh}h" else "${hh}h ${mm}m"
+}
+
+private fun trailLockInfo(th: com.neonrush.game.Thruster, pro: Boolean, nowMs: Long, progress: String?, accent: Color): LockInfo {
+    val lines = ArrayList<String>()
+    val at = ThrusterCatalog.buyableAtMs(th, pro)
+    val rel = ThrusterCatalog.releaseMs(th)
+    if (th.kind == ThrusterKind.GEMS && at > nowMs) {
+        if (rel > nowMs) {
+            lines.add("Drops on ${dropDate(th)}.")
+            lines.add("Pro members can buy it first, during early access.")
+        } else {
+            lines.add("Pro early access is live. It opens for you in ${countdown(at - nowMs)}.")
+            lines.add("Subscribe to Pro to buy it right now.")
+        }
+        lines.add("After it opens, you buy it with 💎 ${th.gemCost}.")
+        return LockInfo(th.emoji, th.name, "Not released to you yet.", lines, null, null, accent)
+    }
+    if (th.kind == ThrusterKind.PRO) {
+        lines.add("This trail is for Pro members only.")
+        lines.add("Subscribe to Neon Rush Pro and it is yours while you stay subscribed.")
+        return LockInfo(th.emoji, th.name, "Pro trail.", lines, null, null, accent)
+    }
+    if (th.requirement.isNotBlank()) lines.add(th.requirement)
+    if (!progress.isNullOrBlank()) lines.add("Your progress: $progress")
+    lines.add("It unlocks by itself the moment you meet the goal.")
+    return LockInfo(th.emoji, th.name, "Earn it by playing.", lines, null, null, accent)
 }
