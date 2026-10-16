@@ -46,6 +46,9 @@ const val STARTER_PACK_GEMS_AMOUNT = 250
 
     private val _isPro = MutableStateFlow(false)
     val isPro: StateFlow<Boolean> = _isPro.asStateFlow()
+    private val _proAnnual = MutableStateFlow(false)
+    /** True while the active Pro plan is the ANNUAL one (drives the home-screen screensaver). */
+    val proAnnual: StateFlow<Boolean> = _proAnnual.asStateFlow()
     private val _isAdsRemoved = MutableStateFlow(false)
 val isAdsRemoved: StateFlow<Boolean> = _isAdsRemoved.asStateFlow()
 
@@ -71,6 +74,7 @@ val isAdsRemoved: StateFlow<Boolean> = _isAdsRemoved.asStateFlow()
     private fun applyInfo(info: com.revenuecat.purchases.CustomerInfo) {
         PurchaseLedger.onCustomerInfo(info)
         _isPro.value = info.entitlements.active.containsKey("Neon Rush Pro")
+        _proAnnual.value = _isPro.value && PurchaseLedger.isProAnnualCached()
         _isAdsRemoved.value = PurchaseLedger.isAdsRemovedCached()
         _ownedProducts.value = PurchaseLedger.ownedProducts()
         Log.d(TAG, "Pro=${_isPro.value} AdsRemoved=${_isAdsRemoved.value} owned=${_ownedProducts.value.size}")
@@ -94,6 +98,7 @@ val isAdsRemoved: StateFlow<Boolean> = _isAdsRemoved.asStateFlow()
         // are correct from the very first frame even with no internet.
         PurchaseLedger.init(context)
         _isPro.value = PurchaseLedger.isProCached()
+        _proAnnual.value = _isPro.value && PurchaseLedger.isProAnnualCached()
         _isAdsRemoved.value = PurchaseLedger.isAdsRemovedCached()
         _ownedProducts.value = PurchaseLedger.ownedProducts()
         if (isInitialized) return
@@ -188,7 +193,7 @@ val isAdsRemoved: StateFlow<Boolean> = _isAdsRemoved.asStateFlow()
                     }
                     try {
                         val params = com.revenuecat.purchases.PurchaseParams.Builder(activity, pkg).build()
-                        runPurchase(activity, params, { _isPro.value = true }, onResult)
+                        runPurchase(activity, params, { _isPro.value = true; _proAnnual.value = annual }, onResult)
                     } catch (e: Exception) { finishFail("Could not start purchase: ${e.message}", onResult) }
                 }
                 override fun onError(error: PurchasesError) {
