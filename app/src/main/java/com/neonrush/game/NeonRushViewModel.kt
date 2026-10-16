@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.neonrush.game.db.GameDao
 import com.neonrush.game.ui.HullFx
 import com.neonrush.game.ui.PilotShieldFx
+import com.neonrush.game.ui.PickupFx
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.tasks.await
 import com.neonrush.game.db.GameProfile
@@ -1481,7 +1482,7 @@ fun startFromCheckpoint(checkpointZone: Int) {
 
 fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = null, startFromZone: Int = 1) {
     simJob?.cancel()
-    HullFx.reset(); PilotShieldFx.reset(); if (selectedDifficulty == DifficultyTier.EASY) PilotShieldFx.onGain(EASY_SHIELD_LAYERS); hangar.onRunStart(profile.value?.activeSkinId ?: "cyan_diamond"); ThreatDirector.reset(); resetStoryProgress(); seasonPass.tierTokenMult = selectedDifficulty.tokenMult; seasonPass.onRunStart()
+    HullFx.reset(); PilotShieldFx.reset(); PickupFx.reset(); if (selectedDifficulty == DifficultyTier.EASY) PilotShieldFx.onGain(EASY_SHIELD_LAYERS); hangar.onRunStart(profile.value?.activeSkinId ?: "cyan_diamond"); ThreatDirector.reset(); resetStoryProgress(); seasonPass.tierTokenMult = selectedDifficulty.tokenMult; seasonPass.onRunStart()
     var startupDna = ZoneGenerator.generateZone(startFromZone, 42)
     if (specialWorldId != null) startupDna = overrideEnvironment(startupDna, specialWorldId)
     val todayMutation = DailyMutations.getActiveMutation()
@@ -1860,6 +1861,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 "fuel" -> {
                                     soundEngine.playTone(523f, 80, "sine")
                                     fuelLevelState = (fuelLevelState + 18).coerceAtMost(100)
+                                    PickupFx.onPickup("FUEL")
                                     repeat(6) { i ->
                                         activeParticles.add(
                                             Particle(
@@ -1879,6 +1881,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                     soundEngine.playShieldPowerup()
                                     puPickedThisTick++
                                     val puId = elem.subType
+                                    PickupFx.onPickup(puId)
                                     if (puId == "PU8") {
                                         boomClearTriggered = true
                                         updatedMsg = "BOOM CLEAR! PATH AHEAD WIPED!"
@@ -1908,7 +1911,14 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         for (i in 1..9) {
                                             nextDurationsMap["PU$i"] = 40
                                         }
+                                        shieldLayersState = maxOf(shieldLayersState, 2); PilotShieldFx.onGain(shieldLayersState)
                                         updatedMsg = "LEGENDARY PRESTIGE MATRIX SYNC ACTIVE!"
+                                    } else if (puId == "PU1") {
+                                        // The shield power-up puts (or puts back) the layered shield on the pilot
+                                        val puLayers = 2 + (if (Upgrades.level(activeUpgradesCsv, "shield") >= 3) 1 else 0)
+                                        shieldLayersState = maxOf(shieldLayersState, puLayers)
+                                        PilotShieldFx.onGain(puLayers)
+                                        updatedMsg = "SHIELD ONLINE! $puLayers HITS"
                                     } else {
                                         nextDurationsMap[puId] = (80 * Upgrades.powerupDurationMultiplier(activeUpgradesCsv, puId)).toInt()
                                     }
@@ -2673,6 +2683,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 "fuel" -> {
                                     soundEngine.playTone(523f, 80, "sine")
                                     fuelLevelState = (fuelLevelState + 18).coerceAtMost(100)
+                                    PickupFx.onPickup("FUEL")
                                     repeat(6) { i ->
                                         activeParticles.add(
                                             Particle(
@@ -2692,6 +2703,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                     soundEngine.playShieldPowerup()
                                     puPickedThisTick++
                                     val puId = elem.subType
+                                    PickupFx.onPickup(puId)
                                     repeat(8) { i ->
                                         activeParticles.add(
                                             Particle(
@@ -2733,6 +2745,13 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         for (i in 1..9) {
                                             nextDurationsMap["PU$i"] = 40
                                         }
+                                        shieldLayersState = maxOf(shieldLayersState, 2); PilotShieldFx.onGain(shieldLayersState)
+                                    } else if (puId == "PU1") {
+                                        // The shield power-up puts (or puts back) the layered shield on the pilot
+                                        val puLayers = 2 + (if (Upgrades.level(activeUpgradesCsv, "shield") >= 3) 1 else 0)
+                                        shieldLayersState = maxOf(shieldLayersState, puLayers)
+                                        PilotShieldFx.onGain(puLayers)
+                                        updatedMsg = "SHIELD ONLINE! $puLayers HITS"
                                     } else {
                                         nextDurationsMap[puId] = (80 * Upgrades.powerupDurationMultiplier(activeUpgradesCsv, puId)).toInt()
                                     }
