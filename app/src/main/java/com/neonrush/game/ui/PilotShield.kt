@@ -56,8 +56,8 @@ fun DrawScope.drawPilotShield(layers: Int, x: Float, y: Float, h: Float, w: Floa
 
     val maxL = maxOf(PilotShieldFx.maxLayers, layers, 1)
     val center = Offset(x + w * 0.02f, y)
-    val rx = h * 0.40f
-    val ry = h * 0.52f
+    val rx = h * 0.44f
+    val ry = h * 0.57f
     val ky = ry / rx
 
     // pop-in on activation: grows past full size, settles back
