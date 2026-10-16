@@ -28,6 +28,9 @@ import java.util.*
 const val TESTING_DISABLE_PRO_GATE = true
 
 /** EASY (kids) mode: hits the pilot's shield soaks up at run start and after every refuel / revive. */
+/** Power-ups were too rare: drop-rate multiplier, and a guaranteed one if none showed up for this many ticks (8 ticks = 1 s). */
+const val PU_BOOST = 2.2f
+const val PU_PITY_TICKS = 100
 const val EASY_SHIELD_LAYERS = 2
 
 /** Shield the pilot wears after every revive: EASY 2 (it also gets one at run start and after each refuel), MEDIUM 2, HARD / LEGENDARY 1. */
@@ -1210,6 +1213,9 @@ fun freezeStreak() {
     var totalPlayedSeconds: Float = 0f
     var lastPlayTime: Long = System.currentTimeMillis()
 
+    private var lastPuSpawnTick = 0
+    private var fuelFreezeUntilTick = 0
+
     private fun chooseProceduralPowerupType(rand: kotlin.random.Random, isSunday: Boolean): String {
         val roll = rand.nextInt(100)
         val legendaryThreshold = if (isSunday) 25 else 5
@@ -1483,7 +1489,7 @@ fun startFromCheckpoint(checkpointZone: Int) {
 
 fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = null, startFromZone: Int = 1) {
     simJob?.cancel()
-    HullFx.reset(); PilotShieldFx.reset(); PickupFx.reset(); ReactFx.reset(); if (selectedDifficulty == DifficultyTier.EASY) PilotShieldFx.onGain(EASY_SHIELD_LAYERS); hangar.onRunStart(profile.value?.activeSkinId ?: "cyan_diamond"); ThreatDirector.reset(); resetStoryProgress(); seasonPass.tierTokenMult = selectedDifficulty.tokenMult; seasonPass.onRunStart()
+    HullFx.reset(); PilotShieldFx.reset(); PickupFx.reset(); ReactFx.reset(); lastPuSpawnTick = 0; fuelFreezeUntilTick = 0; if (selectedDifficulty == DifficultyTier.EASY) PilotShieldFx.onGain(EASY_SHIELD_LAYERS); hangar.onRunStart(profile.value?.activeSkinId ?: "cyan_diamond"); ThreatDirector.reset(); resetStoryProgress(); seasonPass.tierTokenMult = selectedDifficulty.tokenMult; seasonPass.onRunStart()
     var startupDna = ZoneGenerator.generateZone(startFromZone, 42)
     if (specialWorldId != null) startupDna = overrideEnvironment(startupDna, specialWorldId)
     val todayMutation = DailyMutations.getActiveMutation()
@@ -1724,9 +1730,9 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (tick % (10 / spacingBias).coerceIn(4f, 25f).toInt() == 0 && !activeDna.mechanicIds.contains(19)) {
                     val gridX = 1.2f
                     val routeTargetY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
-                    if (random.nextInt(100) < (9 + (16 * assist).toInt())) {
+                    if (random.nextInt(100) < (11 + (16 * assist).toInt())) {
                         updatedElements.add(VisualTrackElement("gem_${tick}", gridX, routeTargetY + random.nextInt(-8, 8), "gem"))
-                    } else if (random.nextInt(100) < (15 + (30 * assist).toInt())) {
+                    } else if (random.nextInt(100) < (22 + (30 * assist).toInt())) {
                         updatedElements.add(VisualTrackElement("fuel_${tick}", gridX, routeTargetY + random.nextInt(-5, 5), "fuel"))
                     }
                 }
@@ -1736,7 +1742,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     val targetGhostY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     val obstacles = spawnObstacleForSet(activeDna.obstacleSetId, tick, random, targetGhostY, nextZoneNumber)
                     updatedElements.addAll(obstacles)
-                    if (random.nextFloat() < activeDna.powerupDensity * (flavor?.powerupMul ?: 1f) * selectedDifficulty.powerupMul) {
+                    if (random.nextFloat() < activeDna.powerupDensity * PU_BOOST * (flavor?.powerupMul ?: 1f) * selectedDifficulty.powerupMul || tick - lastPuSpawnTick >= PU_PITY_TICKS) {
+                        lastPuSpawnTick = tick
                         val puType = chooseProceduralPowerupType(random, isSundayLegendary)
                         updatedElements.add(VisualTrackElement("pu_${tick}", 1.22f, targetGhostY + random.nextInt(-10, 10), "powerup", puType))
                     }
@@ -1862,8 +1869,12 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 }
                                 "fuel" -> {
                                     soundEngine.playTone(523f, 80, "sine")
-                                    fuelLevelState = (fuelLevelState + 18).coerceAtMost(100)
-                                    PickupFx.onPickup("FUEL"); ReactFx.collect("fuel", "", elem.xOffsetFraction, elem.yMatchPos)
+                                    val fuelBefore = fuelLevelState
+                                    fuelLevelState = (fuelLevelState + ReactFx.FUEL_PICKUP_PCT).coerceAtMost(100)
+                                    // a full tank must not waste the cell: the overflow pauses fuel use for that many ticks
+                                    val fuelSurplus = fuelBefore + ReactFx.FUEL_PICKUP_PCT - fuelLevelState
+                                    if (fuelSurplus > 0) fuelFreezeUntilTick = maxOf(fuelFreezeUntilTick, tick) + fuelSurplus
+                                    PickupFx.onPickup("FUEL"); ReactFx.collect("fuel", if (fuelSurplus > 0) "TANK FULL · SAVER" else "+${ReactFx.FUEL_PICKUP_PCT}%", elem.xOffsetFraction, elem.yMatchPos)
                                     repeat(6) { i ->
                                         activeParticles.add(
                                             Particle(
@@ -2088,7 +2099,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 }
                 if ((tick * 10) % (10 + prof.fuelTiersOwned * 2) < 10 &&
                     !((assist > 0.5f && tick % 2 == 1) || (assist > 0f && assist <= 0.5f && tick % 4 == 1))) {
-                    fuelLevelState = (fuelLevelState - 1)
+                    if (tick >= fuelFreezeUntilTick) fuelLevelState = (fuelLevelState - 1)
                 }
                 if (fuelLevelState <= 0) {
                     _simState.value = state.copy(isCompleted = true, score = nextScore)
@@ -2574,7 +2585,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (tick % 10 == 0 && !activeDna.mechanicIds.contains(19)) {
                     val gridX = 1.2f
                     val routeTargetY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
-                    if (random.nextInt(100) < 40) {
+                    if (random.nextInt(100) < 11) {
                         updatedElements.add(VisualTrackElement("gem_${tick}", gridX, routeTargetY + random.nextInt(-8, 8), "gem"))
                     } else if (random.nextInt(100) < (15 + (30 * assist).toInt())) {
                         updatedElements.add(VisualTrackElement("fuel_${tick}", gridX, routeTargetY + random.nextInt(-5, 5), "fuel"))
@@ -2586,7 +2597,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     val targetGhostY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     val obstacles = spawnObstacleForSet(activeDna.obstacleSetId, tick, random, targetGhostY, nextZoneNumber)
                     updatedElements.addAll(obstacles)
-                    if (random.nextFloat() < activeDna.powerupDensity * (flavor?.powerupMul ?: 1f) * selectedDifficulty.powerupMul) {
+                    if (random.nextFloat() < activeDna.powerupDensity * PU_BOOST * (flavor?.powerupMul ?: 1f) * selectedDifficulty.powerupMul || tick - lastPuSpawnTick >= PU_PITY_TICKS) {
+                        lastPuSpawnTick = tick
                         val puType = chooseProceduralPowerupType(random, isSundayLegendary)
                         updatedElements.add(VisualTrackElement("pu_${tick}", 1.22f, targetGhostY + random.nextInt(-10, 10), "powerup", puType))
                     }
@@ -2692,8 +2704,12 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 }
                                 "fuel" -> {
                                     soundEngine.playTone(523f, 80, "sine")
-                                    fuelLevelState = (fuelLevelState + 18).coerceAtMost(100)
-                                    PickupFx.onPickup("FUEL"); ReactFx.collect("fuel", "", elem.xOffsetFraction, elem.yMatchPos)
+                                    val fuelBefore = fuelLevelState
+                                    fuelLevelState = (fuelLevelState + ReactFx.FUEL_PICKUP_PCT).coerceAtMost(100)
+                                    // a full tank must not waste the cell: the overflow pauses fuel use for that many ticks
+                                    val fuelSurplus = fuelBefore + ReactFx.FUEL_PICKUP_PCT - fuelLevelState
+                                    if (fuelSurplus > 0) fuelFreezeUntilTick = maxOf(fuelFreezeUntilTick, tick) + fuelSurplus
+                                    PickupFx.onPickup("FUEL"); ReactFx.collect("fuel", if (fuelSurplus > 0) "TANK FULL · SAVER" else "+${ReactFx.FUEL_PICKUP_PCT}%", elem.xOffsetFraction, elem.yMatchPos)
                                     repeat(6) { i ->
                                         activeParticles.add(
                                             Particle(
@@ -2897,7 +2913,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 }
                 if ((tick * 10) % (10 + prof.fuelTiersOwned * 2) < 10 &&
                     !((assist > 0.5f && tick % 2 == 1) || (assist > 0f && assist <= 0.5f && tick % 4 == 1))) {
-                    fuelLevelState = (fuelLevelState - 1)
+                    if (tick >= fuelFreezeUntilTick) fuelLevelState = (fuelLevelState - 1)
                 }
                 if (fuelLevelState <= 0) {
                     _simState.value = state.copy(isCompleted = true, score = nextScore)
