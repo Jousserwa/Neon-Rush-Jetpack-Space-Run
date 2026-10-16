@@ -84,6 +84,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
@@ -4037,7 +4039,8 @@ val bossImagesByWorld = mapOf(
                                 }
                                 "fuel" -> {
                                     val angle = (simState.tickIndex * 6f) % 360f
-                                    val baseSize = ch * 0.065f
+                                    val baseSize = ch * 0.075f
+                                    drawPickupHalo("FUEL", x, y, baseSize, simState.tickIndex)
                                     val w = baseSize * (coinImg.width.toFloat() / coinImg.height.toFloat())
                                     rotate(degrees = angle, pivot = Offset(x, y)) {
                                         drawImage(
@@ -4064,7 +4067,8 @@ val bossImagesByWorld = mapOf(
         else -> puScoreX2Img
     }
     val pulse = 1f + 0.15f * sin(simState.tickIndex * 0.3f)
-    val baseSize = ch * 0.08f * pulse
+    val baseSize = ch * 0.095f * pulse
+    drawPickupHalo(elem.subType, x, y, baseSize, simState.tickIndex)
     val w = baseSize * (puImg.width.toFloat() / puImg.height.toFloat())
     drawImage(
         image = puImg,
@@ -4586,12 +4590,24 @@ val bossImagesByWorld = mapOf(
                         trailPath.push(fxClock.value, userY)
                         drawThruster(viewModel.thrusters.activeNow(), userX, userY, displayHeight, fxClock.value, afterburnerLevel) { age -> trailPath.yAt(age) }
 
-                        rotate(degrees = tiltAngle, pivot = Offset(userX, userY)) {
-                            // Equipped pilot suit: colour grade + aura/particles on the shared frames.
-                            drawPilotLook(runSuitId, currentFrameImg, frameIdx, userX, userY, displayWidth, displayHeight, simState.tickIndex)
-                            // EASY (kids) layered shield: wraps the pilot, one ring per hit left
-                            drawPilotShield(simState.shieldLayers, userX, userY, displayHeight, displayWidth, fxClock.value)
+                        // Power-up reactions: a living aura behind the pilot, and the pilot itself changes while a power-up lasts
+                        // (see-through for Invincibility / Ghost, squeezed for Shrink) before returning to normal.
+                        drawPickupAura(simState.activePowerupDurations, userX, userY, displayHeight, fxClock.value)
+                        val pilotAlpha = pilotAlphaFor(simState.activePowerupDurations, fxClock.value)
+                        val pilotScale = pilotScaleFor(simState.activePowerupDurations)
+                        withTransform({ scale(pilotScale, pilotScale, pivot = Offset(userX, userY)) }) {
+                            rotate(degrees = tiltAngle, pivot = Offset(userX, userY)) {
+                                if (pilotAlpha < 0.999f) {
+                                    drawIntoCanvas { cv -> cv.saveLayer(androidx.compose.ui.geometry.Rect(userX - displayHeight * 2.2f, userY - displayHeight * 1.4f, userX + displayHeight * 1.6f, userY + displayHeight * 1.4f), androidx.compose.ui.graphics.Paint().apply { alpha = pilotAlpha }) }
+                                }
+                                // Equipped pilot suit: colour grade + aura/particles on the shared frames.
+                                drawPilotLook(runSuitId, currentFrameImg, frameIdx, userX, userY, displayWidth, displayHeight, simState.tickIndex)
+                                if (pilotAlpha < 0.999f) drawIntoCanvas { cv -> cv.restore() }
+                                // layered pilot shield: wraps the pilot, one ring per hit left
+                                drawPilotShield(simState.shieldLayers, userX, userY, displayHeight, displayWidth, fxClock.value)
+                            }
                         }
+                        drawPickupBurst(userX, userY, displayHeight)
 
                         for ((scoreDelta, spawnTick, spawnY) in scorePopups) {
                             val popupAge = simState.tickIndex - spawnTick
@@ -5567,7 +5583,7 @@ fun TutorialScreen(onBack: () -> Unit) {
                     )
                     TutorialIconRow(
                         coinPic, "Fuel canister",
-                        "Spinning fuel canisters top your tank up for free — grab them whenever you can."
+                        "Spinning fuel canisters top your tank up for free. Grab one and fuel streams into your pilot. Grab them whenever you can."
                     )
                 }
 
@@ -5625,16 +5641,16 @@ fun TutorialScreen(onBack: () -> Unit) {
                 }
 
                 TutorialCard("⚡", "POWER-UPS", accent = Color(0xFF69F0AE)) {
-                    TutorialBullet("Fly through a power-up icon to activate it. Most last a few seconds.")
-                    TutorialIconRow(puShield, "Shield", "Blocks one hit, then breaks.", Color(0xFF69F0AE))
+                    TutorialBullet("Fly through a power-up icon to activate it. Most last a few seconds. Each one lights up your pilot while it is working, and fades away just before it ends.")
+                    TutorialIconRow(puShield, "Shield", "Puts your pilot shield back on, 2 hits strong. Collect it again to refill the rings.", Color(0xFF69F0AE))
                     TutorialIconRow(puMagnet, "Magnet", "Pulls nearby gems, fuel and power-ups toward you.", Color(0xFF69F0AE))
                     TutorialIconRow(puSlow, "Time Slow", "Slows the track down so you have more time to react.", Color(0xFF69F0AE))
-                    TutorialIconRow(puGhost, "Ghost Mode", "Fly straight through obstacles for a short time.", Color(0xFF69F0AE))
+                    TutorialIconRow(puGhost, "Ghost Mode", "Your pilot turns violet and ghostly. Fly straight through obstacles for a short time.", Color(0xFF69F0AE))
                     TutorialIconRow(puX2, "Score x2", "Doubles the points you earn for a while.", Color(0xFF69F0AE))
                     TutorialIconRow(puX5, "Score x5", "Five times the points — chain it with a combo!", Color(0xFF69F0AE))
-                    TutorialIconRow(puInvinc, "Invincibility", "Nothing can hurt you... except a Blink Strike creature while it is visible.", Color(0xFF69F0AE))
+                    TutorialIconRow(puInvinc, "Invincibility", "Your pilot turns golden and half see-through, and nothing can hurt you... except a Blink Strike creature while it is visible. You stay easy to steer, and it solidifies again when it ends.", Color(0xFF69F0AE))
                     TutorialIconRow(puBoom, "Boom Clear", "Instantly wipes out the obstacles and shots directly ahead of you.", Color(0xFF69F0AE))
-                    TutorialIconRow(puShrink, "Shrink", "Shrinks your hitbox so you can slip through tighter gaps.", Color(0xFF69F0AE))
+                    TutorialIconRow(puShrink, "Shrink", "Your pilot visibly squeezes smaller, and so does your hitbox, so you can slip through tighter gaps.", Color(0xFF69F0AE))
                     TutorialIconRow(puWarp, "Lane Warp", "Instantly snaps you onto the ghost marker's safe line.", Color(0xFF69F0AE))
                     TutorialIconRow(puSkip, "Zone Skip", "Leaps you forward to the next zone.", Color(0xFF69F0AE))
                     TutorialIconRow(puAura, "Legendary Aura", "Rare! Grants a whole bundle of power-ups at the same time.", Color(0xFF69F0AE))
