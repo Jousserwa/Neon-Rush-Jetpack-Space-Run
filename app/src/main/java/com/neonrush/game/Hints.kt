@@ -244,6 +244,8 @@ object HintEngine {
             // Passive, so it waits for the minimum read time.
             Lesson.BOSS -> !inp.bossActive && elapsed >= l.minShowMs
             Lesson.SHIELD -> inp.shieldHit
+            // Shown as a one-off banner when it fires, never as an active lesson.
+            Lesson.CLOSE_CALL -> false
             Lesson.DODGE -> dodged(s, inp)
         }
         if (success) return Outcome.SUCCESS
