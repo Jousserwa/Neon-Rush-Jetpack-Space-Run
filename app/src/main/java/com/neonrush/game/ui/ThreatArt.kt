@@ -312,8 +312,8 @@ private fun DrawScope.drawMountain(x: Float, peakY: Float, baseY: Float, half: F
 }
 
 /**
- * Incoming-threat warning: a hazard band on the edge where it will arrive (whole fire wall, the mountain side, the lava
- * lane...), chevrons sweeping toward you, and a pulsing icon with a shrinking countdown ring and a ripple.
+ * Incoming-threat warning, kept small so it never hides the track: a pulsing icon with a shrinking countdown ring and a ripple at the
+ * edge where the threat will arrive, a thin edge marker (5 px) over the lanes it will fill, and a faint dashed hairline to the pilot.
  * id = wrn_<tick>_<n>_<kind>_<delayTicks>
  */
 private fun DrawScope.drawWarn(elem: VisualTrackElement, y: Float, cw: Float, ch: Float, tick: Int, time: Float) {
@@ -326,37 +326,31 @@ private fun DrawScope.drawWarn(elem: VisualTrackElement, y: Float, cw: Float, ch
     val c = if (hot) Color(0xFFFF4A1C) else Color(0xFFFF2BD6)
     val pulse = 0.5f + 0.5f * sin(time * 11f)
 
-    // 1) hazard band at the right edge
-    val gx0 = cw * 0.80f
-    fun band(top: Float, bottom: Float) {
+    // 1) thin edge marker over the lanes that will be hit (no wide band, no gradient)
+    fun marker(top: Float, bottom: Float) {
         if (bottom - top < 2f) return
-        drawRect(Brush.horizontalGradient(listOf(Color.Transparent, c.copy(alpha = 0.16f + 0.30f * pulse)), startX = gx0, endX = cw),
-            Offset(gx0, top), Size(cw - gx0, bottom - top))
-        // blinking hazard stripes along the very edge
-        var yy = top
-        var i = 0
-        while (yy < bottom) {
-            if ((i + (time * 6f).toInt()) % 2 == 0) drawRect(c.copy(alpha = 0.55f), Offset(cw - 6f, yy), Size(6f, minOf(ch * 0.03f, bottom - yy)))
-            yy += ch * 0.03f; i++
-        }
+        drawRect(c.copy(alpha = 0.30f + 0.35f * pulse), Offset(cw - 5f, top), Size(5f, bottom - top))
     }
     when (tag) {
-        "fire" -> band((y - ch * 0.58f).coerceAtLeast(0f), (y + ch * 0.58f).coerceAtMost(ch))
-        "lava" -> band((y - ch * 0.24f).coerceAtLeast(0f), (y + ch * 0.24f).coerceAtMost(ch))
-        "mtnb" -> band((y - ch * 0.12f).coerceAtLeast(0f), ch)
-        "mtnt" -> band(0f, (y + ch * 0.12f).coerceAtMost(ch))
-        "ridges" -> { band(0f, ch * 0.34f); band(ch * 0.66f, ch) }
-        else -> band((y - ch * 0.07f).coerceAtLeast(0f), (y + ch * 0.07f).coerceAtMost(ch))
+        "fire" -> marker((y - ch * 0.58f).coerceAtLeast(0f), (y + ch * 0.58f).coerceAtMost(ch))
+        "lava" -> marker((y - ch * 0.24f).coerceAtLeast(0f), (y + ch * 0.24f).coerceAtMost(ch))
+        "mtnb" -> marker((y - ch * 0.12f).coerceAtLeast(0f), ch)
+        "mtnt" -> marker(0f, (y + ch * 0.12f).coerceAtMost(ch))
+        "ridges" -> { marker(0f, ch * 0.34f); marker(ch * 0.66f, ch) }
+        else -> marker((y - ch * 0.07f).coerceAtLeast(0f), (y + ch * 0.07f).coerceAtMost(ch))
     }
 
-    // 2) chevrons sweeping toward the player along the lane
-    val s = ch * 0.03f
-    for (i in 0 until 3) {
-        val p = (time * 1.6f + i / 3f) % 1f
-        val cx = cw * 0.93f - p * cw * 0.34f
-        val a = (1f - p) * (0.45f + 0.5f * pulse)
-        drawPath(Path().apply { moveTo(cx + s, y - s * 1.3f); lineTo(cx, y); lineTo(cx + s, y + s * 1.3f) }, c.copy(alpha = a),
-            style = Stroke(width = 4f, cap = StrokeCap.Round))
+    // 2) faint dashed lane hairline from the icon toward the pilot
+    drawLine(c.copy(alpha = 0.10f + 0.10f * pulse), Offset(cw * 0.92f, y), Offset(cw * 0.30f, y), strokeWidth = 1.5f,
+        pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 16f), time * 40f))
+
+    // two tiny chevrons right beside the icon
+    val s = ch * 0.018f
+    for (i in 0 until 2) {
+        val p = (time * 1.6f + i / 2f) % 1f
+        val cx = cw * 0.915f - p * cw * 0.05f
+        drawPath(Path().apply { moveTo(cx + s, y - s * 1.3f); lineTo(cx, y); lineTo(cx + s, y + s * 1.3f) }, c.copy(alpha = (1f - p) * 0.8f),
+            style = Stroke(width = 3f, cap = StrokeCap.Round))
     }
 
     // 3) icon, ripple and countdown ring
