@@ -43,6 +43,7 @@ object PurchaseLedger {
     private var dir: File? = null
     private var proUntilMs = 0L
     private var adsRemoved = false
+    private var proAnnual = false
     private var lastSeenMs = 0L
     private var lastSyncMs = 0L
     private val products = linkedSetOf<String>()
@@ -61,6 +62,8 @@ object PurchaseLedger {
         proUntilMs > 0 && maxOf(System.currentTimeMillis(), lastSeenMs) <= saturatingAdd(proUntilMs, OFFLINE_GRACE_MS)
     }
     fun isAdsRemovedCached(): Boolean = synchronized(lock) { adsRemoved }
+    /** True when the active Pro entitlement came from the annual plan (cached, so it works offline). */
+    fun isProAnnualCached(): Boolean = synchronized(lock) { proAnnual }
     /** Store product ids (base id, no ":plan" suffix) the player has bought. */
     fun ownedProducts(): Set<String> = synchronized(lock) { products.toSet() }
     fun lastSyncMs(): Long = synchronized(lock) { lastSyncMs }
@@ -72,6 +75,7 @@ object PurchaseLedger {
         synchronized(lock) {
             val pro = info.entitlements.active["Neon Rush Pro"]
             proUntilMs = if (pro == null) 0L else (pro.expirationDate?.time ?: FOREVER)
+            proAnnual = pro != null && pro.productIdentifier.let { it.contains("annual", ignoreCase = true) || it.contains("year", ignoreCase = true) }
             val ids = info.allPurchasedProductIds.map { it.substringBefore(':') }
             products.addAll(ids)
             adsRemoved = info.entitlements.active.containsKey("remove_ads") || RevenueCatManager.PRODUCT_ID_REMOVE_ADS in products
@@ -126,7 +130,7 @@ object PurchaseLedger {
         try {
             lastSeenMs = maxOf(lastSeenMs, System.currentTimeMillis())
             val j = JSONObject()
-                .put("v", 1).put("proUntil", proUntilMs).put("ads", adsRemoved)
+                .put("v", 1).put("proUntil", proUntilMs).put("ads", adsRemoved).put("annual", proAnnual)
                 .put("seen", lastSeenMs).put("sync", lastSyncMs)
                 .put("products", JSONArray(products.toList()))
                 .put("pending", JSONArray(pending.map {
@@ -152,6 +156,7 @@ object PurchaseLedger {
             val j = JSONObject(String(c.doFinal(raw, 12, raw.size - 12), Charsets.UTF_8))
             proUntilMs = j.optLong("proUntil", 0L)
             adsRemoved = j.optBoolean("ads", false)
+            proAnnual = j.optBoolean("annual", false)
             lastSeenMs = j.optLong("seen", 0L)
             lastSyncMs = j.optLong("sync", 0L)
             j.optJSONArray("products")?.let { a -> for (i in 0 until a.length()) products.add(a.getString(i)) }
