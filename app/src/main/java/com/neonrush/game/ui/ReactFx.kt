@@ -9,6 +9,10 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontWeight
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.math.PI
 import kotlin.math.cos
@@ -36,6 +40,9 @@ object ReactFx {
     @Volatile var gemMs = -99999L
 
     const val HIT_MS = 780L
+    const val GEM_MS = 1000L
+    /** Fuel a collected cell puts into the tank, in percent. */
+    const val FUEL_PICKUP_PCT = 18
 
     fun nowMs(): Long = System.nanoTime() / 1_000_000L
     fun events(): List<Ev> = evs
@@ -79,7 +86,7 @@ object ReactFx {
     /** kind: "gem", "fuel" or "pu" (sub = the power-up id). */
     fun collect(kind: String, sub: String, xFrac: Float, yPct: Int) {
         val t = nowMs()
-        add(Ev("col", kind, sub, xFrac, yPct.toFloat(), t, ++ctr))
+        add(Ev(kind, if (kind == "pu") sub else "", if (kind == "pu") "" else sub, xFrac, yPct.toFloat(), t, ++ctr))
         if (kind == "gem") gemMs = t
     }
 
@@ -130,8 +137,12 @@ class PilotMotion(val dx: Float, val dy: Float, val rot: Float, val sx: Float, v
 private const val TAU = 6.2831855f
 
 internal fun fxRnd(a: Int, b: Int): Float {
-    var x = a * 374761393 + b * 668265263
-    x = (x xor (x ushr 13)) * 1274126177
+    // murmur-style finalizer: neighbouring (a, b) pairs give unrelated values (the old mix put many stars on one row)
+    var x = a * -1640531535 + b * 668265263 + 374761393
+    x = x xor (x ushr 16)
+    x *= 2146121005
+    x = x xor (x ushr 15)
+    x *= -2073254261
     x = x xor (x ushr 16)
     return (x and 0x7fffffff) / 2147483647f
 }
@@ -206,13 +217,13 @@ private fun famColor(fam: String): Color = when (fam) {
 // ---------------------------------------------------------------------------------------------------------- world reactions
 
 /** Draw every live obstacle-break and pick-up burst at the spot where it happened. Call after the track elements, before the pilot. */
-fun DrawScope.drawWorldReactions(cw: Float, ch: Float) {
+fun DrawScope.drawWorldReactions(cw: Float, ch: Float, measurer: TextMeasurer? = null) {
     val now = ReactFx.nowMs()
     for (e in ReactFx.events()) {
         val age = now - e.ms
         if (age < 0L) continue
         val c = Offset(cw * e.xFrac, ch * (e.yPct / 100f))
-        if (e.kind == "obs") obstacleFx(e, c, age, ch) else collectFx(e, c, age, ch)
+        if (e.kind == "obs") obstacleFx(e, c, age, ch) else collectFx(e, c, age, ch, measurer)
     }
 }
 
@@ -420,8 +431,8 @@ private fun DrawScope.breakFx(fam: String, c: Offset, age: Long, f: Float, s: Fl
 }
 
 /** What happens at the spot where a diamond, fuel cell or power-up was collected. */
-private fun DrawScope.collectFx(e: ReactFx.Ev, c: Offset, age: Long, ch: Float) {
-    val life = when (e.kind) { "gem" -> 700L; "fuel" -> 800L; else -> 900L }
+private fun DrawScope.collectFx(e: ReactFx.Ev, c: Offset, age: Long, ch: Float, measurer: TextMeasurer?) {
+    val life = when (e.kind) { "gem" -> 900L; "fuel" -> 1000L; else -> 900L }
     if (age >= life) return
     val f = age / life.toFloat()
     val a = (1f - f).coerceIn(0f, 1f)
@@ -431,13 +442,20 @@ private fun DrawScope.collectFx(e: ReactFx.Ev, c: Offset, age: Long, ch: Float) 
     when (e.kind) {
         "gem" -> {
             val col = Color(0xFF00E5FF)
-            drawCircle(col.copy(alpha = a), radius = s * (0.25f + 0.8f * ease), center = c, style = Stroke(width = s * 0.05f * (1f - f)))
-            for (k in 0 until 6) {
-                val ang = k * (TAU / 6f) + 0.3f
-                val d = s * (0.2f + 0.9f * ease)
-                fxShard(Offset(c.x + cos(ang) * d, c.y + sin(ang) * d), s * 0.11f, ang + sec * 9f, if (k % 2 == 0) Color.White else col, a)
+            fxGlow(c, s * (0.7f + 0.9f * ease), col, 0.4f * a)
+            drawCircle(col.copy(alpha = a), radius = s * (0.25f + 1.1f * ease), center = c, style = Stroke(width = s * 0.06f * (1f - f)))
+            drawCircle(Color(0xFFFF2BD6).copy(alpha = a * 0.7f), radius = s * (0.15f + 0.8f * ease), center = c, style = Stroke(width = s * 0.035f * (1f - f)))
+            for (k in 0 until 8) {
+                val ang = k * (TAU / 8f) + 0.3f + fxRnd(e.seed, k) * 0.3f
+                val d = s * (0.2f + (0.8f + 0.5f * fxRnd(e.seed, k + 3)) * ease)
+                fxRhombus(Offset(c.x + cos(ang) * d, c.y + sin(ang) * d - s * 0.3f * f), s * (0.13f + 0.05f * fxRnd(e.seed, k + 5)), sec * 6f + k, if (k % 2 == 0) Color.White else col, a)
             }
-            fxSpark(c, s * 0.35f * (1f - f), Color.White, a)
+            fxSpark(c, s * 0.7f * (1f - f), Color.White, a)
+            if (measurer != null) {
+                val ta = (1f - f * f).coerceIn(0f, 1f)
+                val tl = measurer.measure("+1", style = TextStyle(color = Color.White.copy(alpha = ta), fontSize = (s * 0.42f).toSp(), fontWeight = FontWeight.Black))
+                drawText(textLayoutResult = tl, topLeft = Offset(c.x - tl.size.width / 2f, c.y - s * (0.5f + 0.7f * ease) - tl.size.height / 2f))
+            }
         }
         "fuel" -> {
             val col = Color(0xFF00FF88)
@@ -448,6 +466,11 @@ private fun DrawScope.collectFx(e: ReactFx.Ev, c: Offset, age: Long, ch: Float) 
                 val px = c.x + cos(ang) * v * sec * 1.8f
                 val py = c.y + sin(ang) * v * sec * 1.8f + 5f * s * sec * sec
                 drawCircle(col.copy(alpha = a), radius = s * 0.07f, center = Offset(px, py))
+            }
+            fxGlow(c, s * 0.9f, col, 0.3f * a)
+            if (measurer != null && e.outcome.isNotEmpty()) {
+                val tl = measurer.measure("⛽ " + e.outcome, style = TextStyle(color = col.copy(alpha = a), fontSize = (s * 0.3f).toSp(), fontWeight = FontWeight.Black))
+                drawText(textLayoutResult = tl, topLeft = Offset(c.x - tl.size.width / 2f, c.y - s * (0.5f + 0.8f * ease) - tl.size.height / 2f))
             }
         }
         else -> puCollectFx(e.sub, c, f, s, e.seed)
@@ -553,11 +576,30 @@ fun DrawScope.drawPilotHitFx(x: Float, y: Float, h: Float) {
     }
 
     val gAge = now - ReactFx.gemMs
-    if (gAge in 0L until 320L) {
-        val f = gAge / 320f
-        val a = 1f - f
-        fxGlow(c, h * 0.6f, Color(0xFF00E5FF), 0.25f * a)
-        fxSpark(Offset(x + h * 0.22f, y - h * 0.3f), h * 0.1f * (1f - 0.4f * f), Color.White, a)
+    if (gAge in 0L until ReactFx.GEM_MS) {
+        // diamond cascade: the pilot is crowned in cyan light, diamonds spiral up around it, a sparkle sweeps over the body
+        val f = gAge / ReactFx.GEM_MS.toFloat()
+        val a = (1f - f).coerceIn(0f, 1f)
+        val cy = Color(0xFF00E5FF)
+        val pk = Color(0xFFFF2BD6)
+        val pop = if (f < 0.2f) f / 0.2f else 1f
+        fxGlow(c, h * (0.55f + 0.5f * pop), cy, 0.38f * a)
+        fxGlow(Offset(x, y - h * 0.1f), h * 0.4f, pk, 0.18f * a)
+        for (r in 0 until 2) {
+            val ff = (f * 1.3f - r * 0.18f).coerceIn(0f, 1f)
+            drawCircle((if (r == 0) cy else pk).copy(alpha = (1f - ff) * 0.8f), radius = h * (0.3f + 0.7f * ff), center = c, style = Stroke(width = h * 0.03f * (1f - ff)))
+        }
+        for (k in 0 until 9) {
+            val ang = k * (TAU / 9f) + f * 7f
+            val rise = f * h * 0.5f
+            val rad = h * (0.32f + 0.12f * sin(f * 9f + k))
+            fxRhombus(Offset(x + cos(ang) * rad, y + sin(ang) * rad * 0.6f - rise), h * (0.075f - 0.03f * f), ang * 2f + f * 10f, if (k % 3 == 0) Color.White else if (k % 3 == 1) cy else pk, a)
+        }
+        // sparkle sweep top to bottom
+        val sy = y - h * 0.5f + h * f * 1.0f
+        drawLine(Color.White.copy(alpha = a * 0.8f), Offset(x - h * 0.3f, sy), Offset(x + h * 0.3f, sy), strokeWidth = h * 0.03f, cap = StrokeCap.Round, blendMode = BlendMode.Plus)
+        fxSpark(Offset(x + h * 0.22f, y - h * 0.35f), h * 0.16f * a, Color.White, a)
+        fxSpark(Offset(x - h * 0.2f, y + h * 0.1f), h * 0.11f * a, cy, a)
     }
 }
 
@@ -682,4 +724,19 @@ private fun DrawScope.pilotHurt(fam: String, c: Offset, h: Float, age: Long) {
             }
         }
     }
+}
+
+/** A small spinning diamond (rhombus) with a bright core, used for the diamond effects. */
+internal fun DrawScope.fxRhombus(c: Offset, r: Float, spin: Float, color: Color, alpha: Float) {
+    if (alpha <= 0f || r <= 0f) return
+    val sq = kotlin.math.abs(cos(spin)).coerceAtLeast(0.25f)
+    val path = Path().apply {
+        moveTo(c.x, c.y - r * 1.25f)
+        lineTo(c.x + r * sq, c.y)
+        lineTo(c.x, c.y + r * 1.25f)
+        lineTo(c.x - r * sq, c.y)
+        close()
+    }
+    drawPath(path, color.copy(alpha = alpha * 0.9f), blendMode = BlendMode.Plus)
+    drawPath(path, Color.White.copy(alpha = alpha), style = Stroke(width = r * 0.18f))
 }
