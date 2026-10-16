@@ -1692,12 +1692,19 @@ fun ArcadeHomeView(
             )
         }
 
+        // Screensaver: classic (brighter) for everyone, a violet/magenta two-scene one for Pro MONTHLY, a gold/crimson two-scene one for Pro ANNUAL.
+        val proAnnualPlan by RevenueCatManager.proAnnual.collectAsState()
+        val realTier = if (isPro) (if (proAnnualPlan) 2 else 1) else 0
+        // TESTING (same switch as the Pro gate): tap the screensaver to preview free -> monthly -> annual. Does nothing once the gate is restored.
+        var previewTier by remember { mutableStateOf(1) }
+        val saverTier = if (TESTING_DISABLE_PRO_GATE) previewTier else realTier
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(0.45f)
+                .then(if (TESTING_DISABLE_PRO_GATE) Modifier.clickable { previewTier = (previewTier + 1) % 3 } else Modifier)
         ) {
-            NeonPilotScreensaver()
+            NeonPilotScreensaver(tier = saverTier)
         }
 
         if (profile.transcendenceCount > 0) {
@@ -4031,6 +4038,7 @@ val bossImagesByWorld = mapOf(
                                     val baseSize = ch * 0.07f * pulse
                                     val w = baseSize * (gemImg.width.toFloat() / gemImg.height.toFloat())
                                     val h = baseSize
+                                    drawGemShine(x, y, baseSize)
                                     drawImage(
                                         image = gemImg,
                                         dstOffset = IntOffset((x - w / 2f).roundToInt(), (y - h / 2f).roundToInt()),
@@ -4413,6 +4421,9 @@ val bossImagesByWorld = mapOf(
                             }
                         }
 
+                        // obstacles breaking and items bursting where they were hit / collected
+                        drawWorldReactions(cw, ch)
+
                         for (p in simState.particles) {
                             val px = cw * p.x
                             val py = ch * (p.y / 100f)
@@ -4593,10 +4604,14 @@ val bossImagesByWorld = mapOf(
                         // Power-up reactions: a living aura behind the pilot, and the pilot itself changes while a power-up lasts
                         // (see-through for Invincibility / Ghost, squeezed for Shrink) before returning to normal.
                         drawPickupAura(simState.activePowerupDurations, userX, userY, displayHeight, fxClock.value)
-                        val pilotAlpha = pilotAlphaFor(simState.activePowerupDurations, fxClock.value)
+                        val pm = pilotMotionFor(simState.activePowerupDurations, displayHeight, fxClock.value)
+                        val pilotAlpha = (pilotAlphaFor(simState.activePowerupDurations, fxClock.value) * pm.alpha).coerceIn(0.15f, 1f)
                         val pilotScale = pilotScaleFor(simState.activePowerupDurations)
-                        withTransform({ scale(pilotScale, pilotScale, pivot = Offset(userX, userY)) }) {
-                            rotate(degrees = tiltAngle, pivot = Offset(userX, userY)) {
+                        withTransform({
+                            translate(pm.dx, pm.dy)
+                            scale(pilotScale * pm.sx, pilotScale * pm.sy, pivot = Offset(userX, userY))
+                        }) {
+                            rotate(degrees = tiltAngle + pm.rot, pivot = Offset(userX, userY)) {
                                 if (pilotAlpha < 0.999f) {
                                     drawIntoCanvas { cv -> cv.saveLayer(androidx.compose.ui.geometry.Rect(userX - displayHeight * 2.2f, userY - displayHeight * 1.4f, userX + displayHeight * 1.6f, userY + displayHeight * 1.4f), androidx.compose.ui.graphics.Paint().apply { alpha = pilotAlpha }) }
                                 }
@@ -4608,6 +4623,8 @@ val bossImagesByWorld = mapOf(
                             }
                         }
                         drawPickupBurst(userX, userY, displayHeight)
+                        drawPilotPowerFx(simState.activePowerupDurations, userX, userY, displayHeight, fxClock.value, textMeasurer)
+                        drawPilotHitFx(userX, userY, displayHeight)
 
                         for ((scoreDelta, spawnTick, spawnY) in scorePopups) {
                             val popupAge = simState.tickIndex - spawnTick
@@ -4627,12 +4644,7 @@ val bossImagesByWorld = mapOf(
                             )
                         }
 
-                        if (simState.tickIndex - flashStartTick < 5) {
-                            drawRect(
-                                color = Color.White.copy(alpha = 0.3f),
-                                size = Size(cw, ch)
-                            )
-                        }
+                        // (the old full-screen white flash on a hit is gone: each obstacle now has its own reaction on the pilot)
 
                         // ---- near-miss feel: edge flash, combo badge, overdrive frame
                         run {
@@ -5904,7 +5916,7 @@ fun PaywallDialog(onDismiss: () -> Unit, reason: String) {
 }
 
 @Composable
-fun NeonPilotScreensaver() {
+fun NeonPilotScreensaver(tier: Int = 0) {
     val infiniteTransition = rememberInfiniteTransition(label = "screensaver")
     val offsetX by infiniteTransition.animateFloat(
         initialValue = -50f,
@@ -5925,85 +5937,62 @@ fun NeonPilotScreensaver() {
         label = "offsetY"
     )
     // Load the same running-pilot animation frames used in the real game
-val pf1 = ImageBitmap.imageResource(id = R.drawable.pilot_run_1)
-val pf2 = ImageBitmap.imageResource(id = R.drawable.pilot_run_2)
-val pf3 = ImageBitmap.imageResource(id = R.drawable.pilot_run_3)
-val pf4 = ImageBitmap.imageResource(id = R.drawable.pilot_run_4)
-val pf5 = ImageBitmap.imageResource(id = R.drawable.pilot_run_5)
-val pf6 = ImageBitmap.imageResource(id = R.drawable.pilot_run_6)
-val pilotFrames = remember(pf1, pf2, pf3, pf4, pf5, pf6) {
-    listOf(pf1, pf2, pf3, pf4, pf5, pf6)
-}
-
-// Drives the run-cycle animation, independent of offsetX/offsetY drifting
-var frameTick by remember { mutableStateOf(0) }
-LaunchedEffect(Unit) {
-    while (true) {
-        delay(80)
-        frameTick++
+    val pf1 = ImageBitmap.imageResource(id = R.drawable.pilot_run_1)
+    val pf2 = ImageBitmap.imageResource(id = R.drawable.pilot_run_2)
+    val pf3 = ImageBitmap.imageResource(id = R.drawable.pilot_run_3)
+    val pf4 = ImageBitmap.imageResource(id = R.drawable.pilot_run_4)
+    val pf5 = ImageBitmap.imageResource(id = R.drawable.pilot_run_5)
+    val pf6 = ImageBitmap.imageResource(id = R.drawable.pilot_run_6)
+    val pilotFrames = remember(pf1, pf2, pf3, pf4, pf5, pf6) {
+        listOf(pf1, pf2, pf3, pf4, pf5, pf6)
     }
-}
-val frameIdx = frameTick % pilotFrames.size
-val currentFrameImg = pilotFrames[frameIdx]
-   // Continuously scrolling background — sells the sense of forward motion
-val scrollX by infiniteTransition.animateFloat(
-    initialValue = 0f,
-    targetValue = 1000f,
-    animationSpec = infiniteRepeatable(
-        animation = tween(6000, easing = LinearEasing),
-        repeatMode = RepeatMode.Restart
-    ),
-    label = "scrollX"
-) 
 
+    // Drives the run-cycle animation, independent of offsetX/offsetY drifting
+    var frameTick by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(80)
+            frameTick++
+        }
+    }
+    val frameIdx = frameTick % pilotFrames.size
+    val currentFrameImg = pilotFrames[frameIdx]
+
+    // One smooth clock (30 fps) for every backdrop. It is read only inside the draw / layer blocks, so nothing recomposes.
+    val clock = remember { mutableStateOf(0f) }
+    LaunchedEffect(Unit) {
+        var last = 0L
+        while (true) withFrameNanos { n ->
+            if (n - last >= 33_000_000L) { last = n; clock.value = ((n / 1_000_000L) % 3_600_000L) / 1000f }
+        }
+    }
+    val scene by remember { derivedStateOf { ((clock.value % 32f) / 16f).toInt().coerceIn(0, 1) } }
+    val accent = screensaverAccent(tier)
+    val frameShape = RoundedCornerShape(if (tier > 0) 14.dp else 0.dp)
 
     Box(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(frameShape)
+            .then(if (tier > 0) Modifier.border(1.dp, accent.copy(alpha = 0.55f), frameShape) else Modifier),
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val cw = size.width
             val ch = size.height
+            val t = clock.value
 
-           // Draw scrolling stars, two layers for a parallax depth effect
-for (i in 0..50) {
-    val baseX = (i * 73 % 100) / 100f * cw
-    val y = (i * 37 % 100) / 100f * ch
-    val alpha = 0.3f + 0.7f * ((i * 13 % 10) / 10f)
-    val speed = 0.4f + (i % 3) * 0.3f // varying speeds = parallax depth
-    val x = (baseX - scrollX * speed).mod(cw)
-    drawCircle(
-        color = Color.White.copy(alpha = alpha),
-        radius = (1f + (i % 3)).dp.toPx(),
-        center = Offset(x, y)
-    )
-}
+            // the backdrop: brighter classic for everyone, and a two-scene one for each Pro plan
+            drawScreensaverBackdrop(tier, t)
 
-// Scrolling speed-lines to sell velocity
-for (i in 0..8) {
-    val baseX = (i * 137 % 100) / 100f * cw
-    val y = ch * 0.15f + (i * 91 % 100) / 100f * ch * 0.7f
-    val lineSpeed = 1.6f
-    val x = (baseX - scrollX * lineSpeed).mod(cw)
-    drawLine(
-        color = CyberPrimary.copy(alpha = 0.25f),
-        start = Offset(x, y),
-        end = Offset(x + 24f, y),
-        strokeWidth = 2.dp.toPx()
-    )
-} 
-
-            // Draw pilot silhouette
+            // pilot glow and trail, in the plan's colour
             val pilotX = cw / 2f + offsetX
             val pilotY = ch / 2f + offsetY
-
             drawCircle(
-                color = CyberPrimary.copy(alpha = 0.3f),
+                color = accent.copy(alpha = if (tier == 0) 0.50f else 0.38f),
                 radius = 40.dp.toPx(),
                 center = Offset(pilotX, pilotY)
             )
-
-            // Draw trail
             val trailPath = Path().apply {
                 moveTo(pilotX - 60, pilotY)
                 for (i in 1..5) {
@@ -6014,7 +6003,7 @@ for (i in 0..8) {
             }
             drawPath(
                 path = trailPath,
-                color = CyberPrimary.copy(alpha = 0.5f),
+                color = accent.copy(alpha = if (tier == 0) 0.80f else 0.70f),
                 style = Stroke(width = 3.dp.toPx())
             )
         }
@@ -6030,6 +6019,22 @@ for (i in 0..8) {
                 .size(width = displayWidth, height = displayHeight)
                 .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
         )
+
+        // Pro plans: a small badge, and the scene name for a few seconds after each switch
+        if (tier > 0) {
+            Text(
+                text = "★ " + screensaverBadge(tier) + " · " + screensaverSceneName(tier, scene),
+                color = accent,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                letterSpacing = 1.sp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 6.dp)
+                    .graphicsLayer { alpha = screensaverLabelAlpha(clock.value) }
+            )
+        }
     }
 }
 
