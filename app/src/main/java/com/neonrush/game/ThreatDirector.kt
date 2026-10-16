@@ -64,7 +64,7 @@ object ThreatDirector {
             schedule(tick, zone, userY, rand, out, big = true, warnDelta = warnDelta)
         } else if (!busy) {
             // 2.6 s at the start, shrinking to ~1.4 s by zone 40, tighter again with intensity
-            val maxGap = ((22 - (zone / 4).coerceAtMost(8)) / intensity.coerceAtLeast(0.5f)).toInt().coerceIn(10, 40)
+            val maxGap = (((22 - (zone / 4).coerceAtMost(8)) * 1.5f) / intensity.coerceAtLeast(0.5f)).toInt().coerceIn(14, 56)
             if (tick - lastThreatTick >= maxGap) schedule(tick, zone, userY, rand, out, big = false, warnDelta = warnDelta)
         }
         return out
