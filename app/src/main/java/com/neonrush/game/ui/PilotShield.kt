@@ -70,13 +70,17 @@ fun DrawScope.drawPilotShield(layers: Int, x: Float, y: Float, h: Float, w: Floa
     val c2 = if (low) WARN_DEEP else ICE_DEEP
     val hitFlash = if (hitAge < 260L) 1f - hitAge / 260f else 0f
     val breath = 0.5f + 0.5f * sin(t * (if (low) 9f else 3.2f))   // faster pulse = hurry up
+    // The whole shield slowly fades almost away and comes back to its full colour (faster when it is nearly spent).
+    // It never fades during the pop-in or a hit, so those moments stay crisp.
+    val fade = (0.28f + 0.72f * (0.5f + 0.5f * sin(t * (if (low) 4.6f else 2.0f))))
+        .coerceAtLeast(hitFlash).coerceAtLeast(1f - popF)
 
     withTransform({ scale(pop, pop, pivot = center) }) {
         for (i in 0 until layers) {
             val outer = i == layers - 1
             val s = 0.94f + 0.07f * i
             val rr = rx * s
-            val layerAlpha = popAlpha * (if (outer) 1f else 0.7f)
+            val layerAlpha = popAlpha * (if (outer) 1f else 0.7f) * fade
 
             withTransform({ scale(1f, ky, pivot = center) }) {
                 // clear glass: empty in the middle so the pilot, trail and hull stay fully visible, a soft glow only at the edge
@@ -115,8 +119,8 @@ fun DrawScope.drawPilotShield(layers: Int, x: Float, y: Float, h: Float, w: Floa
             if (outer) {
                 honeycomb(center, rx * s, ry * s, h, t, c1, layerAlpha, low)
                 sparks(center, rx * s, ry * s, h, t, c1, layers, layerAlpha)
-                cracks(center, rx * s, ry * s, h, maxL - layers, layerAlpha, c1)
-                shieldCrest(center, rx * s, ry * s, h, c1, c2, layers, maxL, layerAlpha, hitFlash, breath)
+                cracks(center, rx * s, ry * s, h, maxL - layers, popAlpha * (0.55f + 0.45f * fade), c1)
+                shieldCrest(center, rx * s, ry * s, h, c1, c2, layers, maxL, popAlpha * (0.62f + 0.38f * fade), hitFlash, breath)
             }
         }
 
