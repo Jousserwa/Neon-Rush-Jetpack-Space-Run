@@ -4035,19 +4035,24 @@ val bossImagesByWorld = mapOf(
                             when (elem.type) {
                                 "gem" -> {
                                     val pulse = 1f + 0.15f * sin(simState.tickIndex * 0.3f)
-                                    val baseSize = ch * 0.07f * pulse
+                                    val baseSize = ch * 0.083f * pulse
                                     val w = baseSize * (gemImg.width.toFloat() / gemImg.height.toFloat())
                                     val h = baseSize
-                                    drawGemShine(x, y, baseSize)
-                                    drawImage(
-                                        image = gemImg,
-                                        dstOffset = IntOffset((x - w / 2f).roundToInt(), (y - h / 2f).roundToInt()),
-                                        dstSize = IntSize(w.roundToInt(), h.roundToInt())
-                                    )
+                                    val gemY = y + sin(fxClock.value * 3f + x * 0.01f) * ch * 0.008f
+                                    drawGemShine(x, gemY, baseSize)
+                                    // the diamond turns on its axis like a spinning coin
+                                    val spin = kotlin.math.abs(cos(fxClock.value * 2.4f + x * 0.02f)).coerceAtLeast(0.32f)
+                                    withTransform({ scale(spin, 1f, pivot = Offset(x, gemY)) }) {
+                                        drawImage(
+                                            image = gemImg,
+                                            dstOffset = IntOffset((x - w / 2f).roundToInt(), (gemY - h / 2f).roundToInt()),
+                                            dstSize = IntSize(w.roundToInt(), h.roundToInt())
+                                        )
+                                    }
                                 }
                                 "fuel" -> {
                                     val angle = (simState.tickIndex * 6f) % 360f
-                                    val baseSize = ch * 0.075f
+                                    val baseSize = ch * 0.09f
                                     drawPickupHalo("FUEL", x, y, baseSize, simState.tickIndex)
                                     val w = baseSize * (coinImg.width.toFloat() / coinImg.height.toFloat())
                                     rotate(degrees = angle, pivot = Offset(x, y)) {
@@ -4075,7 +4080,7 @@ val bossImagesByWorld = mapOf(
         else -> puScoreX2Img
     }
     val pulse = 1f + 0.15f * sin(simState.tickIndex * 0.3f)
-    val baseSize = ch * 0.095f * pulse
+    val baseSize = ch * 0.112f * pulse
     drawPickupHalo(elem.subType, x, y, baseSize, simState.tickIndex)
     val w = baseSize * (puImg.width.toFloat() / puImg.height.toFloat())
     drawImage(
@@ -4090,31 +4095,31 @@ val bossImagesByWorld = mapOf(
                                         "PILLAR_TOP" -> {
                                             drawRect(
                                                 color = obsColor,
-                                                topLeft = Offset(x - cw * 0.029f, 0f),
-                                                size = Size(cw * 0.058f, y)
+                                                topLeft = Offset(x - cw * 0.034f, 0f),
+                                                size = Size(cw * 0.068f, y)
                                             )
                                             drawRect(
                                                 color = Color.White.copy(alpha = 0.4f),
-                                                topLeft = Offset(x - cw * 0.029f, 0f),
-                                                size = Size(cw * 0.058f, y),
+                                                topLeft = Offset(x - cw * 0.034f, 0f),
+                                                size = Size(cw * 0.068f, y),
                                                 style = Stroke(1.dp.toPx())
                                             )
                                         }
                                         "PILLAR_BOTTOM" -> {
                                             drawRect(
                                                 color = obsColor,
-                                                topLeft = Offset(x - cw * 0.029f, y),
-                                                size = Size(cw * 0.058f, ch - y)
+                                                topLeft = Offset(x - cw * 0.034f, y),
+                                                size = Size(cw * 0.068f, ch - y)
                                             )
                                             drawRect(
                                                 color = Color.White.copy(alpha = 0.4f),
-                                                topLeft = Offset(x - cw * 0.029f, y),
-                                                size = Size(cw * 0.058f, ch - y),
+                                                topLeft = Offset(x - cw * 0.034f, y),
+                                                size = Size(cw * 0.068f, ch - y),
                                                 style = Stroke(1.dp.toPx())
                                             )
                                         }
                                         "STALACTITE" -> {
-                                            val baseSize = ch * 0.105f
+                                            val baseSize = ch * 0.124f
                                             val w = baseSize * (spikesFlippedImg.width.toFloat() / spikesFlippedImg.height.toFloat())
                                             val glowPulse = 0.7f + 0.3f * sin(simState.tickIndex * 0.4f)
                                             drawImage(
@@ -4125,7 +4130,7 @@ val bossImagesByWorld = mapOf(
                                             )
                                         }
                                         "STALAGMITE" -> {
-                                            val baseSize = ch * 0.105f
+                                            val baseSize = ch * 0.124f
                                             val w = baseSize * (spikesImg.width.toFloat() / spikesImg.height.toFloat())
                                             val glowPulse = 0.7f + 0.3f * sin(simState.tickIndex * 0.4f)
                                             drawImage(
@@ -4137,7 +4142,7 @@ val bossImagesByWorld = mapOf(
                                         }
                                         "LASER" -> {
                                             val glowPulse = 0.6f + 0.4f * sin(simState.tickIndex * 0.5f)
-                                            val h = ch * 0.25f
+                                            val h = ch * 0.295f
                                             val w = h * (laserImg.width.toFloat() / laserImg.height.toFloat())
                                             drawImage(
                                                 image = laserImg,
@@ -4148,7 +4153,7 @@ val bossImagesByWorld = mapOf(
                                         }
                                         "BLADE" -> {
                                             val angle = (simState.tickIndex * 12f) % 360f
-                                            val size = ch * 0.095f
+                                            val size = ch * 0.112f
                                             rotate(degrees = angle, pivot = Offset(x, y)) {
                                                 drawImage(
                                                     image = sawbladeImg,
@@ -4158,7 +4163,7 @@ val bossImagesByWorld = mapOf(
                                             }
                                         }
                                         "BARRIER" -> {
-                                            val baseSize = ch * 0.185f
+                                            val baseSize = ch * 0.218f
                                             val w = baseSize * (barrierImg.width.toFloat() / barrierImg.height.toFloat())
                                             drawImage(
                                                 image = barrierImg,
@@ -4168,7 +4173,7 @@ val bossImagesByWorld = mapOf(
                                         }
                                         "ZAP_FIELD" -> {
                                             val glowPulse = 0.6f + 0.4f * sin(simState.tickIndex * 0.5f)
-                                            val baseSize = ch * 0.175f
+                                            val baseSize = ch * 0.206f
                                             val w = baseSize * (zapFieldImg.width.toFloat() / zapFieldImg.height.toFloat())
                                             drawImage(
                                                 image = zapFieldImg,
@@ -4180,7 +4185,7 @@ val bossImagesByWorld = mapOf(
                                         "PHANTOM" -> {
                                             val bob = sin(simState.tickIndex * 0.2f) * ch * 0.015f
                                             val flicker = 0.5f + 0.5f * sin(simState.tickIndex * 0.3f)
-                                            val baseSize = ch * 0.185f
+                                            val baseSize = ch * 0.218f
                                             val w = baseSize * (phantomImg.width.toFloat() / phantomImg.height.toFloat())
                                             drawImage(
                                                 image = phantomImg,
@@ -4191,7 +4196,7 @@ val bossImagesByWorld = mapOf(
                                         }
                                         "SPLITTER" -> {
                                             val angle = (simState.tickIndex * 8f) % 360f
-                                            val baseSize = ch * 0.15f
+                                            val baseSize = ch * 0.177f
                                             val w = baseSize * (splitterImg.width.toFloat() / splitterImg.height.toFloat())
                                             rotate(degrees = angle, pivot = Offset(x, y)) {
                                                 drawImage(
@@ -4202,7 +4207,7 @@ val bossImagesByWorld = mapOf(
                                             }
                                         }
                                         "TUNNEL_TOP" -> {
-                                            val baseSize = ch * 0.20f
+                                            val baseSize = ch * 0.236f
                                             val w = baseSize * (tunnelTopImg.width.toFloat() / tunnelTopImg.height.toFloat())
                                             drawImage(
                                                 image = tunnelTopImg,
@@ -4211,7 +4216,7 @@ val bossImagesByWorld = mapOf(
                                             )
                                         }
                                         "TUNNEL_BOTTOM" -> {
-                                            val baseSize = ch * 0.20f
+                                            val baseSize = ch * 0.236f
                                             val w = baseSize * (tunnelBottomImg.width.toFloat() / tunnelBottomImg.height.toFloat())
                                             drawImage(
                                                 image = tunnelBottomImg,
@@ -4227,7 +4232,7 @@ val bossImagesByWorld = mapOf(
                                             val phase = ((simState.tickIndex - spawnTick) % cycleLength + cycleLength) % cycleLength
                                             val isVisible = phase < 8
                                             val hazardColor = hexToColor(simState.zoneDNA.environmentColor)
-                                            val baseSize = ch * 0.15f
+                                            val baseSize = ch * 0.177f
                                             // All 5 variants now have real generated creature art.
                                             val creatureImg = when (kindIdx) {
                                                 0 -> blinkWolfImg
@@ -4345,7 +4350,7 @@ val bossImagesByWorld = mapOf(
                                             // read as a small tracking machine
                                             // rather than a static obstacle.
                                             val bob = sin(simState.tickIndex * 0.35f) * ch * 0.02f
-                                            val baseSize = ch * 0.15f
+                                            val baseSize = ch * 0.177f
                                             val w = baseSize * (droneImg.width.toFloat() / droneImg.height.toFloat())
                                             val droneY = y - baseSize / 2f + bob
                                             // Thruster trail streaking behind it (toward the right, where it
@@ -4374,7 +4379,7 @@ val bossImagesByWorld = mapOf(
                                         }
                                         else -> {
                                             val bob = sin(simState.tickIndex * 0.2f) * ch * 0.015f
-                                            val baseSize = ch * 0.16f
+                                            val baseSize = ch * 0.189f
                                             val w = baseSize * (standardImg.width.toFloat() / standardImg.height.toFloat())
                                             drawImage(
                                                 image = standardImg,
@@ -4389,7 +4394,7 @@ val bossImagesByWorld = mapOf(
         // Small glowing energy bolt with a motion trail, distinct from the
         // boss's bullet sprite — reads as "fast small threat" at a glance.
         val boltColor = Color(0xFF00E5FF)
-        val boltLen = ch * 0.045f
+        val boltLen = ch * 0.053f
         drawLine(
             color = boltColor.copy(alpha = 0.35f),
             start = Offset(x + boltLen * 1.6f, y),
@@ -4399,7 +4404,7 @@ val bossImagesByWorld = mapOf(
         drawCircle(color = boltColor.copy(alpha = 0.9f), radius = ch * 0.014f, center = Offset(x, y))
         drawCircle(color = Color.White.copy(alpha = 0.8f), radius = ch * 0.006f, center = Offset(x, y))
     } else {
-        val baseSize = ch * 0.07f
+        val baseSize = ch * 0.082f
         val w = baseSize * (bulletImg.width.toFloat() / bulletImg.height.toFloat())
         // Tapered tracer trail — thicker near the bullet, fading to a point
         // behind it. No soft glow halo: it should read as a sharp, fast
@@ -4422,7 +4427,7 @@ val bossImagesByWorld = mapOf(
                         }
 
                         // obstacles breaking and items bursting where they were hit / collected
-                        drawWorldReactions(cw, ch)
+                        drawWorldReactions(cw, ch, textMeasurer)
 
                         for (p in simState.particles) {
                             val px = cw * p.x
@@ -4717,18 +4722,42 @@ val bossImagesByWorld = mapOf(
         )
     }
     
-    FuelBar(
-    fuelPercent = simState.fuelLevelPercent,
-    refillCount = simState.fuelRefillCount,
-    isPro = isPro,
-    cost = viewModel.fuelRefillCostForCurrentRun(),
-    onRefuel = { viewModel.refuelWithGems(isPro) },
-    onFuelTierChanged = { tier -> viewModel.onFuelTierChanged(tier) },
-    highlight = simState.hint.lesson == "LOWFUEL",
-    modifier = Modifier
-        .weight(0.7f)
-        .fillMaxHeight()
-)
+    Box(modifier = Modifier.weight(0.7f).fillMaxHeight()) {
+        // a fuel cell visibly lands in the bar: green flash, "+18%" floating up
+        val fuelKey = if (PickupFx.lastId == "FUEL") PickupFx.lastMs else 0L
+        val fuelPulse = remember { Animatable(0f) }
+        LaunchedEffect(fuelKey) { if (fuelKey != 0L) { fuelPulse.snapTo(1f); fuelPulse.animateTo(0f, tween(1000)) } }
+        FuelBar(
+            fuelPercent = simState.fuelLevelPercent,
+            refillCount = simState.fuelRefillCount,
+            isPro = isPro,
+            cost = viewModel.fuelRefillCostForCurrentRun(),
+            onRefuel = { viewModel.refuelWithGems(isPro) },
+            onFuelTierChanged = { tier -> viewModel.onFuelTierChanged(tier) },
+            highlight = simState.hint.lesson == "LOWFUEL" || fuelPulse.value > 0.05f,
+            modifier = Modifier.fillMaxSize()
+        )
+        if (fuelPulse.value > 0.01f) {
+            val gfx = Color(0xFF00FF88)
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(gfx.copy(alpha = 0.22f * fuelPulse.value), RoundedCornerShape(12.dp))
+                    .border(2.dp, gfx.copy(alpha = fuelPulse.value), RoundedCornerShape(12.dp))
+            )
+            Text(
+                "+${ReactFx.FUEL_PICKUP_PCT}% ⛽",
+                color = gfx,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Black,
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = (-4f - 22f * (1f - fuelPulse.value)).dp)
+                    .graphicsLayer { alpha = fuelPulse.value }
+            )
+        }
+    }
 }
 }
         StoryBannerHost(viewModel.storyEvent, Modifier.align(Alignment.BottomCenter))
@@ -5250,6 +5279,19 @@ fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
                 FeelToggleRow("Screen shake on near-misses", NearMissFx.shakeOn) { viewModel.setNearMissShake(it) }
                 FeelToggleRow("Edge flash on near-misses", NearMissFx.flashOn) { viewModel.setNearMissFlash(it) }
             }
+        }
+
+        if (TESTING_DISABLE_PRO_GATE) {
+            var showLab by remember { mutableStateOf(false) }
+            Button(
+                onClick = { showLab = true },
+                colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth().border(1.dp, Color(0xFFFFD54F).copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+            ) {
+                Text("\uD83E\uDDEA REACTION LAB (testing)", color = Color(0xFFFFD54F), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+            }
+            if (showLab) ReactionLabDialog(onClose = { showLab = false })
         }
 
         val supportCtx = LocalContext.current
@@ -5968,13 +6010,9 @@ fun NeonPilotScreensaver(tier: Int = 0) {
     }
     val scene by remember { derivedStateOf { ((clock.value % 32f) / 16f).toInt().coerceIn(0, 1) } }
     val accent = screensaverAccent(tier)
-    val frameShape = RoundedCornerShape(if (tier > 0) 14.dp else 0.dp)
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clip(frameShape)
-            .then(if (tier > 0) Modifier.border(1.dp, accent.copy(alpha = 0.55f), frameShape) else Modifier),
+        modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -5988,11 +6026,8 @@ fun NeonPilotScreensaver(tier: Int = 0) {
             // pilot glow and trail, in the plan's colour
             val pilotX = cw / 2f + offsetX
             val pilotY = ch / 2f + offsetY
-            drawCircle(
-                color = accent.copy(alpha = if (tier == 0) 0.50f else 0.38f),
-                radius = 40.dp.toPx(),
-                center = Offset(pilotX, pilotY)
-            )
+            // soft light around the pilot (no hard disc), so nothing looks boxed
+            fxGlow(Offset(pilotX, pilotY), 78.dp.toPx(), accent, if (tier == 0) 0.55f else 0.45f)
             val trailPath = Path().apply {
                 moveTo(pilotX - 60, pilotY)
                 for (i in 1..5) {
@@ -6019,6 +6054,16 @@ fun NeonPilotScreensaver(tier: Int = 0) {
                 .size(width = displayWidth, height = displayHeight)
                 .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
         )
+
+        if (TESTING_DISABLE_PRO_GATE) {
+            Text(
+                text = "TEST · tap to switch · now: " + listOf("FREE", "MONTHLY", "ANNUAL")[tier.coerceIn(0, 2)],
+                color = Color.White.copy(alpha = 0.55f),
+                fontSize = 8.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 2.dp)
+            )
+        }
 
         // Pro plans: a small badge, and the scene name for a few seconds after each switch
         if (tier > 0) {
