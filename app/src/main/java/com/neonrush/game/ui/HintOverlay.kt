@@ -125,7 +125,7 @@ fun HintOverlay(
                 animationSpec = infiniteRepeatable(tween(800, easing = LinearEasing), RepeatMode.Restart),
                 label = "ringPulse"
             )
-            val ringColor = if (lesson == "DODGE") HintOrange else HintGreen
+            val ringColor = when (lesson) { "DODGE" -> HintOrange; "SHIELD" -> Color(0xFF5CE1FF); else -> HintGreen }
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val c = Offset(size.width * hint.targetX, size.height * (hint.targetY / 100f))
                 val base = 24.dp.toPx()
