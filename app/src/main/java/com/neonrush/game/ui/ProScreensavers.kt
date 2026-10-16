@@ -3,6 +3,7 @@ package com.neonrush.game.ui
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
@@ -54,11 +55,16 @@ fun screensaverLabelAlpha(t: Float): Float {
 }
 
 fun DrawScope.drawScreensaverBackdrop(tier: Int, t: Float) {
+    if (tier == 0) { freeScene(t); return }
+    // Draw the scene in its own layer, then fade all four edges to nothing, so it melts into the home screen instead of sitting in a box.
+    drawIntoCanvas { cv -> cv.saveLayer(Rect(0f, 0f, size.width, size.height), Paint()) }
     when (tier) {
         1 -> twoScenes(t, { monthlyNebula(t) }, { monthlyAurora(t) })
-        2 -> twoScenes(t, { annualSupernova(t) }, { annualWarp(t) })
-        else -> freeScene(t)
+        else -> twoScenes(t, { annualSupernova(t) }, { annualWarp(t) })
     }
+    drawRect(Brush.verticalGradient(0f to Color.Transparent, 0.24f to Color.Black, 0.76f to Color.Black, 1f to Color.Transparent), size = size, blendMode = BlendMode.DstIn)
+    drawRect(Brush.horizontalGradient(0f to Color.Transparent, 0.12f to Color.Black, 0.88f to Color.Black, 1f to Color.Transparent), size = size, blendMode = BlendMode.DstIn)
+    drawIntoCanvas { cv -> cv.restore() }
 }
 
 /** Scene A for 16 s, a 2 s cross-fade, scene B for 16 s, a 2 s cross-fade back... */
