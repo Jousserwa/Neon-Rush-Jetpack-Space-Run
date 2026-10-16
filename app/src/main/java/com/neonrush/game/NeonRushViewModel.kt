@@ -7,6 +7,7 @@ import com.neonrush.game.db.GameDao
 import com.neonrush.game.ui.HullFx
 import com.neonrush.game.ui.PilotShieldFx
 import com.neonrush.game.ui.PickupFx
+import com.neonrush.game.ui.ReactFx
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.tasks.await
 import com.neonrush.game.db.GameProfile
@@ -1482,7 +1483,7 @@ fun startFromCheckpoint(checkpointZone: Int) {
 
 fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = null, startFromZone: Int = 1) {
     simJob?.cancel()
-    HullFx.reset(); PilotShieldFx.reset(); PickupFx.reset(); if (selectedDifficulty == DifficultyTier.EASY) PilotShieldFx.onGain(EASY_SHIELD_LAYERS); hangar.onRunStart(profile.value?.activeSkinId ?: "cyan_diamond"); ThreatDirector.reset(); resetStoryProgress(); seasonPass.tierTokenMult = selectedDifficulty.tokenMult; seasonPass.onRunStart()
+    HullFx.reset(); PilotShieldFx.reset(); PickupFx.reset(); ReactFx.reset(); if (selectedDifficulty == DifficultyTier.EASY) PilotShieldFx.onGain(EASY_SHIELD_LAYERS); hangar.onRunStart(profile.value?.activeSkinId ?: "cyan_diamond"); ThreatDirector.reset(); resetStoryProgress(); seasonPass.tierTokenMult = selectedDifficulty.tokenMult; seasonPass.onRunStart()
     var startupDna = ZoneGenerator.generateZone(startFromZone, 42)
     if (specialWorldId != null) startupDna = overrideEnvironment(startupDna, specialWorldId)
     val todayMutation = DailyMutations.getActiveMutation()
@@ -1841,6 +1842,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                             when (elem.type) {
                                 "gem" -> {
                                     soundEngine.playGemCollect()
+                                    ReactFx.collect("gem", "", elem.xOffsetFraction, elem.yMatchPos)
                                     gemsGathered += 1
                                     HullFx.gemTick = tick; hangar.onGem(prof.activeSkinId); seasonPass.onToken(SeasonPass.TOKENS_GEM)
                                       repeat(6) { i ->
@@ -1861,7 +1863,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 "fuel" -> {
                                     soundEngine.playTone(523f, 80, "sine")
                                     fuelLevelState = (fuelLevelState + 18).coerceAtMost(100)
-                                    PickupFx.onPickup("FUEL")
+                                    PickupFx.onPickup("FUEL"); ReactFx.collect("fuel", "", elem.xOffsetFraction, elem.yMatchPos)
                                     repeat(6) { i ->
                                         activeParticles.add(
                                             Particle(
@@ -1881,7 +1883,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                     soundEngine.playShieldPowerup()
                                     puPickedThisTick++
                                     val puId = elem.subType
-                                    PickupFx.onPickup(puId)
+                                    PickupFx.onPickup(puId); ReactFx.collect("pu", puId, elem.xOffsetFraction, elem.yMatchPos)
                                     if (puId == "PU8") {
                                         boomClearTriggered = true
                                         updatedMsg = "BOOM CLEAR! PATH AHEAD WIPED!"
@@ -1941,8 +1943,11 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
     val hasReviveShield = tick < state.shieldUntilTick
     val isUnstoppableHazard = elem.subType == "BLINK_HAZARD"
     if (hasReviveShield) {
+                                        ReactFx.obstacle(elem.subType, "SHIELD", elem.xOffsetFraction, elem.yMatchPos)
                                     } else if ((hasInvincibility || hasGhostMode) && !isUnstoppableHazard) {
+                                        ReactFx.obstacle(elem.subType, if (hasInvincibility) "SMASH" else "PHASE", elem.xOffsetFraction, elem.yMatchPos)
                                     } else if (hasShield && !isUnstoppableHazard) {
+                                        ReactFx.obstacle(elem.subType, "SHIELD", elem.xOffsetFraction, elem.yMatchPos)
                                         soundEngine.playShieldBreak()
                                         nextDurationsMap.remove("PU1")
                                         hasShield = false
@@ -1950,6 +1955,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                     } else if (shieldLayersState > 0 && (kidMode || !isUnstoppableHazard)) {
                                         shieldLayersState--
                                         shieldHitThisTick = true
+                                        ReactFx.obstacle(elem.subType, "SHIELD", elem.xOffsetFraction, elem.yMatchPos)
                                         PilotShieldFx.onHit()
                                         soundEngine.playShieldBreak()
                                         updatedMsg = if (shieldLayersState > 0) "SHIELD HELD! $shieldLayersState LEFT" else "SHIELD BROKEN! FLY CAREFULLY"
@@ -1958,6 +1964,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         }
                                     } else {
                                         soundEngine.playCollision()
+                                        ReactFx.obstacle(elem.subType, "HIT", elem.xOffsetFraction, elem.yMatchPos)
                                         fuelLevelState = (fuelLevelState - (if (kidMode) 12 else 20 - (10 * assist).toInt())).coerceAtLeast(0)
                                         updatedMsg = if (isUnstoppableHazard) "BLINK STRIKE HIT: NO SHIELD CAN STOP IT" else "WARNING: IMPACT DETECTED! HULL INTEGRITY LOST"
                                         hitObstaclesHistory.add(elem.subType)
@@ -2023,6 +2030,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     // Clear obstacles/bullets in the path immediately ahead
                     // of the player — a real "boom clear" effect, not just
                     // a themed name with nothing behind it.
+                    finalElements.filter { (it.type == "obstacle" || it.type == "bullet") && it.xOffsetFraction in 0.05f..0.6f }
+                        .forEach { ReactFx.obstacle(it.subType, "BOOM", it.xOffsetFraction, it.yMatchPos) }
                     finalElements.removeAll {
                         (it.type == "obstacle" || it.type == "bullet") && it.xOffsetFraction in 0.05f..0.6f
                     }
@@ -2663,6 +2672,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                             when (elem.type) {
                                 "gem" -> {
                                     soundEngine.playGemCollect()
+                                    ReactFx.collect("gem", "", elem.xOffsetFraction, elem.yMatchPos)
                                     gemsGathered += 1
                                     HullFx.gemTick = tick; hangar.onGem(prof.activeSkinId); seasonPass.onToken(SeasonPass.TOKENS_GEM)
                                     repeat(6) { i ->
@@ -2683,7 +2693,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 "fuel" -> {
                                     soundEngine.playTone(523f, 80, "sine")
                                     fuelLevelState = (fuelLevelState + 18).coerceAtMost(100)
-                                    PickupFx.onPickup("FUEL")
+                                    PickupFx.onPickup("FUEL"); ReactFx.collect("fuel", "", elem.xOffsetFraction, elem.yMatchPos)
                                     repeat(6) { i ->
                                         activeParticles.add(
                                             Particle(
@@ -2703,7 +2713,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                     soundEngine.playShieldPowerup()
                                     puPickedThisTick++
                                     val puId = elem.subType
-                                    PickupFx.onPickup(puId)
+                                    PickupFx.onPickup(puId); ReactFx.collect("pu", puId, elem.xOffsetFraction, elem.yMatchPos)
                                     repeat(8) { i ->
                                         activeParticles.add(
                                             Particle(
@@ -2759,7 +2769,9 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                 "obstacle", "bullet" -> {
                                     val isUnstoppableHazard = elem.subType == "BLINK_HAZARD"
                                     if ((hasInvincibility || hasGhostMode) && !isUnstoppableHazard) {
+                                        ReactFx.obstacle(elem.subType, if (hasInvincibility) "SMASH" else "PHASE", elem.xOffsetFraction, elem.yMatchPos)
                                     } else if (hasShield && !isUnstoppableHazard) {
+                                        ReactFx.obstacle(elem.subType, "SHIELD", elem.xOffsetFraction, elem.yMatchPos)
                                         soundEngine.playShieldBreak()
                                         nextDurationsMap.remove("PU1")
                                         hasShield = false
@@ -2767,6 +2779,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                     } else if (shieldLayersState > 0 && (kidMode || !isUnstoppableHazard)) {
                                         shieldLayersState--
                                         shieldHitThisTick = true
+                                        ReactFx.obstacle(elem.subType, "SHIELD", elem.xOffsetFraction, elem.yMatchPos)
                                         PilotShieldFx.onHit()
                                         soundEngine.playShieldBreak()
                                         updatedMsg = if (shieldLayersState > 0) "SHIELD HELD! $shieldLayersState LEFT" else "SHIELD BROKEN! FLY CAREFULLY"
@@ -2775,6 +2788,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         }
                                     } else {
                                         soundEngine.playCollision()
+                                        ReactFx.obstacle(elem.subType, "HIT", elem.xOffsetFraction, elem.yMatchPos)
                                         fuelLevelState = (fuelLevelState - (if (kidMode) 12 else 20 - (10 * assist).toInt())).coerceAtLeast(0)
                                         updatedMsg = if (isUnstoppableHazard) "BLINK STRIKE HIT: NO SHIELD CAN STOP IT" else "IMPACT IMPACT!"
                                         hitThisTick = true
@@ -2839,6 +2853,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     // Clear obstacles/bullets in the path immediately ahead
                     // of the player — a real "boom clear" effect, not just
                     // a themed name with nothing behind it.
+                    finalElements.filter { (it.type == "obstacle" || it.type == "bullet") && it.xOffsetFraction in 0.05f..0.6f }
+                        .forEach { ReactFx.obstacle(it.subType, "BOOM", it.xOffsetFraction, it.yMatchPos) }
                     finalElements.removeAll {
                         (it.type == "obstacle" || it.type == "bullet") && it.xOffsetFraction in 0.05f..0.6f
                     }
