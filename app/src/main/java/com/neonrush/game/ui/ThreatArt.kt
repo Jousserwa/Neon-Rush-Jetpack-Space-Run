@@ -52,9 +52,9 @@ internal fun DrawScope.drawThreat(
             }
             return true
         }
-        "FIRE_WALL" -> { drawFlame(x, y, ch * 0.17f, time, elem.id.hashCode()); return true }
+        "FIRE_WALL" -> { drawFlame(x, y, ch * 0.20f, time, elem.id.hashCode()); return true }
         "LAVA_BALL" -> {
-            val r = ch * 0.045f
+            val r = ch * 0.053f
             val c = Color(0xFFFF5A1F)
             // ember trail
             for (i in 1..4) drawCircle(c.copy(alpha = 0.35f - i * 0.07f), r * (1f - i * 0.15f), Offset(x + i * r * 0.9f, y - sin(t * 0.45f + i) * r * 0.3f))
@@ -67,7 +67,7 @@ internal fun DrawScope.drawThreat(
             val parts = elem.id.split("_")
             if ((parts.getOrNull(3)?.toIntOrNull() ?: 0) != 0) return true
             val seed = (parts.getOrNull(2) ?: elem.id).hashCode()
-            val half = cw * 0.075f
+            val half = cw * 0.088f
             if (elem.subType == "MOUNTAIN_BOTTOM") drawMountain(x, y - ch * 0.10f, ch, half, seed, time, ch, false)
             else scale(1f, -1f, Offset(0f, ch / 2f)) { drawMountain(x, ch - (y + ch * 0.10f), ch, half, seed, time, ch, true) }
             return true
