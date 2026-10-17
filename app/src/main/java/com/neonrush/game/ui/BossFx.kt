@@ -5,15 +5,21 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
@@ -256,97 +262,90 @@ fun DrawScope.drawBossFront(world: Int, c: Offset, h: Float, t: Float, hp: Float
 
 // ================================================================================================================ boss shots
 
-/** One boss projectile, flying to the left (its trail is on the right). [ch] = screen height, [seed] differs per bullet. */
-fun DrawScope.drawBossShot(world: Int, x: Float, y: Float, ch: Float, t: Float, seed: Int) {
-    val s = ch * 0.062f
+/**
+ * One boss projectile, flying to the left. It is the real bullet asset ([img]: a crystal spear with a rune vortex at its tail),
+ * made alive: glow aura, tinted after-images, a streaming energy tail with sparks, spinning rune rings round the vortex,
+ * a glint on the tip and a tiny shake. [ch] = screen height, [seed] differs per bullet, [world] only tints the energy.
+ */
+fun DrawScope.drawBossShot(world: Int, x: Float, y: Float, ch: Float, t: Float, seed: Int, img: ImageBitmap) {
     val col = bxCol(world)
-    val ph = (seed and 15) * 0.7f
-    // air-streaks racing past it and a shock ring ahead of it: it reads as fast and heavy, not as a floating sprite
-    for (k in 0 until 4) {
-        val off = (fxRnd(seed, k + 60) - 0.5f) * s * 1.6f
-        val len = s * (1.4f + 1.6f * fxRnd(seed, k + 70))
-        val sx = x + s * 0.6f + ((t * 9f + fxRnd(seed, k + 80)) % 1f) * s * 1.2f
-        drawLine(col.copy(alpha = 0.35f), Offset(sx, y + off), Offset(sx + len, y + off), strokeWidth = s * 0.03f, cap = StrokeCap.Round)
+    val hot = Color(0xFFFF2BD6)
+    val H = ch * 0.10f
+    val W = H * (img.width.toFloat() / img.height.toFloat())
+    val ph = (seed and 31) * 0.5f
+    val jx = sin(t * 47f + ph) * H * 0.012f
+    val jy = sin(t * 39f + ph) * H * 0.014f
+    val pulse = 0.5f + 0.5f * sin(t * 13f + ph)
+    val sc = 1f + 0.035f * sin(t * 17f + ph)
+    val cx = x + jx
+    val cy = y + jy
+    // after rotating the art by 23 degrees its spear points straight left: tip at -1.03H, rune vortex at +0.47H, axis +0.07H below centre
+    val axisY = cy + H * 0.07f
+    val vx = cx + H * 0.47f
+    val tipX = cx - H * 1.03f
+
+    // 1. the streaming energy tail behind the vortex
+    for (k in 0 until 3) {
+        val len = H * (2.0f + 0.8f * k)
+        val wob = sin(t * 11f + k * 2f + ph) * H * 0.05f
+        drawLine(
+            Brush.horizontalGradient(listOf(hot.copy(alpha = 0.5f - 0.12f * k), Color.Transparent), startX = vx, endX = vx + len),
+            Offset(vx, axisY + (k - 1) * H * 0.12f), Offset(vx + len, axisY + (k - 1) * H * 0.12f + wob),
+            strokeWidth = H * (0.11f - 0.025f * k), cap = StrokeCap.Round, blendMode = BlendMode.Plus
+        )
     }
-    drawCircle(col.copy(alpha = 0.35f), s * (0.9f + 0.25f * sin(t * 14f + ph)), Offset(x - s * 0.15f, y), style = Stroke(width = s * 0.04f))
-    when (world) {
-        1 -> { // a ball of darkness with smoke and one angry light
-            for (k in 1..4) drawCircle(Color.Black.copy(alpha = 0.4f - k * 0.07f), s * (0.8f - k * 0.1f), Offset(x + k * s * 0.55f, y + sin(t * 8f + k + ph) * s * 0.2f))
-            drawCircle(Brush.radialGradient(listOf(Color.Black, Color(0xFF2A1055), Color.Transparent), center = Offset(x, y), radius = s * 1.3f), s * 1.3f, Offset(x, y))
-            drawCircle(col.copy(alpha = 0.8f), s * 0.95f, Offset(x, y), style = Stroke(width = s * 0.07f))
-            if (fxRnd((t * 14f).toInt(), seed) > 0.3f) fxGlow(Offset(x - s * 0.2f, y), s * 0.35f, Color.White, 1f)
+    // 2. sparks and shards shed from the vortex, flying back past the bullet
+    for (k in 0 until 9) {
+        val f = ((t * (1.6f + 0.25f * (k % 3)) + fxRnd(seed, k + 3)) % 1f)
+        val px = vx + f * H * 2.6f
+        val py = axisY + (fxRnd(seed, k + 11) - 0.5f) * H * 0.9f * (0.3f + f)
+        val a = (1f - f) * 0.9f
+        if (k % 3 == 0) fxShard(Offset(px, py), H * 0.045f, t * 8f + k, if (k % 2 == 0) hot else Color.White, a)
+        else drawCircle((if (k % 2 == 0) hot else col).copy(alpha = a), H * 0.022f * (1f - f * 0.5f), Offset(px, py), blendMode = BlendMode.Plus)
+    }
+    // 3. tinted after-images, so it reads as fast
+    for (k in 3 downTo 1) {
+        withTransform({ translate(H * 0.34f * k, H * 0.02f * k); rotate(23f, Offset(cx, cy)); scale(sc, sc, Offset(cx, cy)) }) {
+            drawImage(
+                image = img,
+                dstOffset = IntOffset((cx - W / 2f).roundToInt(), (cy - H / 2f).roundToInt()),
+                dstSize = IntSize(W.roundToInt(), H.roundToInt()),
+                alpha = 0.22f / k,
+                colorFilter = ColorFilter.tint(hot, BlendMode.SrcAtop)
+            )
         }
-        2 -> { // sonar pulse: arcs spreading ahead of a bright core
-            for (k in 0 until 3) {
-                val f = ((t * 1.8f + k / 3f + ph) % 1f)
-                val r = s * (0.4f + 1.1f * f)
-                val path = Path().apply { arcTo(androidx.compose.ui.geometry.Rect(x - r - s * 0.3f, y - r, x + r - s * 0.3f, y + r), 140f, 80f, true) }
-                drawPath(path, col.copy(alpha = 1f - f), style = Stroke(width = s * 0.1f, cap = StrokeCap.Round))
-            }
-            fxGlow(Offset(x, y), s * 1.0f, col, 0.7f)
-            drawCircle(Color.White, s * 0.28f, Offset(x, y))
-            drawLine(col.copy(alpha = 0.35f), Offset(x, y), Offset(x + s * 2.4f, y), strokeWidth = s * 0.06f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(s * 0.3f, s * 0.2f)))
-        }
-        3 -> { // electrified shackle: a spinning bar with a cross, sparking
-            fxGlow(Offset(x, y), s * 1.2f, col, 0.5f)
-            rotate(t * 420f + ph * 20f, Offset(x, y)) {
-                drawRect(Color.White.copy(alpha = 0.95f), Offset(x - s * 0.8f, y - s * 0.11f), Size(s * 1.6f, s * 0.22f))
-                drawRect(col, Offset(x - s * 0.11f, y - s * 0.8f), Size(s * 0.22f, s * 1.6f))
-            }
-            drawCircle(col, s * 0.35f, Offset(x, y), style = Stroke(width = s * 0.08f))
-            fxBolt(Offset(x, y), Offset(x + s * 1.9f, y + sin(t * 20f) * s * 0.4f), (t * 20f).toInt() + seed, col, s * 0.07f, 0.8f, 0.2f)
-        }
-        4 -> { // spore pod: pulsing, spiky, dripping
-            val pulse = 1f + 0.18f * sin(t * 10f + ph)
-            fxGlow(Offset(x, y), s * 1.25f, col, 0.5f)
-            for (k in 0 until 8) {
-                val a = k * (BTAU / 8f) + t * 2f
-                drawLine(Color(0xFF1B5E20), Offset(x + cos(a) * s * 0.5f, y + sin(a) * s * 0.5f), Offset(x + cos(a) * s * 0.85f * pulse, y + sin(a) * s * 0.85f * pulse), strokeWidth = s * 0.12f, cap = StrokeCap.Round)
-            }
-            drawCircle(col, s * 0.55f * pulse, Offset(x, y))
-            drawCircle(Color(0xFFE8FFC0), s * 0.2f, Offset(x - s * 0.12f, y - s * 0.12f))
-            for (k in 1..3) drawCircle(col.copy(alpha = 0.6f - k * 0.15f), s * 0.16f, Offset(x + k * s * 0.6f, y + sin(t * 7f + k * 1.5f) * s * 0.35f))
-        }
-        5 -> { // glitch dart: red arrow with cyan ghost and scan slices
-            val j = if (fxRnd((t * 20f).toInt(), seed) > 0.8f) s * 0.15f else 0f
-            fun dart(ox: Float, oy: Float, cc: Color, a: Float) {
-                val p = Path().apply {
-                    moveTo(x - s * 0.9f + ox, y + oy); lineTo(x + s * 0.6f + ox, y - s * 0.38f + oy); lineTo(x + s * 0.3f + ox, y + oy); lineTo(x + s * 0.6f + ox, y + s * 0.38f + oy); close()
-                }
-                drawPath(p, cc.copy(alpha = a), blendMode = BlendMode.Plus)
-            }
-            dart(-s * 0.1f - j, 0f, Color(0xFF00E5FF), 0.8f)
-            dart(s * 0.1f + j, 0f, col, 0.95f)
-            for (k in 1..3) drawRect(col.copy(alpha = 0.4f / k), Offset(x + s * 0.5f + k * s * 0.5f, y - s * 0.3f), Size(s * 0.35f, s * 0.05f))
-            fxSpark(Offset(x - s * 0.9f, y), s * 0.22f, Color.White, 1f)
-        }
-        6 -> { // three jittering shards in a triangle
-            fxGlow(Offset(x, y), s * 1.2f, col, 0.4f)
-            for (k in 0 until 3) {
-                val a = t * 7f + k * (BTAU / 3f)
-                fxShard(Offset(x + cos(a) * s * 0.55f + (fxRnd((t * 18f).toInt(), k + seed) - 0.5f) * s * 0.12f, y + sin(a) * s * 0.55f), s * 0.55f, a + 1.5f, if (k == 1) Color(0xFF00E5FF) else col, 0.95f)
-            }
-            drawCircle(Color.White, s * 0.14f, Offset(x, y))
-        }
-        7 -> { // ice spear with a snow trail
-            fxGlow(Offset(x, y), s * 1.0f, col, 0.45f)
-            for (k in 1..5) drawCircle(Color.White.copy(alpha = 0.7f - k * 0.12f), s * 0.07f, Offset(x + k * s * 0.45f, y + sin(t * 9f + k * 2f + ph) * s * 0.25f))
-            val sp = Path().apply { moveTo(x - s * 1.1f, y); lineTo(x + s * 0.4f, y - s * 0.28f); lineTo(x + s * 0.7f, y); lineTo(x + s * 0.4f, y + s * 0.28f); close() }
-            drawPath(sp, col.copy(alpha = 0.95f))
-            drawPath(sp, Color.White, style = Stroke(width = s * 0.07f))
-            drawLine(Color.White.copy(alpha = 0.8f), Offset(x - s * 0.8f, y), Offset(x + s * 0.5f, y), strokeWidth = s * 0.06f)
-            fxSpark(Offset(x - s * 0.5f + sin(t * 6f) * s * 0.3f, y), s * 0.14f, Color.White, 0.9f)
-        }
-        else -> { // golden comet: bright head, flame tail and a ring of sparkles
-            for (k in 1..6) drawCircle(Color(0xFFFF9800).copy(alpha = 0.55f - k * 0.08f), s * (0.62f - k * 0.07f), Offset(x + k * s * 0.5f, y + sin(t * 10f + k) * s * 0.12f))
-            fxGlow(Offset(x, y), s * 1.5f, Color(0xFFFFB300), 0.7f)
-            drawCircle(Color(0xFFFFF59D), s * 0.55f, Offset(x, y))
-            drawCircle(Color.White, s * 0.3f, Offset(x - s * 0.06f, y))
-            for (k in 0 until 6) {
-                val a = -t * 5f + k * (BTAU / 6f)
-                fxSpark(Offset(x + cos(a) * s * 0.9f, y + sin(a) * s * 0.9f), s * 0.12f, Color(0xFFFFE082), 0.9f)
-            }
-        }
+    }
+    // 4. the glow around the whole bullet
+    fxGlow(Offset(cx - H * 0.25f, axisY), H * (1.0f + 0.15f * pulse), hot, 0.38f + 0.2f * pulse)
+    fxGlow(Offset(vx, axisY), H * 0.75f, col, 0.30f)
+    // 5. the bullet itself
+    withTransform({ rotate(23f, Offset(cx, cy)); scale(sc, sc, Offset(cx, cy)) }) {
+        drawImage(
+            image = img,
+            dstOffset = IntOffset((cx - W / 2f).roundToInt(), (cy - H / 2f).roundToInt()),
+            dstSize = IntSize(W.roundToInt(), H.roundToInt())
+        )
+    }
+    // 6. spinning rune rings around the vortex
+    val c = Offset(vx, axisY)
+    val dash = PathEffect.dashPathEffect(floatArrayOf(H * 0.07f, H * 0.05f))
+    rotate(t * 220f + ph * 20f, c) {
+        drawCircle(Color.White.copy(alpha = 0.55f), H * 0.36f, c, style = Stroke(width = H * 0.018f, pathEffect = dash), blendMode = BlendMode.Plus)
+    }
+    rotate(-t * 150f + ph * 11f, c) {
+        drawCircle(hot.copy(alpha = 0.7f), H * 0.5f, c, style = Stroke(width = H * 0.022f, pathEffect = dash), blendMode = BlendMode.Plus)
+    }
+    for (k in 0 until 3) {
+        val a = t * 6f + k * 2.094f + ph
+        fxSpark(Offset(c.x + cos(a) * H * 0.5f, c.y + sin(a) * H * 0.5f), H * 0.05f, Color.White, 0.8f)
+    }
+    // 7. a glint that flashes on the tip, and air streaks along the body
+    val gl = (sin(t * 9f + ph) * 0.5f + 0.5f)
+    fxSpark(Offset(tipX + H * 0.05f, axisY), H * (0.10f + 0.12f * gl), Color.White, 0.5f + 0.5f * gl)
+    for (k in 0 until 3) {
+        val off = (k - 1) * H * 0.2f
+        val sx = tipX + ((t * 7f + k * 0.33f) % 1f) * H * 1.5f
+        drawLine(Color.White.copy(alpha = 0.22f), Offset(sx, axisY + off), Offset(sx + H * 0.5f, axisY + off), strokeWidth = H * 0.012f, cap = StrokeCap.Round, blendMode = BlendMode.Plus)
     }
 }
 
