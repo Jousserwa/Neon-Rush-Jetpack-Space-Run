@@ -54,8 +54,18 @@ fun screensaverLabelAlpha(t: Float): Float {
     }.coerceIn(0f, 1f)
 }
 
-fun DrawScope.drawScreensaverBackdrop(tier: Int, t: Float) {
+/** [fullScreen] = the scene is the whole app background: no edge fade (nothing to melt into), slightly dimmed so the screens on top stay readable. */
+fun DrawScope.drawScreensaverBackdrop(tier: Int, t: Float, fullScreen: Boolean = false) {
     if (tier == 0) { freeScene(t); return }
+    if (fullScreen) {
+        drawIntoCanvas { cv -> cv.saveLayer(Rect(0f, 0f, size.width, size.height), Paint().apply { alpha = 0.82f }) }
+        when (tier) {
+            1 -> twoScenes(t, { monthlyNebula(t) }, { monthlyAurora(t) })
+            else -> twoScenes(t, { annualSupernova(t) }, { annualWarp(t) })
+        }
+        drawIntoCanvas { cv -> cv.restore() }
+        return
+    }
     // Draw the scene in its own layer, then fade all four edges to nothing, so it melts into the home screen instead of sitting in a box.
     drawIntoCanvas { cv -> cv.saveLayer(Rect(0f, 0f, size.width, size.height), Paint()) }
     when (tier) {
