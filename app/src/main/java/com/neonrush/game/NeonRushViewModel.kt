@@ -1362,7 +1362,7 @@ fun freezeStreak() {
         viewModelScope.launch {
             var didTranscend = false
             gameDao.updateProfile { prof ->
-                if (prof.bestScore >= 18000) {
+                if (prof.bestScore >= 50000) {
                     didTranscend = true
                     val nextPrestige = prof.transcendenceCount + 1
                     val currentUnlocked = prof.unlockedSkinsCsv.split(",").filter { it.isNotEmpty() }.toMutableList()
@@ -1377,7 +1377,7 @@ fun freezeStreak() {
                     prof.copy(
                         transcendenceCount = nextPrestige,
                         bestScore = 0,
-                        gems = prof.gems + (if (prof.bestScore >= 25000) 32 else 30),
+                        gems = prof.gems + 35,
                         unlockedSkinsCsv = currentUnlocked.joinToString(","),
                         activeSkinId = exclusiveSkin
                     )
