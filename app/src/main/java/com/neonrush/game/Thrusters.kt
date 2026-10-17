@@ -75,12 +75,12 @@ object ThrusterCatalog {
         Thruster("veteran_comet", "Veteran Comet", "☄️", "A long icy comet tail that bends with your flight. For pilots who have flown 2 years.", ThrusterKind.LOYALTY, Rarity.LEGENDARY,
             requirement = "Fly with Neon Rush for 2 years", loyalty = "VETERAN_2Y"),
         // ---- monthly drops: one new trail a month on the SAME calendar as the hulls (Pro get it first, everyone else after the early-access window)
-        Thruster("paper_planes", "Paper Planes", "🛩️", "Folded paper planes glide off your pack and tumble in your wake.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1200, requirement = "Monthly drop", dropMonth = 4),
-        Thruster("snowflakes", "Snowflakes", "❄️", "Six-armed crystal flakes drift down out of your flight path.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1200, requirement = "Monthly drop", dropMonth = 5),
-        Thruster("sakura_petals", "Sakura Petals", "🌸", "Pink petals spin loose behind you like a spring storm.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1200, requirement = "Monthly drop", dropMonth = 6),
-        Thruster("dice_roll", "Dice Roll", "🎲", "Tumbling dice, every one a different roll. Feeling lucky?", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1200, requirement = "Monthly drop", dropMonth = 7),
-        Thruster("sheet_music", "Sheet Music", "🎵", "Neon notes pop off a bobbing staff as you fly.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1200, requirement = "Monthly drop", dropMonth = 8),
-        Thruster("soap_bubbles", "Soap Bubbles", "🫧", "Shimmering bubbles float up from your wake and drift.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1200, requirement = "Monthly drop", dropMonth = 9)
+        Thruster("paper_planes", "Paper Planes", "🛩️", "Folded paper planes glide off your pack and tumble in your wake.", ThrusterKind.GEMS, Rarity.EPIC, usd = "$1.99", requirement = "Monthly drop", dropMonth = 4),
+        Thruster("snowflakes", "Snowflakes", "❄️", "Six-armed crystal flakes drift down out of your flight path.", ThrusterKind.GEMS, Rarity.EPIC, usd = "$1.99", requirement = "Monthly drop", dropMonth = 5),
+        Thruster("sakura_petals", "Sakura Petals", "🌸", "Pink petals spin loose behind you like a spring storm.", ThrusterKind.GEMS, Rarity.EPIC, usd = "$1.99", requirement = "Monthly drop", dropMonth = 6),
+        Thruster("dice_roll", "Dice Roll", "🎲", "Tumbling dice, every one a different roll. Feeling lucky?", ThrusterKind.GEMS, Rarity.EPIC, usd = "$1.99", requirement = "Monthly drop", dropMonth = 7),
+        Thruster("sheet_music", "Sheet Music", "🎵", "Neon notes pop off a bobbing staff as you fly.", ThrusterKind.GEMS, Rarity.EPIC, usd = "$1.99", requirement = "Monthly drop", dropMonth = 8),
+        Thruster("soap_bubbles", "Soap Bubbles", "🫧", "Shimmering bubbles float up from your wake and drift.", ThrusterKind.GEMS, Rarity.EPIC, usd = "$1.99", requirement = "Monthly drop", dropMonth = 9)
     )
     fun byId(id: String) = ALL.firstOrNull { it.id == id } ?: ALL.first()
 }
