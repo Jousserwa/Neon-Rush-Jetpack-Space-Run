@@ -43,7 +43,7 @@ fun FuelBar(
     highlight: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val capReached = !isPro && refillCount >= 90 /* TESTING ONLY: restore to 6 */
+    val capReached = !isPro && refillCount >= 5
     val haptic = LocalHapticFeedback.current
 
     // Base color + tier name by fuel level
@@ -95,7 +95,7 @@ fun FuelBar(
     )
 
     val refuelsLeftLabel = if (!isPro) {
-        val left = (90 - refillCount) /* TESTING ONLY: restore to 6 */.coerceAtLeast(0)
+        val left = (5 - refillCount).coerceAtLeast(0)
         "  •  $left LEFT"
     } else ""
 
