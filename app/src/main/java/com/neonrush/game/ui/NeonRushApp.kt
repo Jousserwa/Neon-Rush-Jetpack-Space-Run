@@ -4422,7 +4422,7 @@ val bossImagesByWorld = mapOf(
         val aimDx = (x - cw * 0.2f).coerceAtLeast(1f)
         val aimDeg = if (x > cw * 0.42f) (-Math.toDegrees(kotlin.math.atan2(aimDy, aimDx).toDouble()).toFloat()).coerceIn(-32f, 32f) else 0f
         withTransform({ rotate(aimDeg, Offset(x, y)) }) {
-            drawBossShot(variant?.baseFamily ?: currentWorld.worldFamily, x, y, ch, fxClock.value, elem.id.hashCode())
+            drawBossShot(variant?.baseFamily ?: currentWorld.worldFamily, x, y, ch, fxClock.value, elem.id.hashCode(), bulletImg)
         }
     }
 } 
