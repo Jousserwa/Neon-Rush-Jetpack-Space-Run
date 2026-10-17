@@ -29,24 +29,14 @@ data class CrateResult(
 object DailyCrate {
     /** Shards needed to unlock each paid hull (scaled to its gem price). */
     val HULL_SHARDS = linkedMapOf(
+        // only the gem hulls can come from crates; every classic hull is real money on its release date
         "purple_square" to 10,
-        "green_triangle" to 15,
-        "solar_comet" to 18,
-        "ice_shard" to 22,
-        "magenta_pulse" to 25,
-        "static_storm" to 35,
-        "vaporwave_wave" to 45,
-        "gold_transcendence" to 60,
-        "phantom_echo" to 70,
-        "matrix_grid" to 80
+        "green_triangle" to 15
     )
 
     // Cheaper hulls drop more often.
     private val HULL_WEIGHT = mapOf(
-        "purple_square" to 40, "green_triangle" to 30, "magenta_pulse" to 20,
-        "solar_comet" to 28, "ice_shard" to 24, "static_storm" to 14,
-        "vaporwave_wave" to 10, "phantom_echo" to 5,
-        "gold_transcendence" to 7, "matrix_grid" to 3
+        "purple_square" to 40, "green_triangle" to 30
     )
 
     val QUOTES = listOf(
