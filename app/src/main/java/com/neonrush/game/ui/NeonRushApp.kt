@@ -1694,6 +1694,10 @@ fun ArcadeHomeView(
 
         // Screensaver: classic (brighter) for everyone, a violet/magenta two-scene one for Pro MONTHLY, a gold/crimson two-scene one for Pro ANNUAL.
         val saverTier = currentSaverTier(isPro)
+        // Plan banner: FREE / PRO MONTHLY / PRO ANNUAL (follows the testing preview too). Free taps open the Pro offer.
+        var showPlanPaywall by remember { mutableStateOf(false) }
+        PlanBanner(tier = saverTier, onClick = { showPlanPaywall = true }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
+        if (showPlanPaywall) PaywallDialog(onDismiss = { showPlanPaywall = false }, reason = "banner")
         // TESTING (same switch as the Pro gate): tap this area to preview free -> monthly -> annual star space. Does nothing once the gate is restored.
         Box(
             modifier = Modifier
@@ -4413,7 +4417,13 @@ val bossImagesByWorld = mapOf(
         drawCircle(color = Color.White.copy(alpha = 0.8f), radius = ch * 0.006f, center = Offset(x, y))
     } else {
         // every world's boss fires its own kind of shot (hitbox unchanged)
-        drawBossShot(variant?.baseFamily ?: currentWorld.worldFamily, x, y, ch, fxClock.value, elem.id.hashCode())
+        // the shot leans into its flight path: while it is still steering toward the pilot it points at them, then it flies straight
+        val aimDy = ch * (simState.userYPos / 100f) - y
+        val aimDx = (x - cw * 0.2f).coerceAtLeast(1f)
+        val aimDeg = if (x > cw * 0.42f) (-Math.toDegrees(kotlin.math.atan2(aimDy, aimDx).toDouble()).toFloat()).coerceIn(-32f, 32f) else 0f
+        withTransform({ rotate(aimDeg, Offset(x, y)) }) {
+            drawBossShot(variant?.baseFamily ?: currentWorld.worldFamily, x, y, ch, fxClock.value, elem.id.hashCode())
+        }
     }
 } 
                             }
