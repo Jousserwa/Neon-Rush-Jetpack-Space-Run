@@ -14,7 +14,7 @@ data class GameProfile(
     val id: Int = 1,
     val username: String = "NeonPilot_99",
     val bestScore: Int = 0,
-    val gems: Int = 240, // Starter gems
+    val gems: Int = 430, // Starter gems
    val currentRunGemsCredited: Int = 0,
     val currentRunBossZonesRewarded: String = "",
     val currentRunMilestonesRewarded: String = "",
@@ -160,7 +160,7 @@ class GameDao(context: Context) {
                 id = 1,
                 username = if (usernameIdx != -1) cursor.getString(usernameIdx) else "NeonPilot_99",
                 bestScore = if (bestScoreIdx != -1) cursor.getInt(bestScoreIdx) else 0,
-                gems = if (gemsIdx != -1) cursor.getInt(gemsIdx) else 240,
+                gems = if (gemsIdx != -1) cursor.getInt(gemsIdx) else 430,
                 transcendenceCount = if (transIdx != -1) cursor.getInt(transIdx) else 0,
                 activeSkinId = if (activeSkinIdx != -1) cursor.getString(activeSkinIdx) else "cyan_diamond",
                 unlockedSkinsCsv = if (unlockedSkinsIdx != -1) cursor.getString(unlockedSkinsIdx) else "cyan_diamond",
