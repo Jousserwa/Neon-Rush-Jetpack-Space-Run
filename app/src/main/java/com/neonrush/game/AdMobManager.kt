@@ -75,7 +75,14 @@ object AdMobManager {
     private const val PAYWALL_THRESHOLD = 5     // Show paywall after 5 game overs
     private const val AD_TTL_MS = 55 * 60 * 1000L
     private const val MAX_RETRIES = 5
-    private const val GRACE_PER_DAY = 3
+    private const val MAX_REWARDED_RETRIES = 60   // keep trying (60 s apart) so a late-filling ad unit still gets picked up
+
+    /** Offline-bonus allowance per day, separately for each placement (so double-gems can't eat the revives). */
+    private fun gracePerDay(slot: RewardedSlot) = when (slot) {
+        RewardedSlot.REVIVE -> 9          // 3 runs x 3 revives
+        RewardedSlot.DOUBLE_GEMS -> 6
+        RewardedSlot.DAILY_CRATE -> 2
+    }
 
     private const val PREFS = "neon_ad_prefs"
     private const val KEY_GRACE_DAY = "grace_day"
@@ -286,7 +293,7 @@ object AdMobManager {
                     Log.e(TAG, "Rewarded(${slot.analyticsName}) failed: ${error.message}")
                     AnalyticsManager.logAdEvent("ad_load_failed", slot.analyticsName, error.code, online)
                     val attempt = rewardedRetry[slot] ?: 0
-                    if (online && attempt < MAX_RETRIES) {
+                    if (online && attempt < MAX_REWARDED_RETRIES) {
                         rewardedRetry[slot] = attempt + 1
                         mainHandler.postDelayed({ ensureRewarded(slot) }, retryDelayMs(attempt))
                     }
@@ -300,21 +307,21 @@ object AdMobManager {
     /** True when no ad can be shown right now (offline, or the last load found no ad). */
     private fun fallbackEligible(slot: RewardedSlot) = !online || slot in rewardedLastFailed
 
-    fun graceRemaining(): Int {
+    fun graceRemaining(slot: RewardedSlot): Int {
         val ctx = appContext ?: return 0
         val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val used = if (p.getLong(KEY_GRACE_DAY, -1L) == localDay()) p.getInt(KEY_GRACE_USED, 0) else 0
-        return (GRACE_PER_DAY - used).coerceAtLeast(0)
+        val used = if (p.getLong(KEY_GRACE_DAY + slot.analyticsName, -1L) == localDay()) p.getInt(KEY_GRACE_USED + slot.analyticsName, 0) else 0
+        return (gracePerDay(slot) - used).coerceAtLeast(0)
     }
 
-    private fun consumeGrace(): Int {
+    private fun consumeGrace(slot: RewardedSlot): Int {
         val ctx = appContext ?: return 0
         val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val today = localDay()
-        val used = if (p.getLong(KEY_GRACE_DAY, -1L) == today) p.getInt(KEY_GRACE_USED, 0) else 0
-        p.edit().putLong(KEY_GRACE_DAY, today).putInt(KEY_GRACE_USED, used + 1).apply()
+        val used = if (p.getLong(KEY_GRACE_DAY + slot.analyticsName, -1L) == today) p.getInt(KEY_GRACE_USED + slot.analyticsName, 0) else 0
+        p.edit().putLong(KEY_GRACE_DAY + slot.analyticsName, today).putInt(KEY_GRACE_USED + slot.analyticsName, used + 1).apply()
         bump()
-        return (GRACE_PER_DAY - used - 1).coerceAtLeast(0)
+        return (gracePerDay(slot) - used - 1).coerceAtLeast(0)
     }
 
     private fun localDay(): Long {
@@ -328,7 +335,7 @@ object AdMobManager {
      */
     fun rewardedLabel(slot: RewardedSlot, readyLabel: String, @Suppress("UNUSED_PARAMETER") version: Int = 0): String {
         if (proUser || isRewardedReady(slot) || !fallbackEligible(slot)) return readyLabel
-        val left = graceRemaining()
+        val left = graceRemaining(slot)
         return if (left > 0) "🎁 OFFLINE BONUS · $left LEFT" else "📡 AD UNAVAILABLE"
     }
 
@@ -374,8 +381,8 @@ object AdMobManager {
 
     // No ad can be shown: small daily allowance, then ask the player to reconnect.
     private fun noAdAvailable(activity: Activity, slot: RewardedSlot, onRewarded: () -> Unit) {
-        if (graceRemaining() > 0) {
-            val left = consumeGrace()
+        if (graceRemaining(slot) > 0) {
+            val left = consumeGrace(slot)
             AnalyticsManager.logAdEvent("offline_grace_used", slot.analyticsName, left, online)
             toast(activity, "Offline bonus used · $left left today")
             onRewarded()
