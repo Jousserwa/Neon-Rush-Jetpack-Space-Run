@@ -1708,6 +1708,8 @@ fun ArcadeHomeView(
             NeonPilotScreensaver(tier = saverTier)
         }
 
+        Spacer(modifier = Modifier.height(14.dp))
+
         if (profile.transcendenceCount > 0) {
             Box(
                 modifier = Modifier
@@ -1775,11 +1777,13 @@ fun ArcadeHomeView(
             }
         }
         
+        Spacer(modifier = Modifier.height(16.dp))
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                .padding(bottom = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             val selectedTier by viewModel.difficultyFlow.collectAsState()
             listOf(
@@ -1803,13 +1807,13 @@ fun ArcadeHomeView(
                                 viewModel.setDifficulty(tier)
                             }
                         }
-                        .padding(horizontal = 4.dp, vertical = 9.dp),
+                        .padding(horizontal = 2.dp, vertical = 12.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = if (isLocked) "\uD83D\uDD12 ${tier.label}" else tier.label,
                         color = if (isSelected) Color.Black else Color.White.copy(alpha = if (isLocked) 0.4f else 1f),
-                        fontSize = 10.sp,
+                        fontSize = 9.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -3373,7 +3377,7 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                 )
 
                 Text(
-                    text = "Exchange 18,000+ points of highscore data for a Transcendence level rank and a 30 gem payout (32 gems at 25,000+). Your high score resets. Relive the cyber alley!",
+                    text = "Exchange 50,000+ points of highscore data for a Transcendence level rank and a 35 gem payout. Your high score resets. Relive the cyber alley!",
                     fontSize = 11.sp,
                     color = CyberOnSurface.copy(alpha = 0.7f)
                 )
@@ -3384,13 +3388,13 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                     onClick = { viewModel.triggerTranscendence() },
                     colors = ButtonDefaults.buttonColors(containerColor = CyberTertiary),
                     shape = RoundedCornerShape(6.dp),
-                    enabled = profile.bestScore >= 18000,
+                    enabled = profile.bestScore >= 50000,
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("transcendence_button")
                 ) {
                     Text(
-                        text = if (profile.bestScore >= 18000) "INITIATE TRANSCENDENCE" else "REQUIRES 18000+ SCORE",
+                        text = if (profile.bestScore >= 50000) "INITIATE TRANSCENDENCE" else "REQUIRES 50000+ SCORE",
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
