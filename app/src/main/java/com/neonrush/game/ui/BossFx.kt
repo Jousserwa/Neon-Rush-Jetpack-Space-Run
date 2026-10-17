@@ -376,7 +376,7 @@ fun DrawScope.drawBlinkBack(kind: Int, c: Offset, size: Float, col: Color, t: Fl
             for (side in intArrayOf(-1, 1)) {
                 val path = Path().apply {
                     moveTo(c.x, c.y)
-                    quadraticTo(c.x + s * 0.3f, c.y + side * s * (0.45f + 0.3f * flap), c.x + s * 0.75f, c.y + side * s * (0.25f + 0.4f * flap))
+                    quadraticBezierTo(c.x + s * 0.3f, c.y + side * s * (0.45f + 0.3f * flap), c.x + s * 0.75f, c.y + side * s * (0.25f + 0.4f * flap))
                 }
                 drawPath(path, col.copy(alpha = 0.55f), style = Stroke(width = s * 0.05f, cap = StrokeCap.Round))
                 drawPath(path, Color.White.copy(alpha = 0.5f), style = Stroke(width = s * 0.015f, cap = StrokeCap.Round))
