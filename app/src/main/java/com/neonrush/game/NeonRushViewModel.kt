@@ -1193,12 +1193,12 @@ fun freezeStreak() {
 
         /** Easy: gentle in world 1, a little more in world 2, +5% in worlds 3 and 4, a bit more in 5, then +3% every 4 worlds. */
         private fun easyAt(w: Int): Float {
-            val f5 = 0.68f * 1.06f * 1.05f * 1.05f * 1.06f
+            val f5 = 0.60f * 1.06f * 1.05f * 1.05f * 1.06f
             return when {
-                w <= 1 -> 0.68f
-                w == 2 -> 0.68f * 1.06f
-                w == 3 -> 0.68f * 1.06f * 1.05f
-                w == 4 -> 0.68f * 1.06f * 1.05f * 1.05f
+                w <= 1 -> 0.60f
+                w == 2 -> 0.60f * 1.06f
+                w == 3 -> 0.60f * 1.06f * 1.05f
+                w == 4 -> 0.60f * 1.06f * 1.05f * 1.05f
                 w == 5 -> f5
                 else -> f5 * (1f + 0.03f * ((w - 6) / 4 + 1))
             }
@@ -1210,7 +1210,7 @@ fun freezeStreak() {
             val raw = when (this) {
                 EASY -> { val a = w.toInt(); val fr = w - a; easyAt(a) + (easyAt(a + 1) - easyAt(a)) * fr }
                 // MEDIUM: calm and flat through worlds 1-2, then it climbs gradually
-                else -> 0.85f * (1f + 0.045f * (w - 2f).coerceAtLeast(0f))
+                else -> 0.76f * (1f + 0.045f * (w - 2f).coerceAtLeast(0f))
             }
             return minOf(raw, HARD.hardCurve(zone))
         }
@@ -1272,6 +1272,14 @@ fun freezeStreak() {
 
     private var lastPuSpawnTick = 0
     private var fuelFreezeUntilTick = 0
+
+    /** One tick of boss tracking: always moves toward the pilot (at least 1 unit, at most 7), so the boss really stays on target. */
+    private fun bossFollowStep(diff: Int, rate: Float): Int {
+        if (diff == 0) return 0
+        val raw = diff * rate
+        val mag = kotlin.math.abs(raw).coerceIn(1f, 7f).toInt().coerceAtLeast(1)
+        return if (diff > 0) minOf(mag, diff) else -minOf(mag, -diff)
+    }
 
     private fun chooseProceduralPowerupType(rand: kotlin.random.Random, isSunday: Boolean): String {
         val roll = rand.nextInt(100)
@@ -1644,6 +1652,9 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     speedInPx *= 2.0f
                 }
                 speedInPx *= liveDifficultyMultiplier * metaDifficultyMultiplier
+                // Gentle take-off: EASY reaches its normal pace after ~2 minutes, MEDIUM after ~1.5 minutes (a tick is ~0.12 s)
+                if (selectedDifficulty == DifficultyTier.EASY) speedInPx *= 0.55f + 0.45f * (tick / 1000f).coerceIn(0f, 1f)
+                else if (selectedDifficulty == DifficultyTier.MEDIUM) speedInPx *= 0.65f + 0.35f * (tick / 750f).coerceIn(0f, 1f)
                 val tickDistanceOffset = speedInPx * 3.6f
                 var nextDistance = state.distanceMeters + tickDistanceOffset
                 var zoneM = (-776.25 + kotlin.math.sqrt(602564.0625 + 405.0 * (nextDistance / ZONE_LENGTH_MULT))) / 202.5
@@ -1789,7 +1800,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     val routeTargetY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     if (random.nextInt(100) < (11 + (16 * assist).toInt())) {
                         updatedElements.add(VisualTrackElement("gem_${tick}", gridX, routeTargetY + random.nextInt(-8, 8), "gem"))
-                    } else if (random.nextInt(100) < (22 + (30 * assist).toInt())) {
+                    } else if (random.nextInt(100) < (15 + (21 * assist).toInt())) {
                         updatedElements.add(VisualTrackElement("fuel_${tick}", gridX, routeTargetY + random.nextInt(-5, 5), "fuel"))
                     }
                 }
@@ -1818,9 +1829,9 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         bossHealthState = 1.0f
                     }
                     val trackingYBias = userY - bossYState
-                    bossYState += (trackingYBias * 0.05f * (flavor?.bossAggro ?: 1f)).toInt()
+                    bossYState += bossFollowStep(trackingYBias, 0.22f * (flavor?.bossAggro ?: 1f))
                     ThreatDirector.bossFire(tick, (Upgrades.bossBulletInterval(activeUpgradesCsv, 9) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4), bossYState, random, updatedElements)
-                    bossHealthState -= 0.04f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
+                    bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
                     if (bossHealthState <= 0f) {
                         var wasNewlyRewarded = false
                         var bossReward = 0
@@ -2646,7 +2657,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     val routeTargetY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     if (random.nextInt(100) < 11) {
                         updatedElements.add(VisualTrackElement("gem_${tick}", gridX, routeTargetY + random.nextInt(-8, 8), "gem"))
-                    } else if (random.nextInt(100) < (15 + (30 * assist).toInt())) {
+                    } else if (random.nextInt(100) < (10 + (21 * assist).toInt())) {
                         updatedElements.add(VisualTrackElement("fuel_${tick}", gridX, routeTargetY + random.nextInt(-5, 5), "fuel"))
                     }
                 }
@@ -2675,9 +2686,9 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         bossHealthState = 1.0f
                     }
                     val trackingYBias = userY - bossYState
-                    bossYState += (trackingYBias * 0.12f * (flavor?.bossAggro ?: 1f)).toInt()
+                    bossYState += bossFollowStep(trackingYBias, 0.28f * (flavor?.bossAggro ?: 1f))
                     ThreatDirector.bossFire(tick, (Upgrades.bossBulletInterval(activeUpgradesCsv, 6) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4), bossYState, random, updatedElements)
-                    bossHealthState -= 0.04f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
+                    bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
                     if (bossHealthState <= 0f) {
                         soundEngine.playTone(990f, 400, "sine")
                         updatedMsg = "BOSS DEFEATED!"; seasonPass.onToken(SeasonPass.TOKENS_BOSS); onBossDefeatedForDrops()
