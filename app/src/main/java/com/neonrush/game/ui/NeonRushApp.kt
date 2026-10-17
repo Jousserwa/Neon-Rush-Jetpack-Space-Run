@@ -3373,7 +3373,7 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                 )
 
                 Text(
-                    text = "Exchange 100+ points of highscore data for instant Transcendence level ranks and a +150 bonus gem payout. Relive the cyber alley!",
+                    text = "Exchange 18,000+ points of highscore data for a Transcendence level rank and a 30 gem payout (32 gems at 25,000+). Your high score resets. Relive the cyber alley!",
                     fontSize = 11.sp,
                     color = CyberOnSurface.copy(alpha = 0.7f)
                 )
@@ -3384,13 +3384,13 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                     onClick = { viewModel.triggerTranscendence() },
                     colors = ButtonDefaults.buttonColors(containerColor = CyberTertiary),
                     shape = RoundedCornerShape(6.dp),
-                    enabled = profile.bestScore >= 100,
+                    enabled = profile.bestScore >= 18000,
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("transcendence_button")
                 ) {
                     Text(
-                        text = if (profile.bestScore >= 100) "INITIATE TRANSCENDENCE" else "REQUIRES 100+ SCORE",
+                        text = if (profile.bestScore >= 18000) "INITIATE TRANSCENDENCE" else "REQUIRES 18000+ SCORE",
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -3758,7 +3758,7 @@ val bossImagesByWorld = mapOf(
         scorePopups.add(Triple(scoreDelta, simState.tickIndex, simState.userYPos))
     }
     previousScoreForPopups = simState.score
-    scorePopups.removeAll { (_, spawnTick, _) -> simState.tickIndex - spawnTick > 25 }
+    scorePopups.removeAll { (_, spawnTick, _) -> simState.tickIndex - spawnTick > 25 || simState.tickIndex < spawnTick || simState.isCompleted }
 
     var previousShakeMagnitude by remember { mutableStateOf(0f) }
     var flashStartTick by remember { mutableStateOf(-100) }
