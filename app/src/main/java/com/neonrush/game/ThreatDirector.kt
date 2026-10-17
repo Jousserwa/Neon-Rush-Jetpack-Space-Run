@@ -161,6 +161,15 @@ object ThreatDirector {
                 return (if (dead) -0.5f else elem.xOffsetFraction) to elem.yMatchPos
             }
         }
+        // Boss shots fly TOWARD the pilot: they steer in the first part of the flight, then lock their lane so they can still be dodged.
+        if (elem.type == "bullet" && elem.subType == "") {
+            if (nextX > 0.42f) {
+                val d = userY - actualY
+                val step = if (d == 0) 0 else (d * 0.28f).toInt().coerceIn(-4, 4).let { if (it == 0) (if (d > 0) 1 else -1) else it }
+                return nextX to (actualY + step).coerceIn(4, 96)
+            }
+            return nextX to actualY
+        }
         val parts = elem.id.split("_")
         when (elem.subType) {
             "LAVA_BALL", "SHADOW_SWARM" -> {
