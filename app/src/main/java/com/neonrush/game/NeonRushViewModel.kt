@@ -1193,12 +1193,12 @@ fun freezeStreak() {
 
         /** Easy: gentle in world 1, a little more in world 2, +5% in worlds 3 and 4, a bit more in 5, then +3% every 4 worlds. */
         private fun easyAt(w: Int): Float {
-            val f5 = 0.60f * 1.06f * 1.05f * 1.05f * 1.06f
+            val f5 = 0.68f * 1.06f * 1.05f * 1.05f * 1.06f
             return when {
-                w <= 1 -> 0.60f
-                w == 2 -> 0.60f * 1.06f
-                w == 3 -> 0.60f * 1.06f * 1.05f
-                w == 4 -> 0.60f * 1.06f * 1.05f * 1.05f
+                w <= 1 -> 0.68f
+                w == 2 -> 0.68f * 1.06f
+                w == 3 -> 0.68f * 1.06f * 1.05f
+                w == 4 -> 0.68f * 1.06f * 1.05f * 1.05f
                 w == 5 -> f5
                 else -> f5 * (1f + 0.03f * ((w - 6) / 4 + 1))
             }
@@ -1210,12 +1210,17 @@ fun freezeStreak() {
             val raw = when (this) {
                 EASY -> { val a = w.toInt(); val fr = w - a; easyAt(a) + (easyAt(a + 1) - easyAt(a)) * fr }
                 // MEDIUM: calm and flat through worlds 1-2, then it climbs gradually
-                else -> 0.76f * (1f + 0.045f * (w - 2f).coerceAtLeast(0f))
+                else -> 0.85f * (1f + 0.045f * (w - 2f).coerceAtLeast(0f))
             }
             return minOf(raw, HARD.hardCurve(zone))
         }
 
-        private fun hardCurve(zone: Int): Float = startMult * (1f + growthPer10 * (zone - 1).coerceAtLeast(0) / 10f)
+        // HARD steps up every 2 zones (a gradual staircase for tension); the others climb zone by zone
+        private fun hardCurve(zone: Int): Float {
+            val z = (zone - 1).coerceAtLeast(0)
+            val zs = if (this == HARD) (z / 2) * 2 else z
+            return startMult * (1f + growthPer10 * zs / 10f)
+        }
 
         fun pressure(zone: Int): Float = if (this == EASY || this == MEDIUM) paced(zone) else hardCurve(zone)
 
@@ -1652,9 +1657,14 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     speedInPx *= 2.0f
                 }
                 speedInPx *= liveDifficultyMultiplier * metaDifficultyMultiplier
-                // Gentle take-off: EASY reaches its normal pace after ~2 minutes, MEDIUM after ~1.5 minutes (a tick is ~0.12 s)
-                if (selectedDifficulty == DifficultyTier.EASY) speedInPx *= 0.55f + 0.45f * (tick / 1000f).coerceIn(0f, 1f)
-                else if (selectedDifficulty == DifficultyTier.MEDIUM) speedInPx *= 0.65f + 0.35f * (tick / 750f).coerceIn(0f, 1f)
+                // Take-off: every run starts a little under its full pace (EASY -8%, MEDIUM -6%, HARD -3%) and is at full pace after 30 seconds (~250 ticks)
+                val takeOff = (tick / 250f).coerceIn(0f, 1f)
+                when (selectedDifficulty) {
+                    DifficultyTier.EASY -> speedInPx *= 0.92f + 0.08f * takeOff
+                    DifficultyTier.MEDIUM -> speedInPx *= 0.94f + 0.06f * takeOff
+                    DifficultyTier.HARD -> speedInPx *= 0.97f + 0.03f * takeOff
+                    else -> {}
+                }
                 val tickDistanceOffset = speedInPx * 3.6f
                 var nextDistance = state.distanceMeters + tickDistanceOffset
                 var zoneM = (-776.25 + kotlin.math.sqrt(602564.0625 + 405.0 * (nextDistance / ZONE_LENGTH_MULT))) / 202.5
