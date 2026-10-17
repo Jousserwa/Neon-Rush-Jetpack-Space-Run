@@ -696,7 +696,7 @@ if (showStreakFreezeOffer) {
                     onShowPaywall = { showPaywall = true }
                 )
             } else {
-                ScreenStarField(Modifier.fillMaxSize())
+                ScreenStarField(Modifier.fillMaxSize(), tier = currentSaverTier(isPro))
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1693,16 +1693,13 @@ fun ArcadeHomeView(
         }
 
         // Screensaver: classic (brighter) for everyone, a violet/magenta two-scene one for Pro MONTHLY, a gold/crimson two-scene one for Pro ANNUAL.
-        val proAnnualPlan by RevenueCatManager.proAnnual.collectAsState()
-        val realTier = if (isPro) (if (proAnnualPlan) 2 else 1) else 0
-        // TESTING (same switch as the Pro gate): tap the screensaver to preview free -> monthly -> annual. Does nothing once the gate is restored.
-        var previewTier by remember { mutableStateOf(1) }
-        val saverTier = if (TESTING_DISABLE_PRO_GATE) previewTier else realTier
+        val saverTier = currentSaverTier(isPro)
+        // TESTING (same switch as the Pro gate): tap this area to preview free -> monthly -> annual star space. Does nothing once the gate is restored.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(0.45f)
-                .then(if (TESTING_DISABLE_PRO_GATE) Modifier.clickable { previewTier = (previewTier + 1) % 3 } else Modifier)
+                .then(if (TESTING_DISABLE_PRO_GATE) Modifier.clickable { saverPreviewTier.value = (saverPreviewTier.value + 1) % 3 } else Modifier)
         ) {
             NeonPilotScreensaver(tier = saverTier)
         }
@@ -4232,7 +4229,7 @@ val bossImagesByWorld = mapOf(
                                             val phase = ((simState.tickIndex - spawnTick) % cycleLength + cycleLength) % cycleLength
                                             val isVisible = phase < 8
                                             val hazardColor = hexToColor(simState.zoneDNA.environmentColor)
-                                            val baseSize = ch * 0.177f
+                                            val baseSize = ch * 0.21f
                                             // All 5 variants now have real generated creature art.
                                             val creatureImg = when (kindIdx) {
                                                 0 -> blinkWolfImg
@@ -4244,6 +4241,9 @@ val bossImagesByWorld = mapOf(
                                             }
                                             if (isVisible) {
                                                 val flicker = 0.75f + 0.25f * sin(simState.tickIndex * 0.9f)
+                                                // each creature has its own trail, and flashes in / dissolves out around the visible window
+                                                drawBlinkBack(kindIdx, Offset(x, y), baseSize, hazardColor, fxClock.value, spawnTick)
+                                                drawBlinkTransition(kindIdx, Offset(x, y), baseSize, hazardColor, phase, fxClock.value, spawnTick)
                                                 // Outer soft halo — big, faint, sells "this thing radiates energy"
                                                 drawCircle(
                                                     color = hazardColor.copy(alpha = 0.14f * flicker),
@@ -4306,12 +4306,19 @@ val bossImagesByWorld = mapOf(
                                                 }
                                                 if (creatureImg != null) {
                                                     val cw2 = baseSize * (creatureImg.width.toFloat() / creatureImg.height.toFloat())
-                                                    drawImage(
-                                                        image = creatureImg,
-                                                        dstOffset = IntOffset((x - cw2 / 2f).roundToInt(), (y - baseSize / 2f).roundToInt()),
-                                                        dstSize = IntSize(cw2.roundToInt(), baseSize.roundToInt()),
-                                                        alpha = flicker
-                                                    )
+                                                    val bp = blinkPose(kindIdx, baseSize, fxClock.value, spawnTick)
+                                                    withTransform({
+                                                        translate(bp.dx, bp.dy)
+                                                        rotate(bp.rot, Offset(x, y))
+                                                        scale(bp.sx, bp.sy, Offset(x, y))
+                                                    }) {
+                                                        drawImage(
+                                                            image = creatureImg,
+                                                            dstOffset = IntOffset((x - cw2 / 2f).roundToInt(), (y - baseSize / 2f).roundToInt()),
+                                                            dstSize = IntSize(cw2.roundToInt(), baseSize.roundToInt()),
+                                                            alpha = (flicker * (if (phase < 1) 0.55f else if (phase >= 7) 0.6f else 1f)).coerceIn(0f, 1f)
+                                                        )
+                                                    }
                                                 } else {
                                                     val spread = baseSize * (0.35f + 0.05f * kindIdx)
                                                     val boltPath = Path().apply {
@@ -4341,6 +4348,7 @@ val bossImagesByWorld = mapOf(
                                                     radius = baseSize * (0.35f + 0.1f * telltalePulse),
                                                     center = Offset(x, y)
                                                 )
+                                                drawBlinkTelltale(kindIdx, Offset(x, y), baseSize, hazardColor, phase, cycleLength, fxClock.value)
                                             }
                                         }
                                         "DRONE" -> {
@@ -4350,7 +4358,7 @@ val bossImagesByWorld = mapOf(
                                             // read as a small tracking machine
                                             // rather than a static obstacle.
                                             val bob = sin(simState.tickIndex * 0.35f) * ch * 0.02f
-                                            val baseSize = ch * 0.177f
+                                            val baseSize = ch * 0.21f
                                             val w = baseSize * (droneImg.width.toFloat() / droneImg.height.toFloat())
                                             val droneY = y - baseSize / 2f + bob
                                             // Thruster trail streaking behind it (toward the right, where it
@@ -4379,7 +4387,7 @@ val bossImagesByWorld = mapOf(
                                         }
                                         else -> {
                                             val bob = sin(simState.tickIndex * 0.2f) * ch * 0.015f
-                                            val baseSize = ch * 0.189f
+                                            val baseSize = ch * 0.222f
                                             val w = baseSize * (standardImg.width.toFloat() / standardImg.height.toFloat())
                                             drawImage(
                                                 image = standardImg,
@@ -4404,23 +4412,8 @@ val bossImagesByWorld = mapOf(
         drawCircle(color = boltColor.copy(alpha = 0.9f), radius = ch * 0.014f, center = Offset(x, y))
         drawCircle(color = Color.White.copy(alpha = 0.8f), radius = ch * 0.006f, center = Offset(x, y))
     } else {
-        val baseSize = ch * 0.082f
-        val w = baseSize * (bulletImg.width.toFloat() / bulletImg.height.toFloat())
-        // Tapered tracer trail — thicker near the bullet, fading to a point
-        // behind it. No soft glow halo: it should read as a sharp, fast
-        // projectile, not a glowing blob.
-        val trailPath = Path().apply {
-            moveTo(x + w * 0.3f, y - baseSize * 0.16f)
-            lineTo(x + w * 0.3f, y + baseSize * 0.16f)
-            lineTo(x + w * 1.5f, y)
-            close()
-        }
-        drawPath(path = trailPath, color = Color(0xFFFF4433).copy(alpha = 0.55f))
-        drawImage(
-            image = bulletImg,
-            dstOffset = IntOffset((x - w / 2f).roundToInt(), (y - baseSize / 2f).roundToInt()),
-            dstSize = IntSize(w.roundToInt(), baseSize.roundToInt())
-        )
+        // every world's boss fires its own kind of shot (hitbox unchanged)
+        drawBossShot(variant?.baseFamily ?: currentWorld.worldFamily, x, y, ch, fxClock.value, elem.id.hashCode())
     }
 } 
                             }
@@ -4476,7 +4469,7 @@ val bossImagesByWorld = mapOf(
                             val bossImg = bossImagesByWorld[variant?.baseFamily ?: currentWorld.worldFamily] ?: bossImagesByWorld[1]!!
                             val bossX = cw * 0.88f
                             val bossYPx = ch * (simState.bossY / 100f)
-                            val bossDisplayHeight = ch * 0.32f
+                            val bossDisplayHeight = ch * 0.38f
                             val bossDisplayWidth = bossDisplayHeight * (bossImg.width.toFloat() / bossImg.height.toFloat())
                             val bossFlicker = 0.9f + 0.1f * sin(simState.tickIndex * 0.5f)
                             val bossColor = hexToColor(simState.zoneDNA.environmentColor)
@@ -4524,15 +4517,26 @@ val bossImagesByWorld = mapOf(
                                     center = Offset(moteX, moteY)
                                 )
                             }
-                            drawImage(
-                                image = bossImg,
-                                dstOffset = IntOffset(
-                                    (bossX - bossDisplayWidth / 2f).roundToInt(),
-                                    (bossYPx - bossDisplayHeight / 2f).roundToInt()
-                                ),
-                                dstSize = IntSize(bossDisplayWidth.roundToInt(), bossDisplayHeight.roundToInt()),
-                                alpha = bossFlicker
-                            )
+                            val bossWorldId = variant?.baseFamily ?: currentWorld.worldFamily
+                            val bossPos = Offset(bossX, bossYPx)
+                            drawBossBack(bossWorldId, bossPos, bossDisplayHeight, fxClock.value, simState.bossHealth)
+                            val bPose = bossPose(bossWorldId, bossDisplayHeight, fxClock.value, simState.bossHealth)
+                            withTransform({
+                                translate(bPose.dx, bPose.dy)
+                                rotate(bPose.rot, bossPos)
+                                scale(bPose.sx, bPose.sy, bossPos)
+                            }) {
+                                drawImage(
+                                    image = bossImg,
+                                    dstOffset = IntOffset(
+                                        (bossX - bossDisplayWidth / 2f).roundToInt(),
+                                        (bossYPx - bossDisplayHeight / 2f).roundToInt()
+                                    ),
+                                    dstSize = IntSize(bossDisplayWidth.roundToInt(), bossDisplayHeight.roundToInt()),
+                                    alpha = bossFlicker
+                                )
+                                drawBossFront(bossWorldId, bossPos, bossDisplayHeight, fxClock.value, simState.bossHealth)
+                            }
 
                             // Boss health bar, top-center of the screen —
                             // color shifts green->amber->red as it depletes,
@@ -6020,8 +6024,7 @@ fun NeonPilotScreensaver(tier: Int = 0) {
             val ch = size.height
             val t = clock.value
 
-            // the backdrop: brighter classic for everyone, and a two-scene one for each Pro plan
-            drawScreensaverBackdrop(tier, t)
+            // (the star space itself - classic or Pro scene - is the whole-screen background, see ScreenStarField)
 
             // pilot glow and trail, in the plan's colour
             val pilotX = cw / 2f + offsetX
@@ -6084,35 +6087,57 @@ fun NeonPilotScreensaver(tier: Int = 0) {
 }
 
 
-/** Full-screen parallax star field: 3 depth layers, twinkle, a few shooting streaks. Draw-only, no layout or touch impact. */
+/** TESTING only: which star space the tap-to-cycle preview shows (0 free, 1 monthly Pro, 2 annual Pro). */
+val saverPreviewTier = mutableStateOf(1)
+
+/** The star space of this player: classic for free, violet/magenta two-scene for Pro monthly, gold/crimson two-scene for Pro annual. */
 @Composable
-fun ScreenStarField(modifier: Modifier = Modifier) {
+fun currentSaverTier(isPro: Boolean): Int {
+    val proAnnualPlan by RevenueCatManager.proAnnual.collectAsState()
+    val realTier = if (isPro) (if (proAnnualPlan) 2 else 1) else 0
+    return if (TESTING_DISABLE_PRO_GATE) saverPreviewTier.value else realTier
+}
+
+/** Full-screen star space behind the app screens. tier 0 = brighter parallax stars; 1 / 2 = the Pro monthly / annual two-scene space. */
+@Composable
+fun ScreenStarField(modifier: Modifier = Modifier, tier: Int = 0) {
     val t = rememberInfiniteTransition(label = "screenStars")
     val phase by t.animateFloat(
         initialValue = 0f, targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(60000, easing = LinearEasing)),
         label = "starPhase"
     )
+    val clock = remember { mutableStateOf(0f) }
+    LaunchedEffect(tier > 0) {
+        if (tier > 0) {
+            var last = 0L
+            while (true) withFrameNanos { n -> if (n - last >= 33_000_000L) { last = n; clock.value = ((n / 1_000_000L) % 3_600_000L) / 1000f } }
+        }
+    }
     val tints = remember { listOf(Color.White, Color(0xFF9BE8FF), Color(0xFFFFB3F0)) }
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
         if (w <= 0f || h <= 0f) return@Canvas
+        if (tier > 0) {
+            drawScreensaverBackdrop(tier, clock.value, fullScreen = true)
+            return@Canvas
+        }
         val twoPi = (2 * Math.PI).toFloat()
-        val total = 130
+        val total = 150
         for (i in 0 until total) {
             val layer = i % 3 // 0 far, 1 mid, 2 near
             val bx = ((i * 7919) % 1000) / 1000f * w
             val by = ((i * 104729) % 1000) / 1000f * h
             val speed = (1 + layer) * 1  // full wraps per minute
             val x = (bx - phase * speed * w).mod(w)
-            val y = (by + phase * (layer) * 0.0f + h * 0f).mod(h)
+            val y = by
             val tw = 0.5f + 0.5f * kotlin.math.sin(twoPi * (phase * (3 + i % 5) * 4 + (i % 11) / 11f))
-            val baseA = 0.18f + layer * 0.14f
-            val a = (baseA + tw * (0.25f + layer * 0.1f)).coerceIn(0f, 1f)
-            val r = (0.6f + layer * 0.7f + (i % 2) * 0.3f).dp.toPx()
+            val baseA = 0.30f + layer * 0.16f
+            val a = (baseA + tw * (0.30f + layer * 0.1f)).coerceIn(0f, 1f)
+            val r = (0.8f + layer * 0.8f + (i % 2) * 0.3f).dp.toPx()
             val c = tints[(i / 3) % 3]
-            if (layer == 2) drawCircle(c.copy(alpha = a * 0.18f), r * 3.2f, Offset(x, y))
+            if (layer == 2) drawCircle(c.copy(alpha = a * 0.25f), r * 3.2f, Offset(x, y))
             drawCircle(c.copy(alpha = a), r, Offset(x, y))
         }
         // occasional shooting streaks (staggered, each visible ~8% of the cycle)
@@ -6122,7 +6147,7 @@ fun ScreenStarField(modifier: Modifier = Modifier) {
                 val f = p / 0.2f
                 val sx = w * (0.15f + 0.3f * k) + f * w * 0.35f
                 val sy = h * (0.1f + 0.25f * k) + f * h * 0.12f
-                val a = (1f - f) * 0.55f
+                val a = (1f - f) * 0.7f
                 drawLine(
                     Color(0xFF9BE8FF).copy(alpha = a),
                     Offset(sx, sy), Offset(sx - 70.dp.toPx(), sy - 14.dp.toPx()),
