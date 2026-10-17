@@ -13,8 +13,8 @@ android {
         applicationId = "com.neonrushinfinite.game"
         minSdk = 24
         targetSdk = 36
-        versionCode = 25
-        versionName = "1.1.5"
+        versionCode = 26
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
