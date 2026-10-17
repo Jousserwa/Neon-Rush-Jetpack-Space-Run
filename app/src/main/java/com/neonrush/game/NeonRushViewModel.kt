@@ -1188,39 +1188,45 @@ fun freezeStreak() {
         HARD(0.11f, 1.10f, "HARD", -1, 1.25f, 0.80f, 1.15f, 0xFFFF9100, "_hard"),
         LEGENDARY(0.13f, 1.22f, "LEGENDARY", -2, 1.60f, 0.65f, 1.30f, 0xFFFFD23F, "_legendary");
 
-        /** EASY steps up every 5 zones, MEDIUM every 4, HARD every 2 (a staircase for tension). EASY / MEDIUM stop when they reach HARD. */
+        /**
+         * The "pressure gauge". Speed and aggression follow this zone, not the real one: every 60 zones the gauge drops back
+         * (to zone 10's level, and to zone 15's level from zone 300 on) and climbs again, so very deep runs never get unfair
+         * and the player gets a breather. Zones 1-59 are the real zone numbers.
+         */
+        fun gaugeZone(zone: Int): Int {
+            if (zone < 60) return zone.coerceAtLeast(1)
+            val base = if (zone >= 300) 15 else 10
+            return base + zone % 60
+        }
+
+        /** EASY and MEDIUM step up every 2 zones, HARD every zone. EASY / MEDIUM never go past HARD. */
         private fun paced(zone: Int): Float {
-            val z = (zone - 1).coerceAtLeast(0)
+            val z = (gaugeZone(zone) - 1).coerceAtLeast(0)
             val raw = when (this) {
-                EASY -> 0.68f * (1f + 0.035f * (z / 5))
-                else -> 0.85f * (1f + 0.035f * (z / 4))
+                EASY -> 0.68f * (1f + 0.012f * (z / 2))
+                else -> 0.85f * (1f + 0.0175f * (z / 2))
             }
             return minOf(raw, HARD.hardCurve(zone))
         }
 
-        // HARD steps up every 2 zones (a gradual staircase for tension); the others climb zone by zone
-        private fun hardCurve(zone: Int): Float {
-            val z = (zone - 1).coerceAtLeast(0)
-            val zs = if (this == HARD) (z / 2) * 2 else z
-            return startMult * (1f + growthPer10 * zs / 10f)
-        }
+        private fun hardCurve(zone: Int): Float = startMult * (1f + growthPer10 * (gaugeZone(zone) - 1).coerceAtLeast(0) / 10f)
 
         fun pressure(zone: Int): Float = if (this == EASY || this == MEDIUM) paced(zone) else hardCurve(zone)
 
         /**
-         * Aggression (obstacle density, threat rate, boss fire) follows the same steps as the speed on EASY and MEDIUM
-         * (starting calmer) and also stops at HARD's level. HARD / LEGENDARY climb at 40% of their speed growth.
+         * Aggression (obstacle density, threat rate, boss fire) uses the same gauge. EASY grows at half the rate of its speed,
+         * MEDIUM follows its speed, HARD / LEGENDARY climb at 40% of their speed growth.
          */
         fun aggression(zone: Int): Float {
             if (this == EASY || this == MEDIUM) {
-                val start = if (this == EASY) 0.45f else 0.80f
                 val ratio = paced(zone) / paced(1)
-                return minOf(start * ratio, HARD.hardAggro(zone))
+                return if (this == EASY) minOf(0.45f * (1f + 0.5f * (ratio - 1f)), HARD.hardAggro(zone))
+                else minOf(0.80f * ratio, HARD.hardAggro(zone))
             }
             return hardAggro(zone)
         }
 
-        private fun hardAggro(zone: Int): Float = startMult * (1f + growthPer10 * 0.4f * (zone - 1).coerceAtLeast(0) / 10f)
+        private fun hardAggro(zone: Int): Float = startMult * (1f + growthPer10 * 0.4f * (gaugeZone(zone) - 1).coerceAtLeast(0) / 10f)
     }
 
     /** Observe this in the UI so the buttons recompose when the tier changes. */
@@ -1640,8 +1646,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     speedInPx *= 2.0f
                 }
                 speedInPx *= liveDifficultyMultiplier * metaDifficultyMultiplier
-                // Take-off: every run starts just under its full pace (EASY -3%, MEDIUM -2%, HARD -1%) and is at full pace after 20 seconds (~167 ticks)
-                val takeOff = (tick / 167f).coerceIn(0f, 1f)
+                // Take-off: every run starts just under its full pace (EASY -3%, MEDIUM -2%, HARD -1%) and is at full pace after 10 seconds (~84 ticks)
+                val takeOff = (tick / 84f).coerceIn(0f, 1f)
                 when (selectedDifficulty) {
                     DifficultyTier.EASY -> speedInPx *= 0.97f + 0.03f * takeOff
                     DifficultyTier.MEDIUM -> speedInPx *= 0.98f + 0.02f * takeOff
