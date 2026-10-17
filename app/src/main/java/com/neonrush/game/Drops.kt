@@ -82,7 +82,9 @@ object DropSchedule {
         "chrome_reaper" to 0, "solar_flare" to 1, "void_walker" to 2, "toxic_bloom" to 3,
         "circuit_breaker" to 4, "golden_protocol" to 5, "glitch_core" to 6,
         // the four story suits join the same one-a-month calendar
-        "blackout_runner" to 7, "signal_ghost" to 8, "convict_grey" to 9, "apex_predator" to 10
+        "blackout_runner" to 7, "signal_ghost" to 8, "convict_grey" to 9, "apex_predator" to 10,
+        // the next four join the same calendar, one a month after that
+        "prism_vanguard" to 11, "iron_wraith" to 12, "nova_sprint" to 13, "obsidian_pulse" to 14
     )
     private val SUIT_BY_ID = SUITS.toMap()
     fun isDropSuit(id: String) = id in SUIT_BY_ID
