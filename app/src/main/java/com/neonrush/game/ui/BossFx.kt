@@ -258,9 +258,17 @@ fun DrawScope.drawBossFront(world: Int, c: Offset, h: Float, t: Float, hp: Float
 
 /** One boss projectile, flying to the left (its trail is on the right). [ch] = screen height, [seed] differs per bullet. */
 fun DrawScope.drawBossShot(world: Int, x: Float, y: Float, ch: Float, t: Float, seed: Int) {
-    val s = ch * 0.056f
+    val s = ch * 0.062f
     val col = bxCol(world)
     val ph = (seed and 15) * 0.7f
+    // air-streaks racing past it and a shock ring ahead of it: it reads as fast and heavy, not as a floating sprite
+    for (k in 0 until 4) {
+        val off = (fxRnd(seed, k + 60) - 0.5f) * s * 1.6f
+        val len = s * (1.4f + 1.6f * fxRnd(seed, k + 70))
+        val sx = x + s * 0.6f + ((t * 9f + fxRnd(seed, k + 80)) % 1f) * s * 1.2f
+        drawLine(col.copy(alpha = 0.35f), Offset(sx, y + off), Offset(sx + len, y + off), strokeWidth = s * 0.03f, cap = StrokeCap.Round)
+    }
+    drawCircle(col.copy(alpha = 0.35f), s * (0.9f + 0.25f * sin(t * 14f + ph)), Offset(x - s * 0.15f, y), style = Stroke(width = s * 0.04f))
     when (world) {
         1 -> { // a ball of darkness with smoke and one angry light
             for (k in 1..4) drawCircle(Color.Black.copy(alpha = 0.4f - k * 0.07f), s * (0.8f - k * 0.1f), Offset(x + k * s * 0.55f, y + sin(t * 8f + k + ph) * s * 0.2f))
