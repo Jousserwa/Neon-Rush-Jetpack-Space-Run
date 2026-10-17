@@ -79,7 +79,7 @@ internal fun DrawScope.drawThreat(
                 "SHADOW_SWARM" -> Color(0xFF00E5FF)
                 else -> Color(0xFFFF2BD6)
             }
-            val h = ch * 0.18f
+            val h = ch * 0.21f
             val w = h * (pilot.width.toFloat() / pilot.height.toFloat())
             val cf = ColorFilter.tint(tint, BlendMode.SrcIn)
             // afterimages trail behind (to the right: it is coming at you)
