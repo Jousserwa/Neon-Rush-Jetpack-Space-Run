@@ -386,6 +386,28 @@ class NeonRushViewModel(
      */
     private suspend fun reconcileEntitlements(fromStore: Boolean = false) {
         val owned = RevenueCatManager.ownedProducts.value
+        // One time: every classic hull is real money. Anything opened by testing or crates is locked again; a real store purchase,
+        // the Pro 3-month gift and Transcendence ranks keep theirs (those rewards are untouched). Cyan Diamond, Purple Square and Green Triangle are never locked.
+        val relockDone = try { hangarStore.get("relock_classics_v2") == "1" } catch (_: Exception) { true }
+        if (!relockDone) {
+            val boughtIds = owned.map { it.substringBefore(':') }.filter { it.startsWith("neonrush_hull_") }.map { it.removePrefix("neonrush_hull_") }.toSet()
+            val giftOk = try { hangarStore.get("free_gem_hulls_granted") == "1" } catch (_: Exception) { false }
+            gameDao.updateProfile { p ->
+                val have = p.unlockedSkinsCsv.split(",").filter { it.isNotBlank() }
+                val keep = have.filter { id ->
+                    DropSchedule.classicHull(id) == null || id in boughtIds ||
+                        (giftOk && (id == "magenta_pulse" || id == "gold_transcendence")) ||
+                        (id == "gold_transcendence" && p.transcendenceCount >= 1) ||
+                        (id == "matrix_grid" && p.transcendenceCount >= 2)
+                }
+                if (keep.size == have.size) p
+                else p.copy(
+                    unlockedSkinsCsv = keep.joinToString(","),
+                    activeSkinId = if (p.activeSkinId in have && p.activeSkinId !in keep) "cyan_diamond" else p.activeSkinId
+                )
+            }
+            try { hangarStore.put("relock_classics_v2", "1") } catch (_: Exception) {}
+        }
         // Pilot suits (non-consumable "neonrush_skin_<id>"): were previously only unlocked in the purchase callback,
         // so a reinstall / new phone / killed app lost them.
         owned.map { it.substringBefore(':') }.filter { it.startsWith("neonrush_skin_") }.map { it.removePrefix("neonrush_skin_") }
@@ -1166,16 +1188,51 @@ fun freezeStreak() {
         HARD(0.11f, 1.10f, "HARD", -1, 1.25f, 0.80f, 1.15f, 0xFFFF9100, "_hard"),
         LEGENDARY(0.13f, 1.22f, "LEGENDARY", -2, 1.60f, 0.65f, 1.30f, 0xFFFFD23F, "_legendary");
 
-        fun pressure(zone: Int): Float = startMult * (1f + growthPer10 * (zone - 1).coerceAtLeast(0) / 10f)
+        /** World number from the zone (8 zones per world), fractional so the speed glides between worlds. */
+        private fun worldPos(zone: Int): Float = 1f + (zone - 1).coerceAtLeast(0) / 8f
+
+        /** Easy: gentle in world 1, a little more in world 2, +5% in worlds 3 and 4, a bit more in 5, then +3% every 4 worlds. */
+        private fun easyAt(w: Int): Float {
+            val f5 = 0.68f * 1.06f * 1.05f * 1.05f * 1.06f
+            return when {
+                w <= 1 -> 0.68f
+                w == 2 -> 0.68f * 1.06f
+                w == 3 -> 0.68f * 1.06f * 1.05f
+                w == 4 -> 0.68f * 1.06f * 1.05f * 1.05f
+                w == 5 -> f5
+                else -> f5 * (1f + 0.03f * ((w - 6) / 4 + 1))
+            }
+        }
+
+        /** The speed factor of EASY / MEDIUM by world; they stop growing when they reach HARD. HARD / LEGENDARY keep their zone curve. */
+        private fun paced(zone: Int): Float {
+            val w = worldPos(zone)
+            val raw = when (this) {
+                EASY -> { val a = w.toInt(); val fr = w - a; easyAt(a) + (easyAt(a + 1) - easyAt(a)) * fr }
+                // MEDIUM: calm and flat through worlds 1-2, then it climbs gradually
+                else -> 0.85f * (1f + 0.045f * (w - 2f).coerceAtLeast(0f))
+            }
+            return minOf(raw, HARD.hardCurve(zone))
+        }
+
+        private fun hardCurve(zone: Int): Float = startMult * (1f + growthPer10 * (zone - 1).coerceAtLeast(0) / 10f)
+
+        fun pressure(zone: Int): Float = if (this == EASY || this == MEDIUM) paced(zone) else hardCurve(zone)
 
         /**
-         * Aggression (obstacle density, threat rate, boss fire) starts lower on EASY and MEDIUM and climbs at only
-         * 40% of the speed growth, so the game stays fair and fun while speed still rises steadily.
+         * Aggression (obstacle density, threat rate, boss fire) follows the same steps as the speed on EASY and MEDIUM
+         * (starting calmer) and also stops at HARD's level. HARD / LEGENDARY climb at 40% of their speed growth.
          */
         fun aggression(zone: Int): Float {
-            val start = when (this) { EASY -> 0.50f; MEDIUM -> 0.85f; HARD -> startMult; LEGENDARY -> startMult }
-            return start * (1f + growthPer10 * 0.4f * (zone - 1).coerceAtLeast(0) / 10f)
+            if (this == EASY || this == MEDIUM) {
+                val start = if (this == EASY) 0.45f else 0.80f
+                val ratio = paced(zone) / paced(1)
+                return minOf(start * ratio, HARD.hardAggro(zone))
+            }
+            return hardAggro(zone)
         }
+
+        private fun hardAggro(zone: Int): Float = startMult * (1f + growthPer10 * 0.4f * (zone - 1).coerceAtLeast(0) / 10f)
     }
 
     /** Observe this in the UI so the buttons recompose when the tier changes. */
@@ -1841,10 +1898,12 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 for (elem in updatedElements) {
                     if (!isBlinkHazardVisible(elem, tick)) continue
                     val prevX = elem.xOffsetFraction + (speedInPx * 0.018f)
-                    val isAligned = prevX >= 0.16f && elem.xOffsetFraction <= 0.26f
+                    val isPickup = elem.type == "gem" || elem.type == "fuel" || elem.type == "powerup"
+                    // pickups use a wider, swept window: at high speed an item may spend only one tick near the pilot
+                    val isAligned = if (isPickup) (prevX >= 0.12f && elem.xOffsetFraction <= 0.30f) else (prevX >= 0.16f && elem.xOffsetFraction <= 0.26f)
                     if (isAligned) {
                         val verticalDist = Math.abs(userY - elem.yMatchPos)
-                        val collisionRadius = if (state.activePowerupDurations.containsKey("PU9")) 8 else if (kidMode) 11 else 15 - (4 * assist).toInt()
+                        val collisionRadius = (if (state.activePowerupDurations.containsKey("PU9")) 8 else if (kidMode) 11 else 15 - (4 * assist).toInt()).let { if (isPickup) maxOf(it, 22) else it }
                         if (verticalDist < collisionRadius) {
                             when (elem.type) {
                                 "gem" -> {
@@ -2676,10 +2735,12 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 for (elem in updatedElements) {
                     if (!isBlinkHazardVisible(elem, tick)) continue
                     val prevX = elem.xOffsetFraction + (speedInPx * 0.018f)
-                    val isAligned = prevX >= 0.16f && elem.xOffsetFraction <= 0.26f
+                    val isPickup = elem.type == "gem" || elem.type == "fuel" || elem.type == "powerup"
+                    // pickups use a wider, swept window: at high speed an item may spend only one tick near the pilot
+                    val isAligned = if (isPickup) (prevX >= 0.12f && elem.xOffsetFraction <= 0.30f) else (prevX >= 0.16f && elem.xOffsetFraction <= 0.26f)
                     if (isAligned) {
                         val verticalDist = Math.abs(userY - elem.yMatchPos)
-                        val collisionRadius = if (state.activePowerupDurations.containsKey("PU9")) 8 else if (kidMode) 11 else 15 - (4 * assist).toInt()
+                        val collisionRadius = (if (state.activePowerupDurations.containsKey("PU9")) 8 else if (kidMode) 11 else 15 - (4 * assist).toInt()).let { if (isPickup) maxOf(it, 22) else it }
                         if (verticalDist < collisionRadius) {
                             when (elem.type) {
                                 "gem" -> {
