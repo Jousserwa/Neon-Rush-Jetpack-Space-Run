@@ -25,7 +25,7 @@ import java.util.*
 // Pro-flagged phase are freely reachable without the paywall gate,
 // so all 5 main worlds can be QA'd end-to-end in one run.
 // ============================================================
-const val TESTING_DISABLE_PRO_GATE = true
+const val TESTING_DISABLE_PRO_GATE = false
 
 /** EASY (kids) mode: hits the pilot's shield soaks up at run start and after every refuel / revive. */
 /** Power-ups were too rare: drop-rate multiplier, and a guaranteed one if none showed up for this many ticks (8 ticks = 1 s). */
@@ -801,8 +801,8 @@ fun refuelWithGems(isPro: Boolean) {
     hintRefuelTapped = true
     viewModelScope.launch {
         val current = _simState.value
-        // TESTING ONLY — raised from 6 to 90 for QA. Revert to 6 when told.
-        if (!isPro && current.fuelRefillCount >= 90) return@launch
+        // Free players: 5 refuels per run (Pro: unlimited).
+        if (!isPro && current.fuelRefillCount >= 5) return@launch
         val cost = fuelRefillCostForCurrentRun()
         var didRefuel = false
         gameDao.updateProfile { prof ->
@@ -1362,7 +1362,7 @@ fun freezeStreak() {
         viewModelScope.launch {
             var didTranscend = false
             gameDao.updateProfile { prof ->
-                if (prof.bestScore >= 5000 || prof.transcendenceCount > 0) {
+                if (prof.bestScore >= 18000) {
                     didTranscend = true
                     val nextPrestige = prof.transcendenceCount + 1
                     val currentUnlocked = prof.unlockedSkinsCsv.split(",").filter { it.isNotEmpty() }.toMutableList()
@@ -1377,7 +1377,7 @@ fun freezeStreak() {
                     prof.copy(
                         transcendenceCount = nextPrestige,
                         bestScore = 0,
-                        gems = prof.gems + 500,
+                        gems = prof.gems + (if (prof.bestScore >= 25000) 32 else 30),
                         unlockedSkinsCsv = currentUnlocked.joinToString(","),
                         activeSkinId = exclusiveSkin
                     )
@@ -2458,6 +2458,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
     HullFx.reviveTick = currentTick
     _simState.value = currentState.copy(
         isCompleted = false,
+        particles = emptyList(),
         fuelLevelPercent = 100,
         feedbackMessage = "Revive code accepted! Launching drone boosters...",
         reviveCount = currentState.reviveCount + 1,
@@ -3038,6 +3039,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 _simState.value = state.copy(
                     hint = nextHint,
                     tickIndex = tick,
+                    particles = agedParticles,
                     ghostYPos = processedGhostY,
                     score = nextScore,
                     comboStreak = nextComboStreak,
