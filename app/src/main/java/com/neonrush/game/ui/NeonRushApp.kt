@@ -92,6 +92,7 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -373,10 +374,12 @@ private fun ParallaxWorldBackground(
     // pattern (see pilot/obstacle bitmaps below). Wrap in remember(worldId)
     // if you want to avoid reloading these every frame.
     val bitmaps = layers.map { ImageBitmap.imageResource(id = it.res) }
+    val bgClock = rememberBgClock()
 
     Canvas(modifier = Modifier.fillMaxSize()) {
         val cw = size.width
         val ch = size.height
+        val t = bgClock.value
 
         // Base fill so transparent gaps between hero-scene layers show the
         // world's theme color instead of plain black.
@@ -390,87 +393,86 @@ private fun ParallaxWorldBackground(
             val bmp = bitmaps[idx]
             // Scale each layer to fill the canvas height, preserving aspect.
             val displayWidth = ch * (bmp.width.toFloat() / bmp.height.toFloat())
+            val driftPx = BgFx.drift(worldId, idx) * t
 
-            if (layer.speedFactor == 0f) {
-                // Static layer: single centered/cropped draw, no scrolling.
-                drawImage(
-                    image = bmp,
-                            colorFilter = cf,
-                    dstOffset = IntOffset(((cw - displayWidth) / 2f).roundToInt(), 0),
-                    dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt())
-                )
-            } else if (layer.seamless) {
-                // Seamless tiling strip art (e.g. World 1): content spans
-                // edge-to-edge, so repeating copies side by side loops cleanly.
-                val scrollPx = distanceMeters * layer.speedFactor * PARALLAX_PX_PER_METER
-                var x = (-scrollPx).mod(displayWidth) - displayWidth
-                while (x < cw) {
+            // One layer, drawn with the given colour filter / blend / alpha. The glow passes below call it again with
+            // a "bright pixels only" filter, so lights line up exactly with the art and move with the parallax.
+            fun paint(filter: ColorFilter?, blend: BlendMode, a: Float) {
+                if (layer.speedFactor == 0f) {
                     drawImage(
                         image = bmp,
-                            colorFilter = cf,
-                        dstOffset = IntOffset(x.roundToInt(), 0),
-                        dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt())
-                    )
-                    x += displayWidth
-                }
-            } else {
-                // Non-seamless "hero scene" art (centered content, transparent
-                // margins): repeating it side by side would expose the empty
-                // margins as a seam, so instead pan the single oversized copy
-                // back and forth within its own bounds. Each layer's distinct
-                // speedFactor still produces real multi-plane depth — it just
-                // never wraps/repeats.
-                val scrollPx = distanceMeters * layer.speedFactor * PARALLAX_PX_PER_METER
-                val panRange = (displayWidth - cw).coerceAtLeast(0f)
-                if (panRange <= 0f) {
-                    // Image isn't wide enough to pan (narrower than the
-                    // screen even at full-height scale) — just center it.
-                    drawImage(
-                        image = bmp,
-                            colorFilter = cf,
+                        colorFilter = filter,
                         dstOffset = IntOffset(((cw - displayWidth) / 2f).roundToInt(), 0),
-                        dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt())
+                        dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt()),
+                        alpha = a, blendMode = blend
                     )
-                } else {
-                    // One-directional pan, matching travel direction. Since
-                    // this art can't tile edge-to-edge, a hard loop or a
-                    // permanent freeze once panRange is exhausted are both
-                    // bad — freezing is what was happening here before (the
-                    // fast foreground layer ran out of its ~1600px of pan
-                    // room within the first ~600m of a run that can span
-                    // tens of thousands of meters, so it sat frozen almost
-                    // the entire time). Instead, loop continuously and
-                    // cross-dissolve through a short window at the wrap
-                    // point so motion never stops, without a visible seam.
-                    val wrapWindow = (panRange * 0.15f).coerceIn(40f, 220f)
-                    val cycle = panRange + wrapWindow
-                    val cyclePos = scrollPx % cycle
-                    if (cyclePos <= panRange) {
+                } else if (layer.seamless) {
+                    // Seamless tiling strip art (e.g. World 1): content spans edge-to-edge, so repeating copies loops cleanly.
+                    val scrollPx = distanceMeters * layer.speedFactor * PARALLAX_PX_PER_METER + driftPx
+                    var x = (-scrollPx).mod(displayWidth) - displayWidth
+                    while (x < cw) {
                         drawImage(
                             image = bmp,
-                            colorFilter = cf,
-                            dstOffset = IntOffset((-cyclePos).roundToInt(), 0),
-                            dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt())
+                            colorFilter = filter,
+                            dstOffset = IntOffset(x.roundToInt(), 0),
+                            dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt()),
+                            alpha = a, blendMode = blend
+                        )
+                        x += displayWidth
+                    }
+                } else {
+                    // Non-seamless "hero scene" art: pan one oversized copy, cross-dissolving at the wrap point so motion never stops.
+                    val scrollPx = distanceMeters * layer.speedFactor * PARALLAX_PX_PER_METER + driftPx
+                    val panRange = (displayWidth - cw).coerceAtLeast(0f)
+                    if (panRange <= 0f) {
+                        drawImage(
+                            image = bmp,
+                            colorFilter = filter,
+                            dstOffset = IntOffset(((cw - displayWidth) / 2f).roundToInt(), 0),
+                            dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt()),
+                            alpha = a, blendMode = blend
                         )
                     } else {
-                        val progress = (cyclePos - panRange) / wrapWindow
-                        drawImage(
-                            image = bmp,
-                            colorFilter = cf,
-                            dstOffset = IntOffset((-panRange).roundToInt(), 0),
-                            dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt()),
-                            alpha = 1f - progress
-                        )
-                        drawImage(
-                            image = bmp,
-                            colorFilter = cf,
-                            dstOffset = IntOffset(0, 0),
-                            dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt()),
-                            alpha = progress
-                        )
+                        val wrapWindow = (panRange * 0.15f).coerceIn(40f, 220f)
+                        val cycle = panRange + wrapWindow
+                        val cyclePos = scrollPx % cycle
+                        if (cyclePos <= panRange) {
+                            drawImage(
+                                image = bmp,
+                                colorFilter = filter,
+                                dstOffset = IntOffset((-cyclePos).roundToInt(), 0),
+                                dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt()),
+                                alpha = a, blendMode = blend
+                            )
+                        } else {
+                            val progress = (cyclePos - panRange) / wrapWindow
+                            drawImage(
+                                image = bmp,
+                                colorFilter = filter,
+                                dstOffset = IntOffset((-panRange).roundToInt(), 0),
+                                dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt()),
+                                alpha = a * (1f - progress), blendMode = blend
+                            )
+                            drawImage(
+                                image = bmp,
+                                colorFilter = filter,
+                                dstOffset = IntOffset(0, 0),
+                                dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt()),
+                                alpha = a * progress, blendMode = blend
+                            )
+                        }
                     }
                 }
             }
+
+            val swayDeg = BgFx.sway(worldId, idx, t)
+            if (swayDeg != 0f) {
+                withTransform({ rotate(swayDeg, Offset(cw / 2f, ch)) }) { paint(cf, BlendMode.SrcOver, 1f) }
+            } else {
+                paint(cf, BlendMode.SrcOver, 1f)
+            }
+            // the world's own lights come alive (only on the plain art; re-coloured rift variants keep their colour grade)
+            if (cf == null) BgFx.passes(this, worldId, idx, t, cw, ch) { f, b, a -> paint(f, b, a) }
         }
 
         // Dim the whole stack uniformly so gameplay elements read clearly on top.
@@ -3826,6 +3828,8 @@ val bossImagesByWorld = mapOf(
             fallbackColorHex = simState.zoneDNA.environmentColor,
             variant = variant
         )
+        if (variant == null) WorldLife(worldId = currentWorld.worldFamily) // searchlights, embers, rain, fireflies... for worlds 1-5
+        RealmBackdrop(zone = simState.currentZoneNumber, distanceMeters = simState.distanceMeters) // code-drawn scenes for the zone 270+ realms
         variant?.let { WorldWeatherOverlay(weather = it.weather, accent = it.accent) }
         run {
             val familyTitle = variant?.let { v -> Worlds.ALL.find { it.id == v.baseFamily }?.title }
