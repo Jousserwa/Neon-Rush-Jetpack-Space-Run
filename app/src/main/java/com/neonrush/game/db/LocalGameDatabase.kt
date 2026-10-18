@@ -1,6 +1,7 @@
 package com.neonrush.game.db
 
 import com.neonrush.game.HangarStore
+import com.neonrush.game.WelcomeBonus
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
@@ -64,6 +65,9 @@ data class GameProfile(
     val monthlyRerollCount: Int = 0,
     val specialWorldTier: Int = 0,
     val specialProgressCsv: String = "",
+    // Daily welcome bonus gems: they sit inside `gems`, but this part expires at bonusGemsExpiry (see WelcomeBonus.kt)
+    val bonusGems: Int = 0,
+    val bonusGemsExpiry: Long = 0L,
     // Permanent gem upgrades, e.g. "shield:2,gem:1" (see Upgrades.kt)
     val upgradesCsv: String = "",
     // Daily crate (see DailyCrate.kt)
@@ -143,6 +147,8 @@ class GameDao(context: Context) {
             val monthlyRerollCountIdx = cursor.getColumnIndex("monthlyRerollCount")
             val specialWorldTierIdx = cursor.getColumnIndex("specialWorldTier")
             val specialProgressCsvIdx = cursor.getColumnIndex("specialProgressCsv")
+            val bonusGemsIdx = cursor.getColumnIndex("bonusGems")
+            val bonusGemsExpiryIdx = cursor.getColumnIndex("bonusGemsExpiry")
             val currentRunGemsCreditedIdx = cursor.getColumnIndex("currentRunGemsCredited")
             val currentRunBossZonesRewardedIdx = cursor.getColumnIndex("currentRunBossZonesRewarded")
             val currentRunMilestonesRewardedIdx = cursor.getColumnIndex("currentRunMilestonesRewarded")
@@ -195,6 +201,8 @@ class GameDao(context: Context) {
                 monthlyRerollCount = if (monthlyRerollCountIdx != -1) cursor.getInt(monthlyRerollCountIdx) else 0,
                 specialWorldTier = if (specialWorldTierIdx != -1) cursor.getInt(specialWorldTierIdx) else 0,
                 specialProgressCsv = if (specialProgressCsvIdx != -1) (cursor.getString(specialProgressCsvIdx) ?: "") else "",
+                bonusGems = if (bonusGemsIdx != -1) cursor.getInt(bonusGemsIdx) else 0,
+                bonusGemsExpiry = if (bonusGemsExpiryIdx != -1) cursor.getLong(bonusGemsExpiryIdx) else 0L,
                 currentRunGemsCredited = if (currentRunGemsCreditedIdx != -1) cursor.getInt(currentRunGemsCreditedIdx) else 0,
                 currentRunBossZonesRewarded = if (currentRunBossZonesRewardedIdx != -1) cursor.getString(currentRunBossZonesRewardedIdx) else "",
                 currentRunMilestonesRewarded = if (currentRunMilestonesRewardedIdx != -1) cursor.getString(currentRunMilestonesRewardedIdx) else "",
@@ -232,7 +240,11 @@ class GameDao(context: Context) {
         return profileMutex.withLock {
             refreshProfile()
             val current = _profileFlow.value ?: GameProfile()
-            val updated = block(current)
+            // welcome-bonus gems that ran out of time are taken back BEFORE anything is spent or earned
+            val live = WelcomeBonus.expire(current, System.currentTimeMillis())
+            // whatever was spent comes out of the bonus first: the bonus can never exceed the balance
+            val raw = block(live)
+            val updated = raw.copy(bonusGems = minOf(raw.bonusGems, raw.gems).coerceAtLeast(0))
             saveProfileDirect(updated)
             updated
         }
@@ -279,6 +291,8 @@ class GameDao(context: Context) {
             put("monthlyRerollCount", profile.monthlyRerollCount)
             put("specialWorldTier", profile.specialWorldTier)
             put("specialProgressCsv", profile.specialProgressCsv)
+            put("bonusGems", profile.bonusGems)
+            put("bonusGemsExpiry", profile.bonusGemsExpiry)
             put("currentRunGemsCredited", profile.currentRunGemsCredited)
             put("currentRunBossZonesRewarded", profile.currentRunBossZonesRewarded)
             put("currentRunMilestonesRewarded", profile.currentRunMilestonesRewarded)
@@ -335,7 +349,7 @@ class GameDao(context: Context) {
     }
 }
 
-class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_companion.db", null, 22) {
+class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_companion.db", null, 23) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE game_profile (
@@ -373,6 +387,8 @@ class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_comp
                 monthlyRerollCount INTEGER,
                 specialWorldTier INTEGER,
                 specialProgressCsv TEXT,
+                bonusGems INTEGER,
+                bonusGemsExpiry INTEGER,
                 currentRunGemsCredited INTEGER,
                 currentRunBossZonesRewarded TEXT,
                currentRunMilestonesRewarded TEXT,
@@ -490,6 +506,10 @@ class GameDbHelper(context: Context) : SQLiteOpenHelper(context, "neon_rush_comp
     }
     if (oldVersion < 22) {
         db.execSQL("ALTER TABLE game_profile ADD COLUMN specialProgressCsv TEXT DEFAULT ''")
+    }
+    if (oldVersion < 23) {
+        db.execSQL("ALTER TABLE game_profile ADD COLUMN bonusGems INTEGER DEFAULT 0")
+        db.execSQL("ALTER TABLE game_profile ADD COLUMN bonusGemsExpiry INTEGER DEFAULT 0")
     }
 }
 }
