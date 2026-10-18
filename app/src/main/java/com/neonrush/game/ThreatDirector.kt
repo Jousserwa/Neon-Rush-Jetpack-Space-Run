@@ -161,6 +161,10 @@ object ThreatDirector {
                 return (if (dead) -0.5f else elem.xOffsetFraction) to elem.yMatchPos
             }
         }
+        if (elem.type == "bullet") {
+            val eliteLane = EliteBosses.shotLane(elem.subType, nextX, actualY, userY)
+            if (eliteLane != null) return nextX to eliteLane
+        }
         // Boss shots fly TOWARD the pilot: they steer in the first part of the flight, then lock their lane so they can still be dodged.
         if (elem.type == "bullet" && elem.subType == "") {
             if (nextX > 0.42f) {
