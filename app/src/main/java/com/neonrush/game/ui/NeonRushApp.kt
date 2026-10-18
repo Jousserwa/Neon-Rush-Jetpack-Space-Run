@@ -5,6 +5,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.res.painterResource
 import com.neonrush.game.AuraRank
+import com.neonrush.game.EliteBosses
 import kotlinx.coroutines.delay as hudDelay
 import androidx.compose.ui.window.Popup
 import com.neonrush.game.HullCatalog
@@ -25,6 +26,9 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import com.neonrush.game.Realm
+import com.neonrush.game.RealmRules
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -3989,6 +3993,10 @@ val bossImagesByWorld = mapOf(
                                 viewModel.adjustUserY(deltaPercent.toInt())
                             }
                         }
+                        .pointerInput(Unit) {
+                            // Mirror realm: a tap swaps side (does nothing anywhere else)
+                            detectTapGestures(onTap = { viewModel.toggleMirror() })
+                        }
                 ) {
                     // Smooth 30 fps effects clock (flames, smoke, warnings). Read inside the draw block only,
                     // so it redraws the canvas without recomposing anything.
@@ -4424,12 +4432,32 @@ val bossImagesByWorld = mapOf(
         // the shot leans into its flight path: while it is still steering toward the pilot it points at them, then it flies straight
         val aimDy = ch * (simState.userYPos / 100f) - y
         val aimDx = (x - cw * 0.2f).coerceAtLeast(1f)
-        val aimDeg = if (x > cw * 0.42f) (-Math.toDegrees(kotlin.math.atan2(aimDy, aimDx).toDouble()).toFloat()).coerceIn(-32f, 32f) else 0f
+        val eliteShot = EliteBosses.forZone(simState.currentZoneNumber)
+        val fanSlope = if (elem.subType.startsWith("FAN")) (elem.subType.substring(3).toIntOrNull() ?: 0) else 0
+        val aimDeg = when {
+            elem.subType.startsWith("FAN") -> (fanSlope * 7f).coerceIn(-32f, 32f)
+            elem.subType == "CURT" || elem.subType == "ECHO" -> 0f
+            x > cw * 0.42f -> (-Math.toDegrees(kotlin.math.atan2(aimDy, aimDx).toDouble()).toFloat()).coerceIn(-32f, 32f)
+            else -> 0f
+        }
+        val shotSize = when { elem.subType == "SNIPE" -> 1.35f; elem.subType == "CURT" -> 0.8f; elem.subType == "ECHO" -> 1.15f; elem.subType.startsWith("FAN") -> 0.9f; else -> 1f }
         withTransform({ rotate(aimDeg, Offset(x, y)) }) {
-            drawBossShot(variant?.baseFamily ?: currentWorld.worldFamily, x, y, ch, fxClock.value, elem.id.hashCode(), bulletImg)
+            drawBossShot(if (elem.subType == "ECHO") 1 else (eliteShot?.base ?: (variant?.baseFamily ?: currentWorld.worldFamily)), x, y, ch, fxClock.value, elem.id.hashCode(), bulletImg, shotSize)
         }
     }
 } 
+                            }
+                        }
+
+                        // zone 240+ realms: Mirror (two sides), Pulse (the beat)
+                        run {
+                            val realmNow = RealmRules.realmFor(simState.currentZoneNumber)
+                            val realmPilot = Offset(cw * 0.2f, ch * (simState.userYPos / 100f))
+                            if (realmNow == Realm.MIRROR) drawMirrorRealm(cw, ch, fxClock.value, simState.tickIndex, simState.mirrorSide, simState.mirrorFlipTick, realmPilot, simState.activeTrackElements)
+                            else if (realmNow == Realm.PULSE) drawPulseRealm(cw, ch, fxClock.value, simState.tickIndex, realmPilot)
+                            realmCaption(simState.currentZoneNumber)?.let { cap ->
+                                val capLayout = textMeasurer.measure(cap, style = TextStyle(color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace))
+                                drawText(textLayoutResult = capLayout, topLeft = Offset((cw - capLayout.size.width) / 2f, ch * 0.145f))
                             }
                         }
 
@@ -4480,7 +4508,8 @@ val bossImagesByWorld = mapOf(
                         val userY = ch * (simState.userYPos / 100f)
 
                         if (simState.bossActive) {
-                            val bossImg = bossImagesByWorld[variant?.baseFamily ?: currentWorld.worldFamily] ?: bossImagesByWorld[1]!!
+                            val eliteB = EliteBosses.forZone(simState.currentZoneNumber)
+                            val bossImg = bossImagesByWorld[eliteB?.base ?: (variant?.baseFamily ?: currentWorld.worldFamily)] ?: bossImagesByWorld[1]!!
                             val bossX = cw * 0.88f
                             val bossYPx = ch * (simState.bossY / 100f)
                             val bossDisplayHeight = ch * 0.38f
@@ -4533,6 +4562,11 @@ val bossImagesByWorld = mapOf(
                             }
                             val bossWorldId = variant?.baseFamily ?: currentWorld.worldFamily
                             val bossPos = Offset(bossX, bossYPx)
+                            if (eliteB == null && RealmRules.isRivalZone(simState.currentZoneNumber)) {
+                                drawEchoRival(pilotFrames[(simState.tickIndex / 3) % pilotFrames.size], bossX, bossYPx, bossDisplayHeight * 0.8f, fxClock.value, simState.tickIndex, simState.bossHealth, ch)
+                            } else if (eliteB != null) {
+                                drawEliteBoss(eliteB, bossImg, bossX, bossYPx, simState.bossY, bossDisplayHeight, fxClock.value, simState.tickIndex, simState.bossHealth, cw, ch)
+                            } else {
                             drawBossBack(bossWorldId, bossPos, bossDisplayHeight, fxClock.value, simState.bossHealth)
                             val bPose = bossPose(bossWorldId, bossDisplayHeight, fxClock.value, simState.bossHealth)
                             withTransform({
@@ -4550,6 +4584,7 @@ val bossImagesByWorld = mapOf(
                                     alpha = bossFlicker
                                 )
                                 drawBossFront(bossWorldId, bossPos, bossDisplayHeight, fxClock.value, simState.bossHealth)
+                            }
                             }
 
                             // Boss health bar, top-center of the screen —
@@ -4587,9 +4622,9 @@ val bossImagesByWorld = mapOf(
                                 style = Stroke(1.dp.toPx())
                             )
                             val bossLabel = textMeasurer.measure(
-                                "BOSS",
+                                if (eliteB != null) "ELITE  " + eliteB.name + "  " + "\u2605".repeat(eliteB.tier + 1) else if (RealmRules.isRivalZone(simState.currentZoneNumber)) "ECHO RIVAL  \u00b7  YOUR OWN SHADOW" else "BOSS",
                                 style = TextStyle(
-                                    color = Color.White,
+                                    color = if (eliteB != null) Color(eliteB.accent) else if (RealmRules.isRivalZone(simState.currentZoneNumber)) Color(0xFFB388FF) else Color.White,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                                 )
