@@ -1158,11 +1158,11 @@ fun freezeStreak() {
 
         private fun hardCurve(zone: Int): Float = startMult * (1f + growthPer10 * (gaugeZone(zone) - 1).coerceAtLeast(0) / 10f)
 
-        /** Speed. Stage 63: +3% EASY, +4% MEDIUM, +6% HARD on top of the gauge curve (the 60-zone gauge still caps how far it can climb). */
+        /** Speed. Stage 67: +5% EASY, +8% MEDIUM, +12% HARD (63 + a second 2/4/6) on top of the gauge curve (the 60-zone gauge still caps how far it can climb). */
         fun pressure(zone: Int): Float = when (this) {
-            EASY -> paced(zone) * 1.03f
-            MEDIUM -> paced(zone) * 1.04f
-            HARD -> hardCurve(zone) * 1.06f
+            EASY -> paced(zone) * 1.05f
+            MEDIUM -> paced(zone) * 1.08f
+            HARD -> hardCurve(zone) * 1.12f
             else -> hardCurve(zone)
         }
 
@@ -1173,7 +1173,7 @@ fun freezeStreak() {
         fun aggression(zone: Int): Float {
             if (this == EASY || this == MEDIUM) {
                 val ratio = paced(zone) / paced(1)
-                return if (this == EASY) minOf(0.45f * (1f + 0.5f * (ratio - 1f)), HARD.hardAggro(zone))
+                return if (this == EASY) minOf(0.45f * 1.04f * (1f + 0.5f * (ratio - 1f)), HARD.hardAggro(zone))
                 else minOf(0.84f * ratio, HARD.hardAggro(zone))
             }
             return hardAggro(zone)
@@ -1740,6 +1740,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 RealmRules.record(tick, userY)
                 val gravRes = RealmRules.gravityStep(nextZoneNumber, tick, speedInPx, userY)
                 val gravUserY = (userY + gravRes[0]).coerceIn(10, 90)
+                val stormRes = RealmRules.stormStep(nextZoneNumber, tick, userY, speedInPx, updatedElements)
+                if (stormRes[1] == 1) soundEngine.playTone(70f, 260, "sawtooth")
                 for (elem in state.activeTrackElements) {
                     val nextX = elem.xOffsetFraction - (speedInPx * 0.018f)
                     if (nextX < -0.1f) continue
@@ -1774,7 +1776,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (RealmRules.spawnNow(nextZoneNumber, tick, spacingVal)) {
                     val targetGhostY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     val obstacles = spawnObstacleForSet(activeDna.obstacleSetId, tick, random, targetGhostY, nextZoneNumber)
-                    updatedElements.addAll(obstacles)
+                    if (RealmRules.realmFor(nextZoneNumber) == Realm.SHATTER) RealmRules.glassPane(tick, userY, updatedElements) else updatedElements.addAll(obstacles)
                     if (random.nextFloat() < activeDna.powerupDensity * PU_BOOST * (flavor?.powerupMul ?: 1f) * selectedDifficulty.powerupMul || tick - lastPuSpawnTick >= PU_PITY_TICKS) {
                         lastPuSpawnTick = tick
                         val puType = chooseProceduralPowerupType(random, isSundayLegendary)
@@ -2121,7 +2123,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     rawError < 18 -> if (isWednesdayPower) 15 else 10
                     else -> 2
                 }
-                tickScore += gravRes[1]
+                tickScore += gravRes[1] + stormRes[0]
                 var multi = 1.0f
                 if (isFridayGolden) multi *= 3.0f
                 multi += (prof.transcendenceCount * 0.05f)
@@ -2660,6 +2662,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 RealmRules.record(tick, userY)
                 val gravRes = RealmRules.gravityStep(nextZoneNumber, tick, speedInPx, userY)
                 val gravUserY = (userY + gravRes[0]).coerceIn(10, 90)
+                val stormRes = RealmRules.stormStep(nextZoneNumber, tick, userY, speedInPx, updatedElements)
+                if (stormRes[1] == 1) soundEngine.playTone(70f, 260, "sawtooth")
                 for (elem in state.activeTrackElements) {
                     val nextX = elem.xOffsetFraction - (speedInPx * 0.018f)
                     if (nextX < -0.1f) continue
@@ -2694,7 +2698,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (RealmRules.spawnNow(nextZoneNumber, tick, spacingVal)) {
                     val targetGhostY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     val obstacles = spawnObstacleForSet(activeDna.obstacleSetId, tick, random, targetGhostY, nextZoneNumber)
-                    updatedElements.addAll(obstacles)
+                    if (RealmRules.realmFor(nextZoneNumber) == Realm.SHATTER) RealmRules.glassPane(tick, userY, updatedElements) else updatedElements.addAll(obstacles)
                     if (random.nextFloat() < activeDna.powerupDensity * PU_BOOST * (flavor?.powerupMul ?: 1f) * selectedDifficulty.powerupMul || tick - lastPuSpawnTick >= PU_PITY_TICKS) {
                         lastPuSpawnTick = tick
                         val puType = chooseProceduralPowerupType(random, isSundayLegendary)
@@ -3001,7 +3005,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     rawError < 18 -> if (isWednesdayPower) 15 else 10
                     else -> 2
                 }
-                tickScore += gravRes[1]
+                tickScore += gravRes[1] + stormRes[0]
                 var multi = 1.0f
                 if (isFridayGolden) multi *= 3.0f
                 multi += (prof.transcendenceCount * 0.05f)
