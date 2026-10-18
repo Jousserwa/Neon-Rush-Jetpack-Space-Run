@@ -40,14 +40,14 @@ object EliteBosses {
     private val ROSTER = listOf(
         Def("GLACIAL REVENANT", 7, 35f, 1.05f, 1.0f, EliteMove.SWEEP, EliteAtk.FAN, 1.0f, false, 0, 0xFF7EE7FF),
         Def("SOLAR PHANTOM", 8, -25f, 1.1f, 1.0f, EliteMove.DASH, EliteAtk.SNIPER, 1.1f, false, 1, 0xFFFFB300),
-        Def("VENOM LEVIATHAN", 4, 85f, 1.0f, 1.1f, EliteMove.ORBIT, EliteAtk.SALVO, 1.0f, false, 2, 0xFF00E5FF),
+        Def("VENOM COLOSSUS", 4, 85f, 1.0f, 1.1f, EliteMove.ORBIT, EliteAtk.SALVO, 1.0f, false, 2, 0xFF00E5FF),
         Def("NULL SPECTER", 6, 110f, 1.05f, 1.0f, EliteMove.HOP, EliteAtk.CURTAIN, 1.25f, false, 3, 0xFF69F0AE),
         Def("WARDEN PRIME", 3, -40f, 1.0f, 1.2f, EliteMove.CHASE, EliteAtk.FAN, 1.15f, false, 4, 0xFFFF7043),
         Def("CRIMSON VANGUARD", 5, 175f, 1.05f, 1.0f, EliteMove.STRAFE, EliteAtk.SALVO, 1.0f, false, 5, 0xFF40C4FF),
         Def("IRON SKYHAWK", 2, 200f, 1.0f, 1.0f, EliteMove.SWEEP, EliteAtk.MIX, 1.1f, false, 5, 0xFFB388FF),
         Def("ECLIPSE WRAITH", 1, 90f, 0.95f, 1.0f, EliteMove.ORBIT, EliteAtk.SNIPER, 1.0f, false, 6, 0xFFB388FF),
         Def("TWIN FROST", 7, -45f, 1.0f, 0.85f, EliteMove.SWEEP, EliteAtk.FAN, 1.2f, true, 0, 0xFFFF80AB),
-        Def("HYDRA BLOOM", 4, -60f, 1.0f, 0.85f, EliteMove.ORBIT, EliteAtk.SALVO, 1.2f, true, 2, 0xFFFFEA00),
+        Def("TWIN BLOOM", 4, -60f, 1.0f, 0.85f, EliteMove.ORBIT, EliteAtk.SALVO, 1.2f, true, 2, 0xFFFFEA00),
         Def("APEX OVERLORD", 8, 150f, 1.1f, 1.3f, EliteMove.CHASE, EliteAtk.MIX, 1.3f, false, 7, 0xFFFFD740),
         Def("OMEGA SIGNAL", 6, -80f, 1.05f, 1.1f, EliteMove.HOP, EliteAtk.MIX, 1.3f, false, 3, 0xFFFF4081)
     )
