@@ -9,18 +9,22 @@ import kotlin.math.sqrt
  *   GRAVITY (300-359): spinning wells drift in. BLUE wells pull you in (skim the edge for bonus points, never sit in the middle); RED wells push you away.
  *   PULSE  (360-419): the world runs on a beat. Obstacles arrive on the beat, and every 4th beat a "drop" of gems appears.
  *   ECHO RIVAL (boss, every 15th zone from 255): your own shadow hunts you, firing along the lanes you were in ~1.7 s ago.
- * No new art: everything is code-drawn / tinted (see ui/RealmFx.kt). Blackout (420-479) is not built yet.
+ *   BLACKOUT (420-479): the lights are out. You only see inside your lantern; every 30 ticks (~3.6 s) a sonar ping lights the whole screen for a moment. Faint blips mark what is out there.
+ * No new art: everything is code-drawn / tinted (see ui/RealmFx.kt). The finale boss at 480 is not built yet.
  */
-enum class Realm { NONE, MIRROR, PULSE, GRAVITY }
+enum class Realm { NONE, MIRROR, PULSE, GRAVITY, BLACKOUT }
 
 object RealmRules {
     const val PULSE_BEAT = 6          // ticks per beat (~0.72 s)
+    const val PING_EVERY = 30         // ticks between sonar pings in the Blackout realm
+    const val PING_LEN = 7            // ticks a ping lights the screen
     const val ECHO_DELAY = 14         // ticks the rival lags behind you
 
     fun realmFor(zone: Int): Realm = when (zone) {
         in 240..299 -> Realm.MIRROR
         in 300..359 -> Realm.GRAVITY
         in 360..419 -> Realm.PULSE
+        in 420..479 -> Realm.BLACKOUT
         else -> Realm.NONE
     }
 
