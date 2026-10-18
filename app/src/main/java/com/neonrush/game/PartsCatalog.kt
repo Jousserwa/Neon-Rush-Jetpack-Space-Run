@@ -173,6 +173,12 @@ class PartsLocker(
             if (DropSchedule.partStatus(id, best, ServerClock.bestNowMs()) != DropSchedule.PartStatus.OPEN) {
                 announce("${part.name} is still locked."); return@launch
             }
+            if (DropSchedule.TEST_OPEN) { // TESTING ONLY: free unlock so every helmet and boot can be tried
+                publish(_state.value.copy(owned = _state.value.owned + id, equipped = _state.value.equipped + (part.slot.name to id)))
+                scope.launch { save() }
+                announce("${part.name} unlocked (testing).")
+                return@launch
+            }
             RevenueCatManager.purchasePilotSuit(activity, part.productId) { ok ->
                 if (ok) {
                     publish(_state.value.copy(owned = _state.value.owned + id, equipped = _state.value.equipped + (part.slot.name to id)))
