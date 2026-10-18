@@ -213,11 +213,145 @@ fun DrawScope.drawBlackoutRealm(cw: Float, ch: Float, t: Float, tick: Int, zone:
     fxGlow(pilot, ch * 0.12f, Color(0xFFFFF59D), 0.25f * (1f - reveal) + 0.05f)
 }
 
+/**
+ * SHATTER: every obstacle tile of a glass wall is drawn as a pane of prism glass. The one gap glows with chevrons. Once a pane is
+ * past the pilot it bursts into flying shards. Cracks spread across the screen the deeper you are in the realm.
+ */
+fun DrawScope.drawShatterRealm(cw: Float, ch: Float, t: Float, tick: Int, zone: Int, pilot: Offset, elems: List<VisualTrackElement>) {
+    val cyan = Color(0xFF7DF9FF)
+    val mag = Color(0xFFFF4FD8)
+    drawRect(Brush.horizontalGradient(listOf(cyan.copy(alpha = 0.10f), Color.Transparent, mag.copy(alpha = 0.10f))), size = Size(cw, ch), blendMode = BlendMode.Plus)
+    // cracks: more of them the deeper you are, flaring while a wall passes
+    val depth = ((zone - 270) / 30f).coerceIn(0f, 1f)
+    var flare = 0f
+    for (e in elems) if (e.subType == "GLASS" && e.xOffsetFraction in 0.12f..0.3f) flare = 0.5f
+    val n = 3 + (9 * depth).toInt()
+    for (k in 0 until n) {
+        var p = Offset(fxRnd(k, 1) * cw, if (fxRnd(k, 2) < 0.5f) 0f else ch)
+        val a = 0.10f + 0.10f * depth + flare * 0.25f
+        for (j in 0 until 5) {
+            val q = Offset(p.x + (fxRnd(k, 10 + j) - 0.5f) * cw * 0.16f, p.y + (if (p.y < ch / 2f) 1f else -1f) * ch * (0.06f + 0.10f * fxRnd(k, 20 + j)))
+            drawLine(Color.White.copy(alpha = a), p, q, strokeWidth = ch * 0.0016f, cap = StrokeCap.Round)
+            p = q
+        }
+    }
+    for (e in elems) {
+        if (e.subType != "GLASS") continue
+        val x = cw * e.xOffsetFraction
+        if (x > cw * 1.1f || x < -cw * 0.1f) continue
+        val y = ch * (e.yMatchPos / 100f)
+        val parts = e.id.split("_")
+        val gapC = parts.getOrNull(2)?.toIntOrNull() ?: 50
+        val idx = parts.getOrNull(3)?.toIntOrNull() ?: 0
+        val tw = cw * 0.05f
+        val th = ch * 0.148f
+        val gone = ((0.2f - e.xOffsetFraction) / 0.10f).coerceIn(0f, 1f)
+        if (gone <= 0f) {
+            val tl = Offset(x - tw / 2f, y - th / 2f)
+            drawRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.30f), cyan.copy(alpha = 0.16f), mag.copy(alpha = 0.14f)), startY = tl.y, endY = tl.y + th), tl, Size(tw, th))
+            drawRect(cyan.copy(alpha = 0.85f), tl, Size(tw, th), style = Stroke(width = ch * 0.003f))
+            drawRect(mag.copy(alpha = 0.45f), Offset(tl.x + ch * 0.003f, tl.y + ch * 0.003f), Size(tw, th), style = Stroke(width = ch * 0.0015f))
+            val gl = ((t * 0.7f + fxRnd(idx, gapC)) % 1f)
+            drawLine(Color.White.copy(alpha = 0.7f * (1f - gl)), Offset(tl.x, tl.y + th * gl), Offset(tl.x + tw, tl.y + th * (gl - 0.4f).coerceAtLeast(0f)), strokeWidth = ch * 0.002f)
+        } else if (gone < 1f) {
+            for (k in 0 until 5) {
+                val ang = (fxRnd(idx, k) * 6.283f)
+                val d = gone * ch * (0.06f + 0.16f * fxRnd(k, idx))
+                val c = Offset(x + kotlin.math.cos(ang) * d * 0.7f - gone * cw * 0.02f, y + sin(ang) * d)
+                val r = ch * 0.03f * (1f - gone * 0.5f)
+                val path = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(c.x, c.y - r); lineTo(c.x + r * 0.8f, c.y + r * 0.6f); lineTo(c.x - r * 0.7f, c.y + r * 0.5f); close()
+                }
+                drawPath(path, cyan.copy(alpha = 0.55f * (1f - gone)))
+                drawPath(path, Color.White.copy(alpha = 0.8f * (1f - gone)), style = Stroke(width = ch * 0.002f))
+            }
+        }
+        // the gap: shown once per wall, on its first tile
+        if (idx == 0 && e.xOffsetFraction > 0.2f) {
+            val gy = ch * (gapC / 100f)
+            fxGlow(Offset(x, gy), ch * 0.2f, cyan, 0.28f + 0.1f * sin(t * 6f))
+            for (c in 0 until 3) {
+                val ox = x - cw * 0.035f * (c + 1) - ((t * 0.9f) % 1f) * cw * 0.02f
+                val aa = 0.7f * (1f - c / 3f)
+                drawLine(Color.White.copy(alpha = aa), Offset(ox + cw * 0.01f, gy - ch * 0.03f), Offset(ox, gy), strokeWidth = ch * 0.004f, cap = StrokeCap.Round)
+                drawLine(Color.White.copy(alpha = aa), Offset(ox, gy), Offset(ox + cw * 0.01f, gy + ch * 0.03f), strokeWidth = ch * 0.004f, cap = StrokeCap.Round)
+            }
+        }
+    }
+    fxGlow(pilot, ch * 0.10f, cyan, 0.18f)
+}
+
+/**
+ * STORM: rain, drifting thunderclouds and a violet veil. Each strike shows an amber warning band on its lane (it fills up over the
+ * warning time, with a hazard chevron strip at the left edge), then the bolt crosses the whole screen. During the calm "eye" the
+ * veil lifts and a golden glow settles on the pilot.
+ */
+fun DrawScope.drawStormRealm(cw: Float, ch: Float, t: Float, tick: Int, pilot: Offset) {
+    val calm = RealmRules.calm
+    val veil = if (calm) 0.04f else 0.16f
+    drawRect(Brush.verticalGradient(listOf(Color(0xFF2A1B5E).copy(alpha = veil + 0.10f), Color.Transparent, Color(0xFF0B1230).copy(alpha = veil))), size = Size(cw, ch))
+    // clouds along the top
+    for (k in 0 until 5) {
+        val cx = ((k * 0.27f - t * 0.02f * (1f + k * 0.2f)) % 1.4f + 1.4f) % 1.4f * cw - cw * 0.2f
+        val r = ch * (0.20f + 0.05f * fxRnd(k, 3))
+        fxGlow(Offset(cx, -ch * 0.02f), r, Color(0xFF6A4FD0), if (calm) 0.10f else 0.30f)
+    }
+    // rain
+    if (!calm) {
+        for (k in 0 until 46) {
+            val sp = 0.9f + fxRnd(k, 5)
+            val ry = ((t * sp * 1.6f + fxRnd(k, 6)) % 1f) * ch
+            val rx = (fxRnd(k, 7) * cw * 1.2f - ry * 0.18f)
+            drawLine(Color(0xFFB3C6FF).copy(alpha = 0.22f), Offset(rx, ry), Offset(rx - ch * 0.012f, ry + ch * 0.045f), strokeWidth = ch * 0.0016f)
+        }
+    }
+    // strikes
+    for (s in RealmRules.strikes) {
+        val age = tick - s.t0
+        val y = ch * (s.lane / 100f)
+        val half = ch * 0.13f
+        if (age < RealmRules.STORM_WARN) {
+            val f = (age + 1f) / RealmRules.STORM_WARN
+            val pulse = 0.5f + 0.5f * sin(t * (10f + 14f * f))
+            val amber = Color(0xFFFFC400)
+            drawRect(amber.copy(alpha = (0.08f + 0.20f * f) * (0.6f + 0.4f * pulse)), Offset(0f, y - half), Size(cw, half * 2f), blendMode = BlendMode.Plus)
+            drawLine(amber.copy(alpha = 0.55f + 0.4f * f), Offset(0f, y - half), Offset(cw, y - half), strokeWidth = ch * 0.003f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(ch * 0.03f, ch * 0.02f), t * 90f))
+            drawLine(amber.copy(alpha = 0.55f + 0.4f * f), Offset(0f, y + half), Offset(cw, y + half), strokeWidth = ch * 0.003f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(ch * 0.03f, ch * 0.02f), -t * 90f))
+            // charge building at the right edge: tiny sparks gathering
+            for (k in 0 until 4) fxSpark(Offset(cw * (0.96f - 0.03f * k), y + (fxRnd(k, tick) - 0.5f) * half), ch * 0.02f * f, Color.White, 0.8f * f)
+            // warning mark at the left edge
+            fxSpark(Offset(cw * 0.04f, y), ch * (0.03f + 0.02f * pulse), Color(0xFFFF5252), 0.9f)
+        } else if (age <= RealmRules.STORM_WARN + 2) {
+            val k = age - RealmRules.STORM_WARN
+            val a = if (k == 0) 1f else if (k == 1) 0.85f else 0.35f
+            drawRect(Color.White.copy(alpha = 0.22f * a), size = Size(cw, ch), blendMode = BlendMode.Plus)
+            drawRect(Color(0xFFB388FF).copy(alpha = 0.32f * a), Offset(0f, y - half), Size(cw, half * 2f), blendMode = BlendMode.Plus)
+            val segs = 3
+            for (g in 0 until segs) {
+                val x0 = cw * (1f - g / segs.toFloat())
+                val x1 = cw * (1f - (g + 1) / segs.toFloat())
+                val yy0 = y + (fxRnd(tick, g) - 0.5f) * ch * 0.05f
+                val yy1 = y + (fxRnd(tick, g + 1) - 0.5f) * ch * 0.05f
+                fxBolt(Offset(x0, yy0), Offset(x1, yy1), tick * 7 + g, Color(0xFFB388FF), ch * 0.03f, 0.5f * a, 0.06f)
+                fxBolt(Offset(x0, yy0), Offset(x1, yy1), tick * 7 + g, Color(0xFF80D8FF), ch * 0.012f, 0.9f * a, 0.06f)
+                fxBolt(Offset(x0, yy0), Offset(x1, yy1), tick * 7 + g, Color.White, ch * 0.005f, a, 0.06f)
+            }
+            fxGlow(Offset(cw * 0.12f, y), ch * 0.3f, Color.White, 0.5f * a)
+        }
+    }
+    if (calm) {
+        fxGlow(pilot, ch * 0.22f, Color(0xFFFFD54F), 0.28f + 0.08f * sin(t * 3f))
+        drawCircle(Color(0xFFFFD54F).copy(alpha = 0.35f), radius = ch * 0.14f, center = pilot, style = Stroke(width = ch * 0.003f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(ch * 0.02f, ch * 0.02f), t * 30f)))
+    }
+}
+
 /** Small caption for the realm you are in. */
 fun realmCaption(zone: Int): String? = when (RealmRules.realmFor(zone)) {
     com.neonrush.game.Realm.MIRROR -> "MIRROR REALM  ·  TAP TO SWAP SIDE"
     com.neonrush.game.Realm.GRAVITY -> "GRAVITY REALM  \u00b7  SKIM THE BLUE  \u00b7  FLEE THE RED"
     com.neonrush.game.Realm.BLACKOUT -> "BLACKOUT REALM  \u00b7  LIGHTS OUT  \u00b7  WATCH FOR THE PING"
+    com.neonrush.game.Realm.SHATTER -> "SHATTER REALM  \u00b7  FLY THROUGH THE GAP"
+    com.neonrush.game.Realm.STORM -> if (RealmRules.calm) "THE EYE  \u00b7  CALM BEFORE THE STORM" else "STORM REALM  \u00b7  LEAVE THE GLOWING LANE"
     com.neonrush.game.Realm.PULSE -> "PULSE REALM  ·  MOVE ON THE BEAT"
     else -> null
 }
