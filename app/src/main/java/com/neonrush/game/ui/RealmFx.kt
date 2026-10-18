@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
@@ -130,9 +131,55 @@ private fun DrawScope.drawSprite(img: ImageBitmap, c: Offset, w: Float, h: Float
     )
 }
 
+private val RL_SWAP_RB = ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
+    0f, 0f, 1f, 0f, 0f,
+    0f, 1f, 0f, 0f, 0f,
+    1f, 0f, 0f, 0f, 0f,
+    0f, 0f, 0f, 1f, 0f)))
+
+/**
+ * GRAVITY: the uploaded vortex sprite, spinning. Blue wells pull (they spin faster the closer you get), red wells (the same sprite with
+ * blue and red swapped) push and spin backwards. A bent tether links the pilot to any well that has hold of it.
+ */
+fun DrawScope.drawGravityRealm(cw: Float, ch: Float, t: Float, pilot: Offset, wells: List<RealmRules.Well>, skimming: Boolean, img: ImageBitmap) {
+    drawRect(Brush.radialGradient(listOf(Color.Transparent, Color(0xFF1A237E).copy(alpha = 0.18f)), center = Offset(cw / 2f, ch / 2f), radius = ch * 0.95f), size = Size(cw, ch), blendMode = BlendMode.Plus)
+    for (w in wells) {
+        if (w.x > 1.4f || w.x < -0.3f) continue
+        val c = Offset(cw * w.x, ch * (w.y / 100f))
+        val col = if (w.push) Color(0xFFFF5A36) else Color(0xFF40C4FF)
+        val d = kotlin.math.hypot((c.x - pilot.x).toDouble(), (c.y - pilot.y).toDouble()).toFloat()
+        val near = (1f - d / (ch * 0.7f)).coerceIn(0f, 1f)
+        val size = ch * (if (w.push) 0.46f else 0.54f)
+        val deg = (if (w.push) -1f else 1f) * (t * (80f + 380f * near))
+        fxGlow(c, size * 0.75f, col, 0.18f + 0.22f * near)
+        withTransform({ rotate(deg, c) }) {
+            drawImage(
+                image = img,
+                dstOffset = IntOffset((c.x - size / 2f).roundToInt(), (c.y - size / 2f).roundToInt()),
+                dstSize = IntSize(size.roundToInt(), size.roundToInt()),
+                alpha = 0.93f,
+                colorFilter = if (w.push) RL_SWAP_RB else null
+            )
+        }
+        // field edge: where it starts to take hold
+        drawCircle(col.copy(alpha = 0.22f + 0.2f * near), radius = ch * 0.36f, center = c, style = Stroke(width = ch * 0.003f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(ch * 0.018f, ch * 0.02f), t * 50f * (if (w.push) -1f else 1f))))
+        // tether bending toward / away from the well
+        if (d < ch * 0.5f) {
+            val mid = Offset((pilot.x + c.x) / 2f, (pilot.y + c.y) / 2f + ch * 0.05f * sin(t * 9f))
+            val path = androidx.compose.ui.graphics.Path().apply { moveTo(pilot.x, pilot.y); quadraticTo(mid.x, mid.y, c.x, c.y) }
+            drawPath(path, col.copy(alpha = 0.55f * near + 0.15f), style = Stroke(width = ch * 0.004f, cap = StrokeCap.Round), blendMode = BlendMode.Plus)
+        }
+    }
+    if (skimming) {
+        fxGlow(pilot, ch * 0.2f, Color(0xFF40C4FF), 0.45f)
+        fxSpark(pilot, ch * 0.09f, Color.White, 0.8f + 0.2f * sin(t * 20f))
+    }
+}
+
 /** Small caption for the realm you are in. */
 fun realmCaption(zone: Int): String? = when (RealmRules.realmFor(zone)) {
     com.neonrush.game.Realm.MIRROR -> "MIRROR REALM  ·  TAP TO SWAP SIDE"
+    com.neonrush.game.Realm.GRAVITY -> "GRAVITY REALM  \u00b7  SKIM THE BLUE  \u00b7  FLEE THE RED"
     com.neonrush.game.Realm.PULSE -> "PULSE REALM  ·  MOVE ON THE BEAT"
     else -> null
 }
