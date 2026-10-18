@@ -163,7 +163,7 @@ internal fun paintPartById(id: String, P: PartPainter) {
         "fire_inferno" -> flameSet(P, 0xFFD32F2F, 0xFFFF6D00, 0xFFFFEA00, 0)
         "fire_azure" -> flameSet(P, 0xFF1565C0, 0xFF29B6F6, 0xFFE1F5FE, 1)
         "fire_violet" -> flameSet(P, 0xFF6A1B9A, 0xFFE040FB, 0xFFFFE6FF, 2)
-        else -> {}
+        else -> paintPartById2(id, P)
     }
 }
 
