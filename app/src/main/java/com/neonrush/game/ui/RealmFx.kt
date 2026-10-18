@@ -176,10 +176,48 @@ fun DrawScope.drawGravityRealm(cw: Float, ch: Float, t: Float, pilot: Offset, we
     }
 }
 
+/**
+ * BLACKOUT: a black veil with a lantern hole ahead of the pilot. Every PING_EVERY ticks a sonar ring sweeps out and the veil lifts, then
+ * closes again. Obstacles and shots stay visible as faint blips so nothing is unfair. Deeper zones shrink the lantern.
+ */
+fun DrawScope.drawBlackoutRealm(cw: Float, ch: Float, t: Float, tick: Int, zone: Int, pilot: Offset, elems: List<VisualTrackElement>) {
+    val phase = tick % RealmRules.PING_EVERY
+    val reveal = if (phase < RealmRules.PING_LEN) 1f - phase / RealmRules.PING_LEN.toFloat() else 0f
+    val deep = ((zone - 420) / 60f).coerceIn(0f, 1f)
+    val lanternR = ch * (0.52f - 0.14f * deep)
+    val lanternC = Offset(pilot.x + ch * 0.18f, pilot.y)
+    val veil = 0.95f * (1f - reveal)
+    if (veil > 0.01f) {
+        drawRect(
+            Brush.radialGradient(0f to Color.Transparent, 0.45f to Color.Transparent, 1f to Color.Black.copy(alpha = veil), center = lanternC, radius = lanternR),
+            size = Size(cw, ch)
+        )
+    }
+    // sonar ring
+    if (phase < RealmRules.PING_LEN) {
+        val f = phase / RealmRules.PING_LEN.toFloat()
+        drawCircle(Color(0xFF69F0AE).copy(alpha = 0.7f * (1f - f)), radius = cw * 1.1f * f, center = pilot, style = Stroke(width = ch * 0.008f * (1f - f)))
+    }
+    // faint blips for everything dangerous, so the dark is scary but fair
+    val blipA = 0.45f * (1f - reveal)
+    if (blipA > 0.02f) {
+        for (e in elems) {
+            if (e.type != "obstacle" && e.type != "bullet" && e.type != "hazard") continue
+            if (e.xOffsetFraction > 1.1f || e.xOffsetFraction < 0.05f) continue
+            val p = Offset(cw * e.xOffsetFraction, ch * (e.yMatchPos / 100f))
+            val c = if (e.type == "bullet") Color(0xFFFF5252) else Color(0xFFB0BEC5)
+            drawCircle(c.copy(alpha = blipA * (0.7f + 0.3f * sin(t * 6f + e.id.hashCode()))), radius = ch * 0.011f, center = p)
+        }
+    }
+    // lantern glow on the pilot
+    fxGlow(pilot, ch * 0.12f, Color(0xFFFFF59D), 0.25f * (1f - reveal) + 0.05f)
+}
+
 /** Small caption for the realm you are in. */
 fun realmCaption(zone: Int): String? = when (RealmRules.realmFor(zone)) {
     com.neonrush.game.Realm.MIRROR -> "MIRROR REALM  ·  TAP TO SWAP SIDE"
     com.neonrush.game.Realm.GRAVITY -> "GRAVITY REALM  \u00b7  SKIM THE BLUE  \u00b7  FLEE THE RED"
+    com.neonrush.game.Realm.BLACKOUT -> "BLACKOUT REALM  \u00b7  LIGHTS OUT  \u00b7  WATCH FOR THE PING"
     com.neonrush.game.Realm.PULSE -> "PULSE REALM  ·  MOVE ON THE BEAT"
     else -> null
 }
