@@ -4058,6 +4058,7 @@ val bossImagesByWorld = mapOf(
                         for (elem in simState.activeTrackElements) {
                             val x = cw * elem.xOffsetFraction
                             val y = ch * (elem.yMatchPos / 100f)
+                            if (elem.subType == "GLASS" || elem.subType == "STRIKE") continue // drawn by the realm overlay
                             if (drawThreat(elem, x, y, cw, ch, simState.tickIndex, pilotFrames[(simState.tickIndex / 3) % pilotFrames.size], fxClock.value)) continue
                             
                             when (elem.type) {
@@ -4470,6 +4471,8 @@ val bossImagesByWorld = mapOf(
                             val realmPilot = Offset(cw * 0.2f, ch * (simState.userYPos / 100f))
                             if (realmNow == Realm.MIRROR) drawMirrorRealm(cw, ch, fxClock.value, simState.tickIndex, simState.mirrorSide, simState.mirrorFlipTick, realmPilot, simState.activeTrackElements)
                             else if (realmNow == Realm.GRAVITY) drawGravityRealm(cw, ch, fxClock.value, realmPilot, RealmRules.wells, RealmRules.skimming, gravityWellImg)
+                            else if (realmNow == Realm.SHATTER) drawShatterRealm(cw, ch, fxClock.value, simState.tickIndex, simState.currentZoneNumber, realmPilot, simState.activeTrackElements)
+                            else if (realmNow == Realm.STORM) drawStormRealm(cw, ch, fxClock.value, simState.tickIndex, realmPilot)
                             else if (realmNow == Realm.BLACKOUT) drawBlackoutRealm(cw, ch, fxClock.value, simState.tickIndex, simState.currentZoneNumber, realmPilot, simState.activeTrackElements)
                             else if (realmNow == Realm.PULSE) drawPulseRealm(cw, ch, fxClock.value, simState.tickIndex, realmPilot)
                             realmCaption(simState.currentZoneNumber)?.let { cap ->
@@ -5363,7 +5366,7 @@ fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
             }
             if (showLab) ReactionLabDialog(onClose = { showLab = false })
             Text("\uD83E\uDDEA ZONE JUMP (testing)", color = Color(0xFFFFD54F), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            listOf(listOf(60, 100, 150, 200), listOf(240, 255, 300, 360), listOf(420, 450, 480, 500)).forEach { rowZones ->
+            listOf(listOf(60, 100, 150, 200), listOf(240, 270, 300, 330), listOf(360, 420, 480, 500)).forEach { rowZones ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                     rowZones.forEach { z ->
                         Button(
