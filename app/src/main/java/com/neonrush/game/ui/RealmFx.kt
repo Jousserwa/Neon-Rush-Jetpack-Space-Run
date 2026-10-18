@@ -166,7 +166,7 @@ fun DrawScope.drawGravityRealm(cw: Float, ch: Float, t: Float, pilot: Offset, we
         // tether bending toward / away from the well
         if (d < ch * 0.5f) {
             val mid = Offset((pilot.x + c.x) / 2f, (pilot.y + c.y) / 2f + ch * 0.05f * sin(t * 9f))
-            val path = androidx.compose.ui.graphics.Path().apply { moveTo(pilot.x, pilot.y); quadraticTo(mid.x, mid.y, c.x, c.y) }
+            val path = androidx.compose.ui.graphics.Path().apply { moveTo(pilot.x, pilot.y); quadraticBezierTo(mid.x, mid.y, c.x, c.y) }
             drawPath(path, col.copy(alpha = 0.55f * near + 0.15f), style = Stroke(width = ch * 0.004f, cap = StrokeCap.Round), blendMode = BlendMode.Plus)
         }
     }
