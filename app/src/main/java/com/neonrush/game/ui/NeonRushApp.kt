@@ -513,6 +513,9 @@ fun NeonRushApp(viewModel: NeonRushViewModel) {
         }
     }
 LaunchedEffect(Unit) {
+    while (true) { viewModel.checkDailyStreak(); hudDelay(60_000L) } // takes back welcome-bonus gems the moment they expire
+}
+LaunchedEffect(Unit) {
     if (viewModel.isStreakFreezeEligible()) {
         showStreakFreezeOffer = true
     } else {
@@ -972,6 +975,17 @@ fun HeaderProfileDeck(profile: GameProfile, viewModel: NeonRushViewModel) {
                             fontFamily = FontFamily.Monospace,
                             color = Color.White
                         )
+                    }
+                    run {
+                        val hoursLeft = com.neonrush.game.WelcomeBonus.hoursLeft(profile, System.currentTimeMillis())
+                        if (hoursLeft > 0) {
+                            Text(
+                                text = "🎁 ${minOf(profile.bonusGems, profile.gems)} bonus expire in ${hoursLeft}h",
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = Color(0xFFFFD23F)
+                            )
+                        }
                     }
                     Text(
                         text = "BEST: ${profile.bestScore} PTS",
@@ -3738,6 +3752,7 @@ val puLaneWarpImg = ImageBitmap.imageResource(id = R.drawable.powerup_lane_warp)
 val puZoneSkipImg = ImageBitmap.imageResource(id = R.drawable.powerup_zone_skip)
 val puLegendaryAuraImg = ImageBitmap.imageResource(id = R.drawable.powerup_legendary_aura)
 val bulletImg = ImageBitmap.imageResource(id = R.drawable.hazard_bullet_boss)
+val gravityWellImg = ImageBitmap.imageResource(id = R.drawable.gravity_well)
 val ghostMarkerImg = ImageBitmap.imageResource(id = R.drawable.marker_ghost_rival)
 // Blink Strike hazard creatures (kindIdx 0-4). All 5 now have real art.
 val blinkWolfImg = ImageBitmap.imageResource(id = R.drawable.hazard_blink_wolf)
@@ -4454,6 +4469,7 @@ val bossImagesByWorld = mapOf(
                             val realmNow = RealmRules.realmFor(simState.currentZoneNumber)
                             val realmPilot = Offset(cw * 0.2f, ch * (simState.userYPos / 100f))
                             if (realmNow == Realm.MIRROR) drawMirrorRealm(cw, ch, fxClock.value, simState.tickIndex, simState.mirrorSide, simState.mirrorFlipTick, realmPilot, simState.activeTrackElements)
+                            else if (realmNow == Realm.GRAVITY) drawGravityRealm(cw, ch, fxClock.value, realmPilot, RealmRules.wells, RealmRules.skimming, gravityWellImg)
                             else if (realmNow == Realm.PULSE) drawPulseRealm(cw, ch, fxClock.value, simState.tickIndex, realmPilot)
                             realmCaption(simState.currentZoneNumber)?.let { cap ->
                                 val capLayout = textMeasurer.measure(cap, style = TextStyle(color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace))
