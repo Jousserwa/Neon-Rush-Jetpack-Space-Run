@@ -1158,11 +1158,11 @@ fun freezeStreak() {
 
         private fun hardCurve(zone: Int): Float = startMult * (1f + growthPer10 * (gaugeZone(zone) - 1).coerceAtLeast(0) / 10f)
 
-        /** Speed. Stage 67: +5% EASY, +8% MEDIUM, +12% HARD (63 + a second 2/4/6) on top of the gauge curve (the 60-zone gauge still caps how far it can climb). */
+        /** Speed. Stage 70: +7% EASY, +10% MEDIUM, +14% HARD (each +2% over Stage 67) on top of the gauge curve (the 60-zone gauge still caps how far it can climb). */
         fun pressure(zone: Int): Float = when (this) {
-            EASY -> paced(zone) * 1.05f
-            MEDIUM -> paced(zone) * 1.08f
-            HARD -> hardCurve(zone) * 1.12f
+            EASY -> paced(zone) * 1.07f
+            MEDIUM -> paced(zone) * 1.10f
+            HARD -> hardCurve(zone) * 1.14f
             else -> hardCurve(zone)
         }
 
