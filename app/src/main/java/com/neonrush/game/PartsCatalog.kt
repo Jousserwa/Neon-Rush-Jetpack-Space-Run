@@ -65,6 +65,15 @@ object PartCatalog {
         p("fire_inferno", "Inferno Cluster", PartSlot.FLAME, Rarity.EPIC, 0, "Classic roaring fire with rising embers.", usd = "$2.99"),
         p("fire_azure", "Azure Cluster", PartSlot.FLAME, Rarity.EPIC, 0, "Tall cold-blue flame that burns steady and sparks sideways.", usd = "$2.99"),
         p("fire_violet", "Violet Cluster", PartSlot.FLAME, Rarity.EPIC, 0, "Ghost-fire that snakes in S-curves with floating orbs.", usd = "$2.99"),
+        // SHOWPIECE HELMETS AND BOOTS: animated, premium, real money
+        p("helm_storm", "Stormcaller Helm", PartSlot.HEAD, Rarity.EPIC, 0, "Winged steel helm. Lightning arcs between the crest and strikes the sky.", usd = "$2.99"),
+        p("helm_samurai", "Ronin Kabuto", PartSlot.HEAD, Rarity.LEGENDARY, 0, "Lacquered war helm with a golden crescent crest, a burning jewel and drifting embers.", usd = "$3.99"),
+        p("helm_glacier", "Glacier Crown", PartSlot.HEAD, Rarity.EPIC, 0, "Spires of living ice. A prism glare sweeps across them as snow glitters round you.", usd = "$2.99"),
+        p("helm_dragon", "Jade Dragon Helm", PartSlot.HEAD, Rarity.LEGENDARY, 0, "A snarling dragon crowns your helmet. Its eye burns and smoke curls from its nostrils.", usd = "$3.99"),
+        p("boots_talon", "Crimson Talons", PartSlot.BOOTS, Rarity.EPIC, 0, "Predator boots with curved claws, glowing red veins and dripping embers.", usd = "$2.99"),
+        p("boots_prism", "Prism Runners", PartSlot.BOOTS, Rarity.EPIC, 0, "Neon sneakers whose sole cycles every colour, with glass wings and a star-dust trail.", usd = "$2.99"),
+        p("boots_thunder", "Thunder Striders", PartSlot.BOOTS, Rarity.LEGENDARY, 0, "Armoured greaves wrapped in arcing current. Every stride throws a shock ring.", usd = "$3.99"),
+        p("boots_jet", "Jet Hover Boots", PartSlot.BOOTS, Rarity.LEGENDARY, 0, "Turbine boots with a roaring blue-white flame and a burning heat haze.", usd = "$3.99"),
         // suit-signature pieces (come with their suit only)
         p("sun_crown", "Sun Crown", PartSlot.HEAD, Rarity.LEGENDARY, 0, "Solar Flare's blazing crown.", shop = false),
         p("reaper_hood", "Reaper Hood", PartSlot.HEAD, Rarity.LEGENDARY, 0, "Chrome Reaper's hood.", behind = true, shop = false),
