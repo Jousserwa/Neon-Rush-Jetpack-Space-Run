@@ -267,10 +267,10 @@ fun DrawScope.drawBossFront(world: Int, c: Offset, h: Float, t: Float, hp: Float
  * made alive: glow aura, tinted after-images, a streaming energy tail with sparks, spinning rune rings round the vortex,
  * a glint on the tip and a tiny shake. [ch] = screen height, [seed] differs per bullet, [world] only tints the energy.
  */
-fun DrawScope.drawBossShot(world: Int, x: Float, y: Float, ch: Float, t: Float, seed: Int, img: ImageBitmap) {
+fun DrawScope.drawBossShot(world: Int, x: Float, y: Float, ch: Float, t: Float, seed: Int, img: ImageBitmap, sizeMul: Float = 1f) {
     val col = bxCol(world)
     val hot = Color(0xFFFF2BD6)
-    val H = ch * 0.10f
+    val H = ch * 0.10f * sizeMul
     val W = H * (img.width.toFloat() / img.height.toFloat())
     val ph = (seed and 31) * 0.5f
     val jx = sin(t * 47f + ph) * H * 0.012f
