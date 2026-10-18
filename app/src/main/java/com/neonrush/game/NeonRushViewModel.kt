@@ -853,63 +853,8 @@ fun buyExtraAttempt() {
     private val _purchaseErrorEvent = MutableSharedFlow<String>(extraBufferCapacity = 2)
     val purchaseErrorEvent: SharedFlow<String> = _purchaseErrorEvent.asSharedFlow()
 
-    fun checkDailyStreak() {
-    viewModelScope.launch {
-        var rewardResult: StreakReward? = null
-        gameDao.updateProfile { prof ->
-            val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-            val today = fmt.format(Date())
-            if (prof.lastStreakLoginDate == today) {
-                prof
-            } else {
-                val newStreak = if (prof.lastStreakLoginDate.isEmpty()) {
-                    1
-                } else {
-                    val lastDate = fmt.parse(prof.lastStreakLoginDate)
-                    val todayDate = fmt.parse(today)
-                    val diffDays = ((todayDate.time - lastDate.time) / (1000 * 60 * 60 * 24)).toInt()
-                    if (diffDays == 1) prof.currentStreak + 1 else 1
-                }
-                var reward = StreakRewards.rewardForDay(newStreak)
-                var updated = prof.copy(
-                    currentStreak = newStreak,
-                    lastStreakLoginDate = today,
-                    gems = prof.gems + reward.gems
-                )
-                val bonuses = mutableListOf<String>()
-                // Every 7th login day: hull shards toward a locked hull.
-                if (newStreak % 7 == 0) {
-                    val (afterShards, hullId, unlockedId) = DailyCrate.grantShards(updated, 5)
-                    updated = afterShards
-                    fun hullName(id: String) = shopSkins.firstOrNull { it.first == id }?.second ?: id
-                    when {
-                        unlockedId != null -> bonuses += "🔓 ${hullName(unlockedId)} hull unlocked!"
-                        hullId != null -> bonuses += "+5 🧩 ${hullName(hullId)} shards"
-                        else -> bonuses += "+10 💎 (all hulls owned)"
-                    }
-                }
-                // Every 30th login day: the exclusive Eternal Flame suit (gems if already owned).
-                if (newStreak % 30 == 0) {
-                    val suits = updated.unlockedPilotSkinsCsv.split(",").filter { it.isNotEmpty() }
-                    if ("eternal_flame" !in suits) {
-                        updated = updated.copy(unlockedPilotSkinsCsv = (suits + "eternal_flame").joinToString(","))
-                        bonuses += "🔥 ETERNAL FLAME suit unlocked!"
-                    } else {
-                        updated = updated.copy(gems = updated.gems + 50)
-                        bonuses += "+50 💎 (Eternal Flame owned)"
-                    }
-                }
-                if (bonuses.isNotEmpty()) reward = reward.copy(bonusText = bonuses.joinToString("  ·  "))
-                rewardResult = reward
-                updated
-            }
-        }
-        rewardResult?.let { reward ->
-            soundEngine.playUnlockSkin()
-            _streakRewardEvent.tryEmit(reward)
-        }
-    }
-}
+    /** The daily bonus is now paid after the first game over (see completeSimulationRun / WelcomeBonus), not when the app opens. */
+    fun checkDailyStreak() { viewModelScope.launch { gameDao.updateProfile { it } } } // also takes back expired bonus gems
 
 fun streakDaysMissed(prof: GameProfile): Int {
     if (prof.lastStreakLoginDate.isEmpty()) return 0
@@ -922,7 +867,7 @@ fun streakDaysMissed(prof: GameProfile): Int {
 }
 suspend fun isStreakFreezeEligible(): Boolean {
     val prof = gameDao.getProfileDirect() ?: GameProfile()
-    return streakDaysMissed(prof) == 2 && prof.currentStreak > 0
+    return false // missing a day resets the welcome bonus to day 1; no streak freeze
 }
 fun freezeStreak() {
     viewModelScope.launch {
@@ -1185,10 +1130,10 @@ fun freezeStreak() {
         val colorArgb: Long,      // tier colour for HUD / share card
         val boardKey: String      // Firestore collection suffix ("" = legacy global board)
     ) {
-        EASY(0.02f, 0.75f, "EASY", +3, 0.80f, 1.25f, 1.00f, 0xFF69F0AE, "_easy"),
+        EASY(0.02f, 0.80f, "EASY", +3, 0.80f, 1.25f, 1.00f, 0xFF69F0AE, "_easy"),
         MEDIUM(0.06f, 1.00f, "MEDIUM", 0, 1.00f, 1.00f, 1.00f, 0xFF00F0FF, ""),
-        HARD(0.11f, 1.10f, "HARD", -1, 1.25f, 0.80f, 1.15f, 0xFFFF9100, "_hard"),
-        LEGENDARY(0.13f, 1.22f, "LEGENDARY", -2, 1.60f, 0.65f, 1.30f, 0xFFFFD23F, "_legendary");
+        HARD(0.11f, 1.16f, "HARD", -1, 1.25f, 0.80f, 1.15f, 0xFFFF9100, "_hard"),
+        LEGENDARY(0.13f, 1.27f, "LEGENDARY", -2, 1.60f, 0.65f, 1.30f, 0xFFFFD23F, "_legendary");
 
         /**
          * The "pressure gauge". Speed and aggression follow this zone, not the real one: every 60 zones the gauge drops back
@@ -1201,12 +1146,12 @@ fun freezeStreak() {
             return base + zone % 60
         }
 
-        /** EASY and MEDIUM step up every 2 zones, HARD every zone. EASY / MEDIUM never go past HARD. */
+        /** Every tier steps up EVERY zone: EASY gently (0.8%), MEDIUM faster (1.2%), HARD fastest. EASY / MEDIUM never go past HARD. */
         private fun paced(zone: Int): Float {
             val z = (gaugeZone(zone) - 1).coerceAtLeast(0)
             val raw = when (this) {
-                EASY -> 0.68f * (1f + 0.012f * (z / 2))
-                else -> 0.85f * (1f + 0.0175f * (z / 2))
+                EASY -> 0.76f * (1f + 0.008f * z)
+                else -> 0.94f * (1f + 0.012f * z)
             }
             return minOf(raw, HARD.hardCurve(zone))
         }
@@ -1223,7 +1168,7 @@ fun freezeStreak() {
             if (this == EASY || this == MEDIUM) {
                 val ratio = paced(zone) / paced(1)
                 return if (this == EASY) minOf(0.45f * (1f + 0.5f * (ratio - 1f)), HARD.hardAggro(zone))
-                else minOf(0.80f * ratio, HARD.hardAggro(zone))
+                else minOf(0.84f * ratio, HARD.hardAggro(zone))
             }
             return hardAggro(zone)
         }
@@ -1650,7 +1595,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 }
                 speedInPx *= liveDifficultyMultiplier * metaDifficultyMultiplier
                 // Take-off: every run starts just under its full pace (EASY -3%, MEDIUM -2%, HARD -1%) and is at full pace after 10 seconds (~84 ticks)
-                val takeOff = (tick / 84f).coerceIn(0f, 1f)
+                val takeOff = (tick / 33f).coerceIn(0f, 1f)   // 33 ticks x 0.12 s = about 4 s to full pace
                 when (selectedDifficulty) {
                     DifficultyTier.EASY -> speedInPx *= 0.97f + 0.03f * takeOff
                     DifficultyTier.MEDIUM -> speedInPx *= 0.98f + 0.02f * takeOff
@@ -1778,6 +1723,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 val updatedElements = mutableListOf<VisualTrackElement>()
                 val pullActive = state.activePowerupDurations.containsKey("PU2") || activeDna.mechanicIds.contains(4)
                 RealmRules.record(tick, userY)
+                val gravRes = RealmRules.gravityStep(nextZoneNumber, tick, speedInPx, userY)
+                val gravUserY = (userY + gravRes[0]).coerceIn(10, 90)
                 for (elem in state.activeTrackElements) {
                     val nextX = elem.xOffsetFraction - (speedInPx * 0.018f)
                     if (nextX < -0.1f) continue
@@ -2159,6 +2106,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     rawError < 18 -> if (isWednesdayPower) 15 else 10
                     else -> 2
                 }
+                tickScore += gravRes[1]
                 var multi = 1.0f
                 if (isFridayGolden) multi *= 3.0f
                 multi += (prof.transcendenceCount * 0.05f)
@@ -2238,6 +2186,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     hint = nextHint,
                     tickIndex = tick,
                     mirrorSide = mirrorSideVar,
+                    userYPos = gravUserY,
                     mirrorFlipTick = mirrorFlipTickVar,
                     ghostYPos = processedGhostY,
                     score = nextScore,
@@ -2305,6 +2254,48 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             isFriday -> "🌅 GOLDEN HOUR bonus active today!"
             else -> ""
         }
+        var welcomeLine = ""
+        gameDao.updateProfile { prof ->
+            val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            val today = fmt.format(Date())
+            if (prof.lastStreakLoginDate == today) {
+                prof
+            } else {
+                val streak = if (prof.lastStreakLoginDate.isEmpty()) 1 else {
+                    val diffDays = Math.round((fmt.parse(today)!!.time - fmt.parse(prof.lastStreakLoginDate)!!.time) / 86400000.0).toInt()
+                    if (diffDays == 1) prof.currentStreak + 1 else 1
+                }
+                val day = WelcomeBonus.dayOf(streak)
+                val welcomeGems = WelcomeBonus.gemsForDay(day)
+                var updated = prof.copy(currentStreak = streak, lastStreakLoginDate = today, gems = prof.gems + welcomeGems,
+                    bonusGems = minOf(prof.bonusGems, prof.gems) + welcomeGems, bonusGemsExpiry = System.currentTimeMillis() + WelcomeBonus.LIFETIME_MS)
+                val bonuses = mutableListOf<String>()
+                // Every 7th login day: hull shards toward a locked hull.
+                if (streak % 7 == 0) {
+                    val (afterShards, hullId, unlockedId) = DailyCrate.grantShards(updated, 5)
+                    updated = afterShards
+                    fun hullName(id: String) = shopSkins.firstOrNull { it.first == id }?.second ?: id
+                    when {
+                        unlockedId != null -> bonuses += "🔓 ${hullName(unlockedId)} hull unlocked!"
+                        hullId != null -> bonuses += "+5 🧩 ${hullName(hullId)} shards"
+                        else -> bonuses += "+10 💎 (all hulls owned)"
+                    }
+                }
+                // Every 30th login day: the exclusive Eternal Flame suit (gems if already owned).
+                if (streak % 30 == 0) {
+                    val suits = updated.unlockedPilotSkinsCsv.split(",").filter { it.isNotEmpty() }
+                    if ("eternal_flame" !in suits) {
+                        updated = updated.copy(unlockedPilotSkinsCsv = (suits + "eternal_flame").joinToString(","))
+                        bonuses += "🔥 ETERNAL FLAME suit unlocked!"
+                    } else {
+                        updated = updated.copy(gems = updated.gems + 50)
+                        bonuses += "+50 💎 (Eternal Flame owned)"
+                    }
+                }
+                welcomeLine = WelcomeBonus.line(day, welcomeGems) + (if (bonuses.isEmpty()) "" else "\n" + bonuses.joinToString("  \u00b7  "))
+                updated
+            }
+        }
         var bonusGems = 0
         if (finalState.activeGhost?.challengeId == "daily_hard_ghost" && finalState.score >= dailyChallengeGoal) {
             bonusGems = 55
@@ -2322,7 +2313,9 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             )
         }
 
-        _simState.value = _simState.value.copy(gemsEarnedLastRun = gemsToCreditNow, dailyBonusLabel = dailyBonusLabel)
+        val shownLabel = if (welcomeLine.isEmpty()) dailyBonusLabel else if (dailyBonusLabel.isEmpty()) welcomeLine else welcomeLine + "\n" + dailyBonusLabel
+        if (welcomeLine.isNotEmpty()) soundEngine.playUnlockSkin()
+        _simState.value = _simState.value.copy(gemsEarnedLastRun = gemsToCreditNow, dailyBonusLabel = shownLabel)
         if (bonusGems == 55) {
             soundEngine.playUnlockSkin()
         }
@@ -2650,6 +2643,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 val updatedElements = mutableListOf<VisualTrackElement>()
                 val pullActive = state.activePowerupDurations.containsKey("PU2") || activeDna.mechanicIds.contains(4)
                 RealmRules.record(tick, userY)
+                val gravRes = RealmRules.gravityStep(nextZoneNumber, tick, speedInPx, userY)
+                val gravUserY = (userY + gravRes[0]).coerceIn(10, 90)
                 for (elem in state.activeTrackElements) {
                     val nextX = elem.xOffsetFraction - (speedInPx * 0.018f)
                     if (nextX < -0.1f) continue
@@ -2991,6 +2986,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     rawError < 18 -> if (isWednesdayPower) 15 else 10
                     else -> 2
                 }
+                tickScore += gravRes[1]
                 var multi = 1.0f
                 if (isFridayGolden) multi *= 3.0f
                 multi += (prof.transcendenceCount * 0.05f)
@@ -3069,6 +3065,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     hint = nextHint,
                     tickIndex = tick,
                     mirrorSide = mirrorSideVar,
+                    userYPos = gravUserY,
                     mirrorFlipTick = mirrorFlipTickVar,
                     particles = agedParticles,
                     ghostYPos = processedGhostY,
