@@ -4470,6 +4470,7 @@ val bossImagesByWorld = mapOf(
                             val realmPilot = Offset(cw * 0.2f, ch * (simState.userYPos / 100f))
                             if (realmNow == Realm.MIRROR) drawMirrorRealm(cw, ch, fxClock.value, simState.tickIndex, simState.mirrorSide, simState.mirrorFlipTick, realmPilot, simState.activeTrackElements)
                             else if (realmNow == Realm.GRAVITY) drawGravityRealm(cw, ch, fxClock.value, realmPilot, RealmRules.wells, RealmRules.skimming, gravityWellImg)
+                            else if (realmNow == Realm.BLACKOUT) drawBlackoutRealm(cw, ch, fxClock.value, simState.tickIndex, simState.currentZoneNumber, realmPilot, simState.activeTrackElements)
                             else if (realmNow == Realm.PULSE) drawPulseRealm(cw, ch, fxClock.value, simState.tickIndex, realmPilot)
                             realmCaption(simState.currentZoneNumber)?.let { cap ->
                                 val capLayout = textMeasurer.measure(cap, style = TextStyle(color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace))
@@ -5361,6 +5362,20 @@ fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
                 Text("\uD83E\uDDEA REACTION LAB (testing)", color = Color(0xFFFFD54F), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
             }
             if (showLab) ReactionLabDialog(onClose = { showLab = false })
+            Text("\uD83E\uDDEA ZONE JUMP (testing)", color = Color(0xFFFFD54F), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            listOf(listOf(60, 100, 150, 200), listOf(240, 255, 300, 360), listOf(420, 450, 480, 500)).forEach { rowZones ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                    rowZones.forEach { z ->
+                        Button(
+                            onClick = { viewModel.testJumpToZone(z) },
+                            colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f).border(1.dp, Color(0xFFFFD54F).copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        ) { Text("Z$z", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 12.sp) }
+                    }
+                }
+            }
         }
 
         val supportCtx = LocalContext.current
