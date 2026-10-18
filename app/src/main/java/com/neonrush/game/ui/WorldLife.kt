@@ -235,8 +235,8 @@ private fun DrawScope.wl4(cw: Float, ch: Float, t: Float) {
     // fireflies
     for (k in 0 until 26) {
         val bx = fxRnd(k, 400) * cw
-        val by = ch * (0.25f + 0.65f * fxRnd(k, 401))
-        val p = Offset(bx + sin(t * (0.4f + fxRnd(k, 402)) + k) * cw * 0.05f, by + cos(t * (0.5f + fxRnd(k, 403)) + k * 2f) * ch * 0.04f)
+        val byy = ch * (0.25f + 0.65f * fxRnd(k, 401))
+        val p = Offset(bx + sin(t * (0.4f + fxRnd(k, 402)) + k) * cw * 0.05f, byy + cos(t * (0.5f + fxRnd(k, 403)) + k * 2f) * ch * 0.04f)
         val pulse = 0.5f + 0.5f * sin(t * (1.5f + fxRnd(k, 404) * 2f) + k * 3f)
         fxGlow(p, ch * 0.022f, Color(0xFFCCFF66), 0.85f * pulse * pulse)
     }
