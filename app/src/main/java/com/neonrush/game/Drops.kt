@@ -31,7 +31,10 @@ object DropSchedule {
         Triple("skull_guard", 10, 7), Triple("crystal_shard", 10, 9),
         Triple("fire_violet", 11, 8), Triple("mech_wings", 11, 10),
         Triple("oni_horns", 12, 9), Triple("blade_bracer", 12, 9),
-        Triple("wing_boots", 13, 9)
+        Triple("wing_boots", 13, 9),
+        // Showpiece helmets and boots: locked, one opens every 2 months (cheaper and dearer pieces alternate)
+        Triple("helm_storm", 2, 8), Triple("boots_thunder", 4, 10), Triple("helm_samurai", 6, 10), Triple("boots_talon", 8, 8),
+        Triple("helm_dragon", 10, 10), Triple("boots_prism", 12, 8), Triple("boots_jet", 14, 10), Triple("helm_glacier", 16, 9)
     )
     private val PART_BY_ID = PARTS.associateBy { it.first }
 
