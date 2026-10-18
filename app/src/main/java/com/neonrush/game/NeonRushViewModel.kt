@@ -97,6 +97,8 @@ data class SimulationState(
     val isCompleted: Boolean = false,
     val isStarted: Boolean = false,
     val tickIndex: Int = 0,
+    val mirrorSide: Int = 0,          // Mirror realm: 0 cyan, 1 magenta
+    val mirrorFlipTick: Int = -100,
     val userYPath: List<Int> = emptyList(),
     val ghostYPath: List<Int> = emptyList(),
     val userYPos: Int = 50,
@@ -1592,6 +1594,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             assistGemsGiven = 0
             gameDao.updateProfile { p -> p.copy(currentRunGemsCredited = 0, currentRunBossZonesRewarded = "", currentRunMilestonesRewarded = "") }
             var tick = 0
+            mirrorSideVar = 0; mirrorFlipTickVar = -100
             val random = kotlin.random.Random(System.currentTimeMillis())
             // Stable per-run seed for zone DNA (obstacle set, environment,
             // mechanics). Previously each tick called random.nextLong() fresh
@@ -1774,6 +1777,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 }
                 val updatedElements = mutableListOf<VisualTrackElement>()
                 val pullActive = state.activePowerupDurations.containsKey("PU2") || activeDna.mechanicIds.contains(4)
+                RealmRules.record(tick, userY)
                 for (elem in state.activeTrackElements) {
                     val nextX = elem.xOffsetFraction - (speedInPx * 0.018f)
                     if (nextX < -0.1f) continue
@@ -1804,8 +1808,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                 }
                 val flavor = flavorFor(state, nextZoneNumber)
-                val spacingVal = ((activeDna.obstacleSpacingAndDensity / (12f * spacingBias * liveDifficultyMultiplier * aggroPressure * (flavor?.spacingMul ?: 1f))) * (1f + 0.4f * assist)).coerceAtLeast(4f).toInt()
-                if (tick % spacingVal == 0) {
+                val spacingVal = ((activeDna.obstacleSpacingAndDensity / (12f * spacingBias * liveDifficultyMultiplier * aggroPressure * (flavor?.spacingMul ?: 1f))) * (1f + 0.4f * assist)).times(RealmRules.spacingMul(nextZoneNumber)).coerceAtLeast(4f).toInt()
+                if (RealmRules.spawnNow(nextZoneNumber, tick, spacingVal)) {
                     val targetGhostY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     val obstacles = spawnObstacleForSet(activeDna.obstacleSetId, tick, random, targetGhostY, nextZoneNumber)
                     updatedElements.addAll(obstacles)
@@ -1815,7 +1819,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         updatedElements.add(VisualTrackElement("pu_${tick}", 1.22f, targetGhostY + random.nextInt(-10, 10), "powerup", puType))
                     }
                 }
-                val hasBossZone = nextZoneNumber % 5 == 0 && ((tick % 40) >= 24 || isSaturdayBoss)
+                RealmRules.pulseDrop(nextZoneNumber, tick, userY, updatedElements)
+                val hasBossZone = nextZoneNumber % 5 == 0 && ((tick % 40) >= (if (EliteBosses.forZone(nextZoneNumber) != null || RealmRules.isRivalZone(nextZoneNumber)) 8 else 24) || isSaturdayBoss)
                 if (state.specialWorldId == null && hasBossZone && !state.bossActive) checkStoryBeats(nextZoneNumber, true)
                 updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, (flavor?.spacingMul ?: 1f) * aggroPressure, assistStrength(tick), selectedDifficulty.warnDelta))
                 var bossHealthState = state.bossHealth
@@ -1827,9 +1832,19 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         HullFx.bossTick = tick
                         bossHealthState = 1.0f
                     }
-                    val trackingYBias = userY - bossYState
-                    bossYState += bossFollowStep(trackingYBias, 0.22f * (flavor?.bossAggro ?: 1f))
-                    ThreatDirector.bossFire(tick, (Upgrades.bossBulletInterval(activeUpgradesCsv, 9) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4), bossYState, random, updatedElements)
+                    val bossIvTicks = (Upgrades.bossBulletInterval(activeUpgradesCsv, 9) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4)
+                    val eliteNow = EliteBosses.forZone(nextZoneNumber)
+                    if (eliteNow == null && !RealmRules.isRivalZone(nextZoneNumber)) {
+                        val trackingYBias = userY - bossYState
+                        bossYState += bossFollowStep(trackingYBias, 0.22f * (flavor?.bossAggro ?: 1f))
+                        ThreatDirector.bossFire(tick, bossIvTicks, bossYState, random, updatedElements)
+                    } else if (eliteNow == null) {
+                        bossYState = RealmRules.echoY(tick)
+                        RealmRules.rivalFire(tick, bossIvTicks, bossYState, updatedElements)
+                    } else {
+                        bossYState = EliteBosses.moveY(eliteNow, tick, bossYState, userY)
+                        EliteBosses.fire(eliteNow, tick, bossIvTicks, bossYState, userY, random, updatedElements)
+                    }
                     bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
                     if (bossHealthState <= 0f) {
                         var wasNewlyRewarded = false
@@ -1906,7 +1921,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 var boomClearTriggered = false
                 var puPickedThisTick = 0
                 for (elem in updatedElements) {
-                    if (!isBlinkHazardVisible(elem, tick)) continue
+                    if (!isBlinkHazardVisible(elem, tick) || !RealmRules.touchable(elem, mirrorSideVar, nextZoneNumber)) continue
                     val prevX = elem.xOffsetFraction + (speedInPx * 0.018f)
                     val isPickup = elem.type == "gem" || elem.type == "fuel" || elem.type == "powerup"
                     // pickups use a wider, swept window: at high speed an item may spend only one tick near the pilot
@@ -2222,6 +2237,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 _simState.value = state.copy(
                     hint = nextHint,
                     tickIndex = tick,
+                    mirrorSide = mirrorSideVar,
+                    mirrorFlipTick = mirrorFlipTickVar,
                     ghostYPos = processedGhostY,
                     score = nextScore,
                     comboStreak = nextComboStreak,
@@ -2632,6 +2649,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 
                 val updatedElements = mutableListOf<VisualTrackElement>()
                 val pullActive = state.activePowerupDurations.containsKey("PU2") || activeDna.mechanicIds.contains(4)
+                RealmRules.record(tick, userY)
                 for (elem in state.activeTrackElements) {
                     val nextX = elem.xOffsetFraction - (speedInPx * 0.018f)
                     if (nextX < -0.1f) continue
@@ -2662,8 +2680,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                 }
                 val flavor = flavorFor(state, nextZoneNumber)
-                val spacingVal = (activeDna.obstacleSpacingAndDensity / (12f * metaDifficultyMultiplier * aggroPressure * (flavor?.spacingMul ?: 1f))).coerceAtLeast(4f).toInt()
-                if (tick % spacingVal == 0) {
+                val spacingVal = (activeDna.obstacleSpacingAndDensity / (12f * metaDifficultyMultiplier * aggroPressure * (flavor?.spacingMul ?: 1f))).times(RealmRules.spacingMul(nextZoneNumber)).coerceAtLeast(4f).toInt()
+                if (RealmRules.spawnNow(nextZoneNumber, tick, spacingVal)) {
                     val targetGhostY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     val obstacles = spawnObstacleForSet(activeDna.obstacleSetId, tick, random, targetGhostY, nextZoneNumber)
                     updatedElements.addAll(obstacles)
@@ -2673,7 +2691,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         updatedElements.add(VisualTrackElement("pu_${tick}", 1.22f, targetGhostY + random.nextInt(-10, 10), "powerup", puType))
                     }
                 }
-                val hasBossZone = nextZoneNumber % 5 == 0 && ((tick % 40) >= 24 || isSaturdayBoss)
+                RealmRules.pulseDrop(nextZoneNumber, tick, userY, updatedElements)
+                val hasBossZone = nextZoneNumber % 5 == 0 && ((tick % 40) >= (if (EliteBosses.forZone(nextZoneNumber) != null || RealmRules.isRivalZone(nextZoneNumber)) 8 else 24) || isSaturdayBoss)
                 if (state.specialWorldId == null && hasBossZone && !state.bossActive) checkStoryBeats(nextZoneNumber, true)
                 updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, (flavor?.spacingMul ?: 1f) * aggroPressure, assistStrength(tick), selectedDifficulty.warnDelta))
                 var bossHealthState = state.bossHealth
@@ -2685,9 +2704,19 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         HullFx.bossTick = tick
                         bossHealthState = 1.0f
                     }
-                    val trackingYBias = userY - bossYState
-                    bossYState += bossFollowStep(trackingYBias, 0.28f * (flavor?.bossAggro ?: 1f))
-                    ThreatDirector.bossFire(tick, (Upgrades.bossBulletInterval(activeUpgradesCsv, 6) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4), bossYState, random, updatedElements)
+                    val bossIvTicks = (Upgrades.bossBulletInterval(activeUpgradesCsv, 6) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4)
+                    val eliteNow = EliteBosses.forZone(nextZoneNumber)
+                    if (eliteNow == null && !RealmRules.isRivalZone(nextZoneNumber)) {
+                        val trackingYBias = userY - bossYState
+                        bossYState += bossFollowStep(trackingYBias, 0.28f * (flavor?.bossAggro ?: 1f))
+                        ThreatDirector.bossFire(tick, bossIvTicks, bossYState, random, updatedElements)
+                    } else if (eliteNow == null) {
+                        bossYState = RealmRules.echoY(tick)
+                        RealmRules.rivalFire(tick, bossIvTicks, bossYState, updatedElements)
+                    } else {
+                        bossYState = EliteBosses.moveY(eliteNow, tick, bossYState, userY)
+                        EliteBosses.fire(eliteNow, tick, bossIvTicks, bossYState, userY, random, updatedElements)
+                    }
                     bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
                     if (bossHealthState <= 0f) {
                         soundEngine.playTone(990f, 400, "sine")
@@ -2744,7 +2773,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 var boomClearTriggered = false
                 var puPickedThisTick = 0
                 for (elem in updatedElements) {
-                    if (!isBlinkHazardVisible(elem, tick)) continue
+                    if (!isBlinkHazardVisible(elem, tick) || !RealmRules.touchable(elem, mirrorSideVar, nextZoneNumber)) continue
                     val prevX = elem.xOffsetFraction + (speedInPx * 0.018f)
                     val isPickup = elem.type == "gem" || elem.type == "fuel" || elem.type == "powerup"
                     // pickups use a wider, swept window: at high speed an item may spend only one tick near the pilot
@@ -3039,6 +3068,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 _simState.value = state.copy(
                     hint = nextHint,
                     tickIndex = tick,
+                    mirrorSide = mirrorSideVar,
+                    mirrorFlipTick = mirrorFlipTickVar,
                     particles = agedParticles,
                     ghostYPos = processedGhostY,
                     score = nextScore,
@@ -3083,8 +3114,22 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
 
     fun resetSimulation() {
         simJob?.cancel()
+        mirrorSideVar = 0; mirrorFlipTickVar = -100
         soundEngine.setHomeScreenActiveState(true)
         _simState.value = SimulationState()
+    }
+
+    @Volatile private var mirrorSideVar = 0
+    @Volatile private var mirrorFlipTickVar = -100
+
+    /** Mirror realm: tap swaps between the cyan and magenta side. Outside the realm a tap does nothing. */
+    fun toggleMirror() {
+        val s = _simState.value
+        if (s.isCompleted || RealmRules.realmFor(s.currentZoneNumber) != Realm.MIRROR) return
+        mirrorSideVar = 1 - mirrorSideVar
+        mirrorFlipTickVar = s.tickIndex
+        soundEngine.playTone(if (mirrorSideVar == 0) 520f else 780f, 90, "sine")
+        _simState.value = s.copy(mirrorSide = mirrorSideVar, mirrorFlipTick = mirrorFlipTickVar)
     }
 
     fun adjustUserY(delta: Int) {
