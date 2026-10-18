@@ -25,7 +25,7 @@ import java.util.*
 // Pro-flagged phase are freely reachable without the paywall gate,
 // so all 5 main worlds can be QA'd end-to-end in one run.
 // ============================================================
-const val TESTING_DISABLE_PRO_GATE = false
+const val TESTING_DISABLE_PRO_GATE = true
 
 /** EASY (kids) mode: hits the pilot's shield soaks up at run start and after every refuel / revive. */
 /** Power-ups were too rare: drop-rate multiplier, and a guaranteed one if none showed up for this many ticks (8 ticks = 1 s). */
@@ -1158,7 +1158,13 @@ fun freezeStreak() {
 
         private fun hardCurve(zone: Int): Float = startMult * (1f + growthPer10 * (gaugeZone(zone) - 1).coerceAtLeast(0) / 10f)
 
-        fun pressure(zone: Int): Float = if (this == EASY || this == MEDIUM) paced(zone) else hardCurve(zone)
+        /** Speed. Stage 63: +3% EASY, +4% MEDIUM, +6% HARD on top of the gauge curve (the 60-zone gauge still caps how far it can climb). */
+        fun pressure(zone: Int): Float = when (this) {
+            EASY -> paced(zone) * 1.03f
+            MEDIUM -> paced(zone) * 1.04f
+            HARD -> hardCurve(zone) * 1.06f
+            else -> hardCurve(zone)
+        }
 
         /**
          * Aggression (obstacle density, threat rate, boss fire) uses the same gauge. EASY grows at half the rate of its speed,
@@ -1491,6 +1497,15 @@ fun startFromCheckpoint(checkpointZone: Int) {
             startRacingSimulation(checkpointGhost, null, checkpointZone)
         }
     }
+}
+
+/** TESTING ONLY (shown in Settings while TESTING_DISABLE_PRO_GATE is true): start a run straight at [zone], free. */
+fun testJumpToZone(zone: Int) {
+    if (!TESTING_DISABLE_PRO_GATE) return
+    startRacingSimulation(
+        com.neonrush.game.db.GhostChallengeEntity("ghost_cyberrunner", "CyberRunner", 850, 4, ZoneGenerator.generateTelemetryCsv(850, 111)),
+        null, zone.coerceAtLeast(1)
+    )
 }
 
 fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = null, startFromZone: Int = 1) {
@@ -2007,7 +2022,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                     } else {
                                         soundEngine.playCollision()
                                         ReactFx.obstacle(elem.subType, "HIT", elem.xOffsetFraction, elem.yMatchPos)
-                                        fuelLevelState = (fuelLevelState - (if (kidMode) 12 else 20 - (10 * assist).toInt())).coerceAtLeast(0)
+                                        if (!TESTING_DISABLE_PRO_GATE) fuelLevelState = (fuelLevelState - (if (kidMode) 12 else 20 - (10 * assist).toInt())).coerceAtLeast(0)
                                         updatedMsg = if (isUnstoppableHazard) "BLINK STRIKE HIT: NO SHIELD CAN STOP IT" else "WARNING: IMPACT DETECTED! HULL INTEGRITY LOST"
                                         hitObstaclesHistory.add(elem.subType)
                                         hitThisTick = true
@@ -2131,7 +2146,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 }
                 if ((tick * 10) % (10 + prof.fuelTiersOwned * 2) < 10 &&
                     !((assist > 0.5f && tick % 2 == 1) || (assist > 0f && assist <= 0.5f && tick % 4 == 1))) {
-                    if (tick >= fuelFreezeUntilTick) fuelLevelState = (fuelLevelState - 1)
+                    if (tick >= fuelFreezeUntilTick && !TESTING_DISABLE_PRO_GATE) fuelLevelState = (fuelLevelState - 1)
                 }
                 if (fuelLevelState <= 0) {
                     _simState.value = state.copy(isCompleted = true, score = nextScore)
@@ -2901,7 +2916,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                     } else {
                                         soundEngine.playCollision()
                                         ReactFx.obstacle(elem.subType, "HIT", elem.xOffsetFraction, elem.yMatchPos)
-                                        fuelLevelState = (fuelLevelState - (if (kidMode) 12 else 20 - (10 * assist).toInt())).coerceAtLeast(0)
+                                        if (!TESTING_DISABLE_PRO_GATE) fuelLevelState = (fuelLevelState - (if (kidMode) 12 else 20 - (10 * assist).toInt())).coerceAtLeast(0)
                                         updatedMsg = if (isUnstoppableHazard) "BLINK STRIKE HIT: NO SHIELD CAN STOP IT" else "IMPACT IMPACT!"
                                         hitThisTick = true
                                         repeat(10) { i ->
@@ -3010,7 +3025,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 }
                 if ((tick * 10) % (10 + prof.fuelTiersOwned * 2) < 10 &&
                     !((assist > 0.5f && tick % 2 == 1) || (assist > 0f && assist <= 0.5f && tick % 4 == 1))) {
-                    if (tick >= fuelFreezeUntilTick) fuelLevelState = (fuelLevelState - 1)
+                    if (tick >= fuelFreezeUntilTick && !TESTING_DISABLE_PRO_GATE) fuelLevelState = (fuelLevelState - 1)
                 }
                 if (fuelLevelState <= 0) {
                     _simState.value = state.copy(isCompleted = true, score = nextScore)
