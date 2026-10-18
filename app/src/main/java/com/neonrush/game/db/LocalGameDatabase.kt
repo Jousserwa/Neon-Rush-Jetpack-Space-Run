@@ -2,6 +2,7 @@ package com.neonrush.game.db
 
 import com.neonrush.game.HangarStore
 import com.neonrush.game.WelcomeBonus
+import com.neonrush.game.TESTING_DISABLE_PRO_GATE
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
@@ -244,7 +245,9 @@ class GameDao(context: Context) {
             val live = WelcomeBonus.expire(current, System.currentTimeMillis())
             // whatever was spent comes out of the bonus first: the bonus can never exceed the balance
             val raw = block(live)
-            val updated = raw.copy(bonusGems = minOf(raw.bonusGems, raw.gems).coerceAtLeast(0))
+            // TESTING ONLY: unlimited gems while TESTING_DISABLE_PRO_GATE is true
+            val rich = if (TESTING_DISABLE_PRO_GATE && raw.gems < 999_999) raw.copy(gems = 999_999) else raw
+            val updated = rich.copy(bonusGems = minOf(rich.bonusGems, rich.gems).coerceAtLeast(0))
             saveProfileDirect(updated)
             updated
         }
