@@ -1,15 +1,17 @@
 package com.neonrush.game
 
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * REALMS (zones 240+): each stretch of 60 zones changes what you DO, not only how fast it is.
  *   MIRROR (240-299): two sides, cyan and magenta. Tap to swap side. Obstacles only touch you on their own side.
+ *   GRAVITY (300-359): spinning wells drift in. BLUE wells pull you in (skim the edge for bonus points, never sit in the middle); RED wells push you away.
  *   PULSE  (360-419): the world runs on a beat. Obstacles arrive on the beat, and every 4th beat a "drop" of gems appears.
  *   ECHO RIVAL (boss, every 15th zone from 255): your own shadow hunts you, firing along the lanes you were in ~1.7 s ago.
- * No new art: everything is code-drawn / tinted (see ui/RealmFx.kt). Gravity (300-359) and Blackout (420-479) are not built yet.
+ * No new art: everything is code-drawn / tinted (see ui/RealmFx.kt). Blackout (420-479) is not built yet.
  */
-enum class Realm { NONE, MIRROR, PULSE }
+enum class Realm { NONE, MIRROR, PULSE, GRAVITY }
 
 object RealmRules {
     const val PULSE_BEAT = 6          // ticks per beat (~0.72 s)
@@ -17,6 +19,7 @@ object RealmRules {
 
     fun realmFor(zone: Int): Realm = when (zone) {
         in 240..299 -> Realm.MIRROR
+        in 300..359 -> Realm.GRAVITY
         in 360..419 -> Realm.PULSE
         else -> Realm.NONE
     }
@@ -68,5 +71,60 @@ object RealmRules {
             out += VisualTrackElement("bullet_${tick}_e", 0.95f, bossY, "bullet", "ECHO")
             BossSfx.fire()
         }
+    }
+
+    // ------------------------------------------------------------------ GRAVITY wells
+
+    class Well(val id: Int, val x: Float, val y: Int, val push: Boolean)
+
+    /** Wells currently on screen. Replaced as a whole every tick, so the draw can read it safely from the UI thread. */
+    @Volatile var wells: List<Well> = emptyList()
+    @Volatile var skimming: Boolean = false
+    private const val WELL_R = 36f        // field radius in "lane units"
+    private const val PILOT_X = 0.2f
+
+    /**
+     * Moves the wells and returns (lane shift for the pilot this tick, bonus points). Outside the Gravity realm it clears everything.
+     * Pull wells drag the pilot toward their centre; flying along the rim earns points. Push wells shove the pilot away.
+     */
+    fun gravityStep(zone: Int, tick: Int, speedInPx: Float, userY: Int): IntArray {
+        if (realmFor(zone) != Realm.GRAVITY) {
+            if (wells.isNotEmpty()) wells = emptyList()
+            skimming = false
+            return intArrayOf(0, 0)
+        }
+        val dx = speedInPx * 0.018f * 0.8f
+        val moved = ArrayList<Well>(wells.size + 1)
+        for (w in wells) if (w.x - dx > -0.25f) moved += Well(w.id, w.x - dx, w.y, w.push)
+        val interval = (26 - (zone - 300) / 8).coerceAtLeast(16)
+        if (tick % interval == 0) {
+            val n = tick / interval
+            val h = (n * 2654435761L ushr 7).toInt() and 0xFFFF
+            val y = 22 + (h % 57)
+            val push = n % 3 == 2 || (zone >= 330 && n % 3 == 1 && h % 2 == 0)
+            moved += Well(n, 1.3f, y, push)
+        }
+        wells = moved
+        var shift = 0f
+        var bonus = 0
+        var skim = false
+        for (w in moved) {
+            val ddx = (w.x - PILOT_X) * 55f
+            if (ddx > WELL_R || ddx < -WELL_R) continue
+            val ddy = (w.y - userY).toFloat()
+            val dist = sqrt(ddx * ddx + ddy * ddy)
+            if (dist >= WELL_R) continue
+            val f = 1f - dist / WELL_R
+            val dir = if (ddy > 0f) 1f else if (ddy < 0f) -1f else (if (w.id % 2 == 0) 1f else -1f)
+            if (w.push) {
+                shift -= dir * 4.5f * f
+            } else {
+                val pullStep = minOf(4.8f * f, kotlin.math.abs(ddy))
+                shift += dir * pullStep
+                if (dist in 8f..22f) { bonus += 14; skim = true }
+            }
+        }
+        skimming = skim
+        return intArrayOf(shift.coerceIn(-6f, 6f).toInt(), bonus)
     }
 }
