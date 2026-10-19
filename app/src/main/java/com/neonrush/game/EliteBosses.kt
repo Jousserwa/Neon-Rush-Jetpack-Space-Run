@@ -62,6 +62,31 @@ object EliteBosses {
             d.rate, d.twin, d.fx, d.accent, tier)
     }
 
+    // ------------------------------------------------------------------------------------- world bosses (zones 5-55, 245+)
+
+    private val MOVES = arrayOf(EliteMove.CHASE, EliteMove.SWEEP, EliteMove.ORBIT, EliteMove.STRAFE, EliteMove.DASH, EliteMove.HOP)
+    private val ATKS = arrayOf(EliteAtk.FAN, EliteAtk.SALVO, EliteAtk.SNIPER, EliteAtk.CURTAIN, EliteAtk.MIX)
+    private val ACCENTS = longArrayOf(0xFF00E5FF, 0xFFFF7043, 0xFFB388FF, 0xFF69F0AE, 0xFFFFD740, 0xFFFF4081, 0xFF40C4FF, 0xFFFFB300)
+
+    /**
+     * Behaviour for the normal world bosses, so no two bosses in a row move or shoot the same way. The drawing stays the world's own
+     * boss art (this only drives movement and shots). The move steps through 6 styles and the attack through 5, so boss k and boss k+1
+     * always differ in BOTH; each world also starts at a different point of the cycle. The very first boss of World 1 stays the gentle original.
+     */
+    fun forWorld(family: Int, zone: Int): EliteBoss? {
+        if (zone % 5 != 0 || zone <= 0) return null
+        if (zone in FIRST_ZONE..LAST_ZONE) return null
+        val f = ((family - 1).coerceAtLeast(0)) % 8 + 1
+        val k = zone / 5 - 1
+        if (zone < FIRST_ZONE && f == 1 && zone <= 10) return null
+        val move = MOVES[(f * 2 + k) % MOVES.size]
+        val atk = ATKS[(f + k * 2) % ATKS.size]
+        val late = zone > LAST_ZONE
+        val rate = if (late) 1.0f else if (zone < 20) 1.25f else if (zone < 40) 1.12f else 1.0f
+        val twin = f >= 6 && (k % 3 == 2)
+        return EliteBoss(k, "WORLD BOSS", f, 0f, 1f, 1f, move, atk, rate, twin, 0, ACCENTS[f - 1], if (late) 2 else 0)
+    }
+
     // ---------------------------------------------------------------------------------------------- movement
 
     /** The boss's lane (0..100) for this tick. Same function drives the draw, so what you see is what shoots. */
