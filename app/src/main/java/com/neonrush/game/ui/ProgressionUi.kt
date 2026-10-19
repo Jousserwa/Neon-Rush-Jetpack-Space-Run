@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,7 +40,7 @@ fun GoalsPanel(p: ProgressionState, onClaimMission: (String) -> Unit, onClaimSet
                 Text("${HullCatalog.byId(id)?.emoji ?: ""} ${HullCatalog.byId(id)?.name ?: id}  ·  Lv $lv ${"★".repeat(lv)}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 Box(Modifier.fillMaxWidth().padding(top = 6.dp).height(5.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = 0.1f))) {
                     val f = if (next == null) 1f else (m - prev).toFloat() / (next - prev)
-                    Box(Modifier.fillMaxWidth(f.coerceIn(0f, 1f)).fillMaxHeight().background(Gold))
+                    Box(Modifier.fillMaxWidth(safeFrac(f)).fillMaxHeight().background(Gold))
                 }
                 Text(if (next == null) "MAX · ${m}m flown" else "${m}m / ${next}m", color = CyberOnSurface.copy(alpha = 0.6f), fontSize = 10.sp)
             }
