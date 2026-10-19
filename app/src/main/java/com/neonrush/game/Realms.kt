@@ -190,7 +190,7 @@ object RealmRules {
         }
         val cyc = tick % 210
         calm = cyc >= 168                                  // the eye of the storm: ~5 s with no new strikes
-        var live = strikes.filter { tick <= it.t0 + STORM_WARN + 3 }
+        var live = strikes.filter { tick >= it.t0 && tick <= it.t0 + STORM_WARN + 3 }
         if (!calm && tick >= nextStrikeTick) {
             val gap = (20 - (zone - 330) / 4).coerceAtLeast(12)
             var lane = (userY + ((hash(tick * 3 + 1) - 0.5f) * 48f).toInt()).coerceIn(16, 84)
