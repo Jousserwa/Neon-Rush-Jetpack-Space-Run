@@ -9,7 +9,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,7 +52,7 @@ fun SeasonPassScreen(
         Spacer(Modifier.height(8.dp))
         val frac = if (s.tier >= SeasonPass.TIERS) 1f else s.tokensIntoTier / SeasonPass.TOKENS_PER_TIER.toFloat()
         Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(CyberSurface)) {
-            Box(Modifier.fillMaxWidth(frac.coerceIn(0f, 1f)).fillMaxHeight().background(Brush.horizontalGradient(listOf(CyberPrimary, CyberSecondary))))
+            Box(Modifier.fillMaxWidth(safeFrac(frac)).fillMaxHeight().background(Brush.horizontalGradient(listOf(CyberPrimary, CyberSecondary))))
         }
         Text("${s.tokensIntoTier}/${SeasonPass.TOKENS_PER_TIER} tokens to the next tier. Collect 🎟 Tokens in every run: gems, close calls, new zones and bosses. Works offline. Falling behind? You earn bonus tokens to catch up.",
             color = CyberOnSurface.copy(alpha = 0.6f), fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp, bottom = 4.dp))
