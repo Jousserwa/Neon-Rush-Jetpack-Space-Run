@@ -125,6 +125,7 @@ fun WorldLife(worldId: Int) {
     if (worldId !in 1..5) return
     val clock = rememberBgClock()
     Canvas(modifier = Modifier.fillMaxSize()) {
+    try {
         val cw = size.width
         val ch = size.height
         val t = clock.value
@@ -135,7 +136,9 @@ fun WorldLife(worldId: Int) {
             4 -> wl4(cw, ch, t)
             5 -> wl5(cw, ch, t)
         }
-    }
+    
+    } catch (_: Throwable) { /* never crash a frame */ }
+}
 }
 
 private fun wrap(v: Float, span: Float): Float = ((v % span) + span) % span
