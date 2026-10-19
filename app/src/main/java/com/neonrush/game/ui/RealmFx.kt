@@ -308,10 +308,11 @@ fun DrawScope.drawStormRealm(cw: Float, ch: Float, t: Float, tick: Int, pilot: O
     // strikes
     for (s in RealmRules.strikes) {
         val age = tick - s.t0
+        if (age < 0) continue // stale strike from an earlier run (tick restarted): negative age made alpha < 0 and crashed
         val y = ch * (s.lane / 100f)
         val half = ch * 0.13f
         if (age < RealmRules.STORM_WARN) {
-            val f = (age + 1f) / RealmRules.STORM_WARN
+            val f = ((age + 1f) / RealmRules.STORM_WARN).coerceIn(0f, 1f)
             val pulse = 0.5f + 0.5f * sin(t * (10f + 14f * f))
             val amber = Color(0xFFFFC400)
             drawRect(amber.copy(alpha = (0.08f + 0.20f * f) * (0.6f + 0.4f * pulse)), Offset(0f, y - half), Size(cw, half * 2f), blendMode = BlendMode.Plus)
