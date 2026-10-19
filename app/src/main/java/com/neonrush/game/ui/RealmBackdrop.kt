@@ -51,6 +51,7 @@ fun RealmBackdrop(zone: Int, distanceMeters: Float) {
         }
     }
     Canvas(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = a }) {
+    try {
         val cw = size.width
         val ch = size.height
         val t = clock.value
@@ -61,7 +62,9 @@ fun RealmBackdrop(zone: Int, distanceMeters: Float) {
             Realm.GRAVITY -> rbGravity(cw, ch, t, s)
             else -> {}
         }
-    }
+    
+    } catch (_: Throwable) { /* never crash a frame */ }
+}
 }
 
 private fun wrap(v: Float, span: Float): Float = ((v % span) + span) % span
