@@ -758,7 +758,7 @@ fun purchasePilotSkin(activity: Activity, skinId: String, productId: String) {
     }
 }
 fun reviveCostForCurrentRun(): Int {
-    return when (_simState.value.reviveCount) {
+    val base = when (_simState.value.reviveCount) {
         0 -> 20
         1 -> 25
         2 -> 30
@@ -766,6 +766,7 @@ fun reviveCostForCurrentRun(): Int {
         4 -> 50
         else -> 50 + 20 * (_simState.value.reviveCount - 4)
     }
+    return (base * RemoteTuning.reviveCostPct() / 100).coerceAtLeast(1)
 }
 fun reviveWithGems(isPro: Boolean) {
     viewModelScope.launch {
@@ -1160,9 +1161,9 @@ fun freezeStreak() {
 
         /** Speed. Stage 70: +7% EASY, +10% MEDIUM, +14% HARD (each +2% over Stage 67) on top of the gauge curve (the 60-zone gauge still caps how far it can climb). */
         fun pressure(zone: Int): Float = when (this) {
-            EASY -> paced(zone) * 1.07f
-            MEDIUM -> paced(zone) * 1.10f
-            HARD -> hardCurve(zone) * 1.14f
+            EASY -> paced(zone) * 1.0914f
+            MEDIUM -> paced(zone) * 1.122f
+            HARD -> hardCurve(zone) * 1.1628f
             else -> hardCurve(zone)
         }
 
@@ -1173,10 +1174,11 @@ fun freezeStreak() {
         fun aggression(zone: Int): Float {
             if (this == EASY || this == MEDIUM) {
                 val ratio = paced(zone) / paced(1)
-                return if (this == EASY) minOf(0.45f * 1.04f * (1f + 0.5f * (ratio - 1f)), HARD.hardAggro(zone))
-                else minOf(0.84f * ratio, HARD.hardAggro(zone))
+                val cap = HARD.hardAggro(zone) * 1.02f
+                return if (this == EASY) minOf(0.45f * 1.0608f * (1f + 0.5f * (ratio - 1f)), cap)
+                else minOf(0.84f * 1.02f * ratio, cap)
             }
-            return hardAggro(zone)
+            return if (this == HARD) hardAggro(zone) * 1.02f else hardAggro(zone)
         }
 
         private fun hardAggro(zone: Int): Float = startMult * (1f + growthPer10 * 0.4f * (gaugeZone(zone) - 1).coerceAtLeast(0) / 10f)
@@ -1247,6 +1249,15 @@ fun freezeStreak() {
         return phase < 8
     }
 
+    /** A lane that is off the ghost line (so the ghost line stays safe) but can be anywhere on screen, top and bottom included. */
+    private fun offLine(rand: kotlin.random.Random, ghostY: Int, minD: Int, maxD: Int): Int {
+        val d = rand.nextInt(minD, maxD + 1)
+        val up = rand.nextBoolean()
+        var y = if (up) ghostY - d else ghostY + d
+        if (y < 6 || y > 94) y = if (up) ghostY + d else ghostY - d
+        return y.coerceIn(4, 96)
+    }
+
     private fun spawnObstacleForSet(obstacleSetId: Int, tick: Int, rand: kotlin.random.Random, ghostY: Int, zoneNumber: Int = 1): List<VisualTrackElement> {
         val elements = mutableListOf<VisualTrackElement>()
         val baseId = "obs_${tick}_"
@@ -1258,34 +1269,34 @@ fun freezeStreak() {
                 elements.add(VisualTrackElement("${baseId}p2", 1.2f, gapCenter - gapSize/2, "obstacle", "PILLAR_TOP"))
             }
             2 -> {
-                elements.add(VisualTrackElement("${baseId}l1", 1.2f, rand.nextInt(20, 80), "obstacle", "LASER"))
+                elements.add(VisualTrackElement("${baseId}l1", 1.2f, rand.nextInt(8, 93), "obstacle", "LASER"))
                 if (rand.nextBoolean()) {
-                    elements.add(VisualTrackElement("${baseId}l2", 1.25f, rand.nextInt(20, 80), "obstacle", "LASER"))
+                    elements.add(VisualTrackElement("${baseId}l2", 1.25f, rand.nextInt(8, 93), "obstacle", "LASER"))
                 }
             }
             3 -> elements.add(VisualTrackElement("${baseId}b1", 1.3f, ghostY, "obstacle", "BLADE"))
-            4 -> elements.add(VisualTrackElement("${baseId}st1", 1.2f, rand.nextInt(15, 45), "obstacle", "STALACTITE"))
-            5 -> elements.add(VisualTrackElement("${baseId}sm1", 1.2f, rand.nextInt(55, 85), "obstacle", "STALAGMITE"))
+            4 -> elements.add(VisualTrackElement("${baseId}st1", 1.2f, rand.nextInt(6, 45), "obstacle", "STALACTITE"))
+            5 -> elements.add(VisualTrackElement("${baseId}sm1", 1.2f, rand.nextInt(55, 95), "obstacle", "STALAGMITE"))
             6 -> {
-                elements.add(VisualTrackElement("${baseId}sa1", 1.2f, 20, "obstacle", "STALACTITE"))
-                elements.add(VisualTrackElement("${baseId}sa2", 1.2f, 80, "obstacle", "STALAGMITE"))
+                elements.add(VisualTrackElement("${baseId}sa1", 1.2f, 12, "obstacle", "STALACTITE"))
+                elements.add(VisualTrackElement("${baseId}sa2", 1.2f, 88, "obstacle", "STALAGMITE"))
             }
             7, 11 -> {
-                elements.add(VisualTrackElement("${baseId}m1", 1.2f, ghostY - 12, "obstacle", "BARRIER"))
-                elements.add(VisualTrackElement("${baseId}m2", 1.2f, ghostY + 12, "obstacle", "BARRIER"))
+                elements.add(VisualTrackElement("${baseId}m1", 1.2f, (ghostY - 12).coerceIn(4, 96), "obstacle", "BARRIER"))
+                elements.add(VisualTrackElement("${baseId}m2", 1.2f, (ghostY + 12).coerceIn(4, 96), "obstacle", "BARRIER"))
             }
-            15 -> elements.add(VisualTrackElement("${baseId}z1", 1.2f, rand.nextInt(10, 90), "obstacle", "ZAP_FIELD"))
-            17 -> elements.add(VisualTrackElement("${baseId}f1", 1.2f, ghostY + rand.nextInt(-10, 10).coerceIn(15, 85), "obstacle", "PHANTOM"))
+            15 -> elements.add(VisualTrackElement("${baseId}z1", 1.2f, rand.nextInt(6, 95), "obstacle", "ZAP_FIELD"))
+            17 -> elements.add(VisualTrackElement("${baseId}f1", 1.2f, offLine(rand, ghostY, 14, 30), "obstacle", "PHANTOM"))
             18 -> {
                 elements.add(VisualTrackElement("${baseId}s1", 1.2f, ghostY - 6, "obstacle", "SPLITTER"))
                 elements.add(VisualTrackElement("${baseId}s2", 1.2f, ghostY + 6, "obstacle", "SPLITTER"))
             }
             22 -> {
-                elements.add(VisualTrackElement("${baseId}tu1", 1.2f, ghostY - 20, "obstacle", "TUNNEL_TOP"))
-                elements.add(VisualTrackElement("${baseId}tu2", 1.2f, ghostY + 20, "obstacle", "TUNNEL_BOTTOM"))
+                elements.add(VisualTrackElement("${baseId}tu1", 1.2f, (ghostY - 20).coerceIn(4, 96), "obstacle", "TUNNEL_TOP"))
+                elements.add(VisualTrackElement("${baseId}tu2", 1.2f, (ghostY + 20).coerceIn(4, 96), "obstacle", "TUNNEL_BOTTOM"))
             }
             23 -> {
-                val droneY = ghostY + rand.nextInt(-15, 15).coerceIn(15, 85)
+                val droneY = offLine(rand, ghostY, 14, 36)
                 elements.add(VisualTrackElement("${baseId}dr", 1.2f, droneY, "obstacle", "DRONE"))
                 // 30% chance the drone also fires a companion projectile —
                 // reuses the existing "bullet" collision handling (no new
@@ -1293,10 +1304,10 @@ fun freezeStreak() {
                 // the drone's body and dodging its shot are two separate
                 // reads, not the same dodge twice.
                 if (rand.nextInt(100) < 30) {
-                    elements.add(VisualTrackElement("${baseId}drb", 1.35f, droneY + rand.nextInt(-10, 10), "bullet", "DRONE_SHOT"))
+                    elements.add(VisualTrackElement("${baseId}drb", 1.35f, (droneY + rand.nextInt(-10, 10)).coerceIn(4, 96), "bullet", "DRONE_SHOT"))
                 }
             }
-            else -> elements.add(VisualTrackElement("${baseId}st", 1.2f, ghostY + rand.nextInt(-12, 12).coerceIn(15, 85), "obstacle", "STANDARD"))
+            else -> elements.add(VisualTrackElement("${baseId}st", 1.2f, offLine(rand, ghostY, 16, 40), "obstacle", "STANDARD"))
         }
         // BLINK STRIKE: a new, per-world "creature" hazard that flickers
         // visible (~1s) then near-invisible (~2s), like lightning. It cannot
@@ -1305,7 +1316,7 @@ fun freezeStreak() {
         // stay calm. kindIdx (0-4) gives 5 silhouette/color variants per world.
         if (zoneNumber >= 4 && rand.nextInt(100) < 20) {
             val kindIdx = rand.nextInt(0, 5)
-            val hazardY = (ghostY + rand.nextInt(-25, 25)).coerceIn(15, 85)
+            val hazardY = (ghostY + rand.nextInt(-25, 25)).coerceIn(8, 92)
             elements.add(VisualTrackElement("blink_${tick}_${kindIdx}", 1.2f, hazardY, "obstacle", "BLINK_HAZARD"))
         }
         return elements
@@ -1376,6 +1387,14 @@ fun freezeStreak() {
             startRacingSimulation(hardGhost)
             onComplete(true, newAttempts)
         }
+    }
+
+    /** Which of the 8 world boss families this zone belongs to (special / New Game+ worlds map onto the same 8). */
+    private fun worldFamilyFor(st: SimulationState, zone: Int): Int {
+        val w = st.specialWorldId?.let { envId ->
+            (Worlds.SPECIAL_WORLDS + Worlds.NEW_GAME_PLUS).find { it.environmentIds.contains(envId) }
+        } ?: Worlds.worldForZone(zone)
+        return w.worldFamily
     }
 
     /** Gameplay personality for this tick's zone (null = normal tuning). */
@@ -1741,6 +1760,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 val gravRes = RealmRules.gravityStep(nextZoneNumber, tick, speedInPx, userY)
                 val gravUserY = (userY + gravRes[0]).coerceIn(10, 90)
                 val stormRes = RealmRules.stormStep(nextZoneNumber, tick, userY, speedInPx, updatedElements)
+                EdgeGuard.step(tick, userY, updatedElements)
                 if (stormRes[1] == 1) soundEngine.playTone(70f, 260, "sawtooth")
                 for (elem in state.activeTrackElements) {
                     val nextX = elem.xOffsetFraction - (speedInPx * 0.018f)
@@ -1797,7 +1817,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         bossHealthState = 1.0f
                     }
                     val bossIvTicks = (Upgrades.bossBulletInterval(activeUpgradesCsv, 9) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4)
-                    val eliteNow = EliteBosses.forZone(nextZoneNumber)
+                    val eliteNow = EliteBosses.forZone(nextZoneNumber) ?: (if (RealmRules.isRivalZone(nextZoneNumber)) null else EliteBosses.forWorld(worldFamilyFor(state, nextZoneNumber), nextZoneNumber))
                     if (eliteNow == null && !RealmRules.isRivalZone(nextZoneNumber)) {
                         val trackingYBias = userY - bossYState
                         bossYState += bossFollowStep(trackingYBias, 0.22f * (flavor?.bossAggro ?: 1f))
@@ -2255,6 +2275,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
 
    private suspend fun completeSimulationRun() {
         val finalState = _simState.value
+        GameAnalytics.runEnd(finalState.currentZoneNumber, finalState.score, finalState.distanceMeters.toInt(), finalState.reviveCount)
         _simState.value = finalState.copy(
             isCompleted = true,
             feedbackMessage = "Sync terminal drift halt. Run finalized!",
@@ -2663,6 +2684,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 val gravRes = RealmRules.gravityStep(nextZoneNumber, tick, speedInPx, userY)
                 val gravUserY = (userY + gravRes[0]).coerceIn(10, 90)
                 val stormRes = RealmRules.stormStep(nextZoneNumber, tick, userY, speedInPx, updatedElements)
+                EdgeGuard.step(tick, userY, updatedElements)
                 if (stormRes[1] == 1) soundEngine.playTone(70f, 260, "sawtooth")
                 for (elem in state.activeTrackElements) {
                     val nextX = elem.xOffsetFraction - (speedInPx * 0.018f)
@@ -2719,7 +2741,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         bossHealthState = 1.0f
                     }
                     val bossIvTicks = (Upgrades.bossBulletInterval(activeUpgradesCsv, 6) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4)
-                    val eliteNow = EliteBosses.forZone(nextZoneNumber)
+                    val eliteNow = EliteBosses.forZone(nextZoneNumber) ?: (if (RealmRules.isRivalZone(nextZoneNumber)) null else EliteBosses.forWorld(worldFamilyFor(state, nextZoneNumber), nextZoneNumber))
                     if (eliteNow == null && !RealmRules.isRivalZone(nextZoneNumber)) {
                         val trackingYBias = userY - bossYState
                         bossYState += bossFollowStep(trackingYBias, 0.28f * (flavor?.bossAggro ?: 1f))
