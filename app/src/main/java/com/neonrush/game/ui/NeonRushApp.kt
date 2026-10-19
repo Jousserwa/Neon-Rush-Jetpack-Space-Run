@@ -489,6 +489,8 @@ fun NeonRushApp(viewModel: NeonRushViewModel) {
     var activeTab by remember { mutableStateOf("arcade") }
     var showGhostSelection by remember { mutableStateOf(false) }
     val simState by viewModel.simState.collectAsState()
+    val langCtx = androidx.compose.ui.platform.LocalContext.current
+    remember { Lang.init(langCtx); true }
     
     val isPro by RevenueCatManager.isPro.collectAsState()
     LaunchedEffect(isPro, currentProfile.adsRemoved) {
@@ -5355,6 +5357,7 @@ fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
                 FeelToggleRow("Vibration", viewModel.getHapticsEnabled()) { viewModel.setHapticsEnabled(it) }
                 FeelToggleRow("Screen shake on near-misses", NearMissFx.shakeOn) { viewModel.setNearMissShake(it) }
                 FeelToggleRow("Edge flash on near-misses", NearMissFx.flashOn) { viewModel.setNearMissFlash(it) }
+                LanguagePicker()
             }
         }
 
