@@ -27,7 +27,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -184,7 +183,7 @@ private fun HangarHeader(state: HangarUiState) {
         Spacer(Modifier.height(6.dp))
         val frac = if (state.totalHullCount == 0) 0f else state.ownedHullCount.toFloat() / state.totalHullCount
         Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(CyberSurface)) {
-            Box(Modifier.fillMaxWidth(frac.coerceIn(0f, 1f)).fillMaxHeight()
+            Box(Modifier.fillMaxWidth(safeFrac(frac)).fillMaxHeight()
                 .background(Brush.horizontalGradient(listOf(CyberPrimary, CyberSecondary))))
         }
         if (state.lockedHullId != null || state.nextRotationId != null) {
