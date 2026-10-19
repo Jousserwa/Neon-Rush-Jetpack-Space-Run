@@ -353,6 +353,8 @@ private fun ParallaxWorldBackground(
     val cf = remember(variant?.key) {
         variant?.let { ColorFilter.colorMatrix(it.colorMatrix()) }
     }
+    val vGeo = remember(variant?.key, variant?.suffix) { variant?.let { variantGeo(it) } }
+    val distanceMeters = distanceMeters * (vGeo?.speed ?: 1f)
     if (layers == null) {
         // No dedicated art for this world yet (currently: special-mode worlds
         // 6-8, and any future world before its layers are added to the map
@@ -389,6 +391,7 @@ private fun ParallaxWorldBackground(
             )
         )
 
+        withTransform({ if (vGeo != null) scale((if (vGeo.flipX) -1f else 1f) * vGeo.zoom, (if (vGeo.flipY) -1f else 1f) * vGeo.zoom, Offset(cw / 2f, ch / 2f)) }) {
         layers.forEachIndexed { idx, layer ->
             val bmp = bitmaps[idx]
             // Scale each layer to fill the canvas height, preserving aspect.
@@ -472,7 +475,8 @@ private fun ParallaxWorldBackground(
                 paint(cf, BlendMode.SrcOver, 1f)
             }
             // the world's own lights come alive (only on the plain art; re-coloured rift variants keep their colour grade)
-            if (cf == null) BgFx.passes(this, worldId, idx, t, cw, ch) { f, b, a -> paint(f, b, a) }
+            if (cf == null) { try { BgFx.passes(this, worldId, idx, t, cw, ch) { f, b, a -> paint(f, b, a) } } catch (_: Throwable) { } }
+        }
         }
 
         // Dim the whole stack uniformly so gameplay elements read clearly on top.
@@ -490,7 +494,7 @@ fun NeonRushApp(viewModel: NeonRushViewModel) {
     var showGhostSelection by remember { mutableStateOf(false) }
     val simState by viewModel.simState.collectAsState()
     val langCtx = androidx.compose.ui.platform.LocalContext.current
-    remember { Lang.init(langCtx); true }
+    remember { Lang.init(langCtx); com.neonrush.game.RemoteTuning.start(); true }
     
     val isPro by RevenueCatManager.isPro.collectAsState()
     LaunchedEffect(isPro, currentProfile.adsRemoved) {
@@ -3831,6 +3835,7 @@ val bossImagesByWorld = mapOf(
             variant = variant
         )
         if (variant == null) WorldLife(worldId = currentWorld.worldFamily) // searchlights, embers, rain, fireflies... for worlds 1-5
+        if (variant != null) VariantScene(variant, simState.distanceMeters) // every remixed world gets its own code-drawn shapes
         RealmBackdrop(zone = simState.currentZoneNumber, distanceMeters = simState.distanceMeters) // code-drawn scenes for the zone 270+ realms
         variant?.let { WorldWeatherOverlay(weather = it.weather, accent = it.accent) }
         run {
@@ -4475,12 +4480,14 @@ val bossImagesByWorld = mapOf(
                         run {
                             val realmNow = RealmRules.realmFor(simState.currentZoneNumber)
                             val realmPilot = Offset(cw * 0.2f, ch * (simState.userYPos / 100f))
+                            try {
                             if (realmNow == Realm.MIRROR) drawMirrorRealm(cw, ch, fxClock.value, simState.tickIndex, simState.mirrorSide, simState.mirrorFlipTick, realmPilot, simState.activeTrackElements)
                             else if (realmNow == Realm.GRAVITY) drawGravityRealm(cw, ch, fxClock.value, realmPilot, RealmRules.wells, RealmRules.skimming, gravityWellImg)
                             else if (realmNow == Realm.SHATTER) drawShatterRealm(cw, ch, fxClock.value, simState.tickIndex, simState.currentZoneNumber, realmPilot, simState.activeTrackElements)
                             else if (realmNow == Realm.STORM) drawStormRealm(cw, ch, fxClock.value, simState.tickIndex, realmPilot)
                             else if (realmNow == Realm.BLACKOUT) drawBlackoutRealm(cw, ch, fxClock.value, simState.tickIndex, simState.currentZoneNumber, realmPilot, simState.activeTrackElements)
                             else if (realmNow == Realm.PULSE) drawPulseRealm(cw, ch, fxClock.value, simState.tickIndex, realmPilot)
+                            } catch (_: Throwable) { }
                             realmCaption(simState.currentZoneNumber)?.let { cap ->
                                 val capLayout = textMeasurer.measure(cap, style = TextStyle(color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace))
                                 drawText(textLayoutResult = capLayout, topLeft = Offset((cw - capLayout.size.width) / 2f, ch * 0.145f))
