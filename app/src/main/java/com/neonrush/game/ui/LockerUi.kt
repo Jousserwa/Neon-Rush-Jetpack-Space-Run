@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.Arrangement
@@ -154,7 +153,7 @@ fun LockerEntry(viewModel: NeonRushViewModel, profile: GameProfile) {
 @Composable
 private fun Bar(frac: Float, color: Color, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.1f))) {
-        Box(Modifier.fillMaxWidth(frac.coerceIn(0f, 1f)).height(7.dp).background(color))
+        Box(Modifier.fillMaxWidth(safeFrac(frac)).height(7.dp).background(color))
     }
 }
 
