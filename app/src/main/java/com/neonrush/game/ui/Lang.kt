@@ -46,6 +46,7 @@ object Lang {
     fun set(ctx: Context, c: String) {
         try { ctx.getSharedPreferences("neonrush_lang", Context.MODE_PRIVATE).edit().putString("code", c).apply() } catch (_: Exception) {}
         apply(c)
+        com.neonrush.game.GameAnalytics.languageSet(c)
     }
 
     private fun apply(c: String) {
