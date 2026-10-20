@@ -3781,6 +3781,9 @@ val bossImagesByWorld = mapOf(
     8 to ImageBitmap.imageResource(id = R.drawable.boss_apex_signal)
 )
 // Dark Ages knight (zones 395-415): three small pictures, wing / body / sword
+// Shatter realm art: shard atlas (6 cells) and the crack-web burst
+val shatterShards = ImageBitmap.imageResource(id = R.drawable.shatter_shards)
+val shatterBurst = ImageBitmap.imageResource(id = R.drawable.shatter_burst)
 val knightBody = ImageBitmap.imageResource(id = R.drawable.darkages_body)
 val knightWing = ImageBitmap.imageResource(id = R.drawable.darkages_wing)
 val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
@@ -4488,7 +4491,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                             try {
                             if (realmNow == Realm.MIRROR) drawMirrorRealm(cw, ch, fxClock.value, simState.tickIndex, simState.mirrorSide, simState.mirrorFlipTick, realmPilot, simState.activeTrackElements)
                             else if (realmNow == Realm.GRAVITY) drawGravityRealm(cw, ch, fxClock.value, realmPilot, RealmRules.wells, RealmRules.skimming, gravityWellImg)
-                            else if (realmNow == Realm.SHATTER) drawShatterRealm(cw, ch, fxClock.value, simState.tickIndex, simState.currentZoneNumber, realmPilot, simState.activeTrackElements)
+                            else if (realmNow == Realm.SHATTER) drawShatterRealm(cw, ch, fxClock.value, simState.tickIndex, simState.currentZoneNumber, realmPilot, simState.activeTrackElements, shatterShards, shatterBurst)
                             else if (realmNow == Realm.STORM) drawStormRealm(cw, ch, fxClock.value, simState.tickIndex, realmPilot)
                             else if (realmNow == Realm.BLACKOUT) drawBlackoutRealm(cw, ch, fxClock.value, simState.tickIndex, simState.currentZoneNumber, realmPilot, simState.activeTrackElements)
                             else if (realmNow == Realm.PULSE) drawPulseRealm(cw, ch, fxClock.value, simState.tickIndex, realmPilot)
@@ -4944,6 +4947,7 @@ fun GameOverOverlayScreen(
         onClick = {
             activity?.let {
                 AdMobManager.showRewardedIfReady(it, RewardedSlot.REVIVE) {
+                    com.neonrush.game.GameAnalytics.reviveUsed("ad", simState.reviveCount + 1, 0)
                     viewModel.reviveSimulation()
                     viewModel.recordAdWatched()
                 }
