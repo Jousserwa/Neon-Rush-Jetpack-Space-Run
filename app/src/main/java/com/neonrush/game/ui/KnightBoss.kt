@@ -55,14 +55,15 @@ private val EMBER = Color(0xFFFF6A00)
 
 fun DrawScope.drawKnightBoss(
     body: ImageBitmap, wing: ImageBitmap, sword: ImageBitmap,
-    cx: Float, cy: Float, h: Float, t: Float, tick: Int, hp: Float
+    cx: Float, cy: Float, h: Float, t: Float, tick: Int, hp: Float, thr: Float = 1f
 ) {
     try {
         val rage = if (hp < 0.35f) 1f else 0f                       // the last third of his life: faster wings, hotter glow
         val bob = sin(t * 2.2f) * h * 0.03f
         val bh = h * 1.05f
         val bw = bh * BODY_ASPECT
-        val left = cx - bw * 0.5f
+        val swing = (1f - thr).coerceIn(0f, 1f)                     // 1 at the instant a sword is thrown, fades to 0
+        val left = cx - bw * 0.5f - bw * 0.07f * swing
         val top = cy - bh * 0.5f + bob
         val glow = 0.30f + 0.10f * sin(t * 3f) + 0.15f * rage
         drawCircle(Brush.radialGradient(listOf(EMBER.copy(alpha = glow), Color.Transparent), center = Offset(cx, cy + bob), radius = h * 0.95f),
@@ -83,13 +84,20 @@ fun DrawScope.drawKnightBoss(
         }
         drawImage(body, dstOffset = IntOffset(left.roundToInt(), top.roundToInt()), dstSize = IntSize(bw.roundToInt(), bh.roundToInt()))
 
-        // the sword hovers just ahead of the open hand, tip toward the pilot
+        // the sword hovers just ahead of the open hand, tip toward the pilot. On a throw it whips forward and vanishes, then a new one ignites.
         val sw = h * 0.62f
         val sh = sw * (sword.height.toFloat() / sword.width.toFloat())
         val hx = left + bw * 0.10f
         val hy = top + bh * 0.42f
-        withTransform({ rotate(-8f + 5f * sin(t * 2.6f), Offset(hx, hy)) }) {
-            drawImage(sword, dstOffset = IntOffset((hx - sw).roundToInt(), (hy - sh * 0.5f).roundToInt()), dstSize = IntSize(sw.roundToInt(), sh.roundToInt()))
+        val vis = if (thr < 0.25f) 0f else ((thr - 0.25f) / 0.75f).coerceIn(0f, 1f)
+        val whip = if (thr < 0.25f) 1f - thr / 0.25f else 0f
+        if (whip > 0f) {
+            drawCircle(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.8f * whip), EMBER.copy(alpha = 0.5f * whip), Color.Transparent), center = Offset(hx - sw * 0.5f, hy), radius = h * 0.5f),
+                radius = h * 0.5f, center = Offset(hx - sw * 0.5f, hy), blendMode = BlendMode.Plus)
+        }
+        withTransform({ rotate(-8f + 5f * sin(t * 2.6f) - 48f * whip, Offset(hx, hy)); translate(-sw * 0.45f * whip, 0f) }) {
+            drawImage(sword, dstOffset = IntOffset((hx - sw).roundToInt(), (hy - sh * 0.5f).roundToInt()), dstSize = IntSize(sw.roundToInt(), sh.roundToInt()),
+                alpha = if (whip > 0f) 1f else vis)
         }
     } catch (_: Throwable) { }
 }
@@ -100,9 +108,18 @@ fun DrawScope.drawKnightSword(sword: ImageBitmap, x: Float, y: Float, ch: Float,
         val w = ch * 0.17f * sizeMul
         val h = w * (sword.height.toFloat() / sword.width.toFloat())
         val flick = 0.85f + 0.15f * sin(t * 24f)
-        drawCircle(Brush.radialGradient(listOf(EMBER.copy(alpha = 0.35f * flick), Color.Transparent), center = Offset(x, y), radius = w * 0.55f),
-            radius = w * 0.55f, center = Offset(x, y), blendMode = BlendMode.Plus)
-        drawImage(sword, dstOffset = IntOffset((x - w * 0.5f).roundToInt(), (y - h * 0.5f).roundToInt()), dstSize = IntSize(w.roundToInt(), h.roundToInt()))
+        // ember trail streaming back behind the blade
+        for (k in 1..6) {
+            val a = 0.32f * (1f - k / 7f) * flick
+            val r = w * (0.20f - 0.02f * k)
+            drawCircle(EMBER.copy(alpha = a), radius = r, center = Offset(x + w * (0.25f + 0.17f * k), y + sin(t * 14f + k) * h * 0.18f), blendMode = BlendMode.Plus)
+        }
+        drawCircle(Brush.radialGradient(listOf(EMBER.copy(alpha = 0.40f * flick), Color.Transparent), center = Offset(x, y), radius = w * 0.6f),
+            radius = w * 0.6f, center = Offset(x, y), blendMode = BlendMode.Plus)
+        // the blade tumbles slightly as it flies
+        withTransform({ rotate(7f * sin(t * 16f + y * 0.01f), Offset(x, y)) }) {
+            drawImage(sword, dstOffset = IntOffset((x - w * 0.5f).roundToInt(), (y - h * 0.5f).roundToInt()), dstSize = IntSize(w.roundToInt(), h.roundToInt()))
+        }
     } catch (_: Throwable) { }
 }
 
@@ -110,6 +127,8 @@ fun DrawScope.drawKnightSword(sword: ImageBitmap, x: Float, y: Float, ch: Float,
  * BOSS INTRO CARD for the Dark Ages knight: when a knight boss appears, the full picture (darkages_knight.webp) slides in from the right
  * over a burning vignette with a warning title, holds for about 2.6 s, then fades. It never blocks touches (drawn over the play field only).
  */
+private var knightIntroPlayed = false
+
 @Composable
 fun KnightIntroCard(zone: Int, bossActive: Boolean, modifier: Modifier = Modifier) {
     val active = bossActive && RealmRules.isKnightZone(zone)
@@ -119,7 +138,9 @@ fun KnightIntroCard(zone: Int, bossActive: Boolean, modifier: Modifier = Modifie
     // keyed ONLY on "a knight boss is on screen": the card plays once when that turns true and is wiped the moment it turns false.
     // (Keying it on the zone as well let a mid-animation restart leave the card stuck on screen.)
     LaunchedEffect(active) {
+        if (active && knightIntroPlayed) return@LaunchedEffect   // only the first knight of the session gets the big entrance
         if (active) {
+            knightIntroPlayed = true
             slide.snapTo(1f); fade.snapTo(0f)
             fade.animateTo(1f, tween(200))
             slide.animateTo(0f, tween(480, easing = FastOutSlowInEasing))
