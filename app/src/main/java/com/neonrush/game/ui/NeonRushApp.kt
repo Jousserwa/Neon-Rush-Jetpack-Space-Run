@@ -494,7 +494,7 @@ fun NeonRushApp(viewModel: NeonRushViewModel) {
     var showGhostSelection by remember { mutableStateOf(false) }
     val simState by viewModel.simState.collectAsState()
     val langCtx = androidx.compose.ui.platform.LocalContext.current
-    remember { Lang.init(langCtx); com.neonrush.game.RemoteTuning.start(); true }
+    remember { Lang.init(langCtx); com.neonrush.game.RemoteTuning.start(); com.neonrush.game.LiveEvents.init(langCtx); com.neonrush.game.Social.init(langCtx); true }
     
     val isPro by RevenueCatManager.isPro.collectAsState()
     LaunchedEffect(isPro, currentProfile.adsRemoved) {
@@ -1012,6 +1012,13 @@ fun LeaderboardsTab(viewModel: NeonRushViewModel, playerProfile: GameProfile) {
     val rankingList by viewModel.leaderboard.collectAsState()
     val boardTier by viewModel.boardTier.collectAsState()
     var selectedPilot by remember { mutableStateOf<LeaderboardPilot?>(null) }
+    var showFriends by remember { mutableStateOf(false) }
+    if (showFriends) {
+        FriendsDialog(
+            myName = playerProfile.username, tierKey = boardTier.boardKey, tierLabel = boardTier.label,
+            onSync = { viewModel.syncSocial(playerProfile.username) }, onDismiss = { showFriends = false }
+        )
+    }
     selectedPilot?.let { sp ->
         PilotCardDialog(
             PilotCardData(sp.name, sp.activeSkinId, sp.bestScore, 1,
@@ -1037,6 +1044,12 @@ fun LeaderboardsTab(viewModel: NeonRushViewModel, playerProfile: GameProfile) {
             modifier = Modifier.padding(bottom = 8.dp)
         )
 
+        Text(
+            "\uD83D\uDC65 FRIENDS  \u2022  CHALLENGE A FRIEND",
+            color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, fontFamily = FontFamily.Monospace,
+            modifier = Modifier.padding(bottom = 8.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF69F0AE))
+                .clickable { showFriends = true }.padding(horizontal = 12.dp, vertical = 8.dp)
+        )
         // One board per difficulty, so Easy scores never sit above Legendary ones.
         Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             NeonRushViewModel.DifficultyTier.values().forEach { t ->
@@ -1618,6 +1631,7 @@ fun ArcadeHomeView(
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
                 .background(Color.White.copy(alpha = 0.05f)).padding(horizontal = 6.dp, vertical = 5.dp)
         )
+        LiveEventCard(onClaim = { viewModel.claimEventReward(it) })
           val activeMutation = DailyMutations.getActiveMutation()
         Box(
             modifier = Modifier
@@ -2270,12 +2284,28 @@ fun MissionTierBlock(
 fun DailyChallengeTab(viewModel: NeonRushViewModel, profile: GameProfile) {
     val comments by viewModel.socialComments.collectAsState()
     var alertMsg by remember { mutableStateOf("") }
+    val socialTier by viewModel.boardTier.collectAsState()
+    var showFriendsHere by remember { mutableStateOf(false) }
+    if (showFriendsHere) {
+        FriendsDialog(
+            myName = profile.username, tierKey = socialTier.boardKey, tierLabel = socialTier.label,
+            onSync = { viewModel.syncSocial(profile.username) }, onDismiss = { showFriendsHere = false }
+        )
+    }
 
     Column(
     modifier = Modifier
         .fillMaxSize()
         .verticalScroll(androidx.compose.foundation.rememberScrollState())
 ) {
+    // live event + friends first, so they are the first thing on the Social tab
+    LiveEventCard(onClaim = { viewModel.claimEventReward(it) }, modifier = Modifier.padding(bottom = 8.dp))
+    Text(
+        "\uD83D\uDC65 FRIENDS  \u2022  CHALLENGE A FRIEND",
+        color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, fontFamily = FontFamily.Monospace,
+        modifier = Modifier.padding(bottom = 8.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF69F0AE))
+            .clickable { showFriendsHere = true }.padding(horizontal = 12.dp, vertical = 8.dp)
+    )
     MissionsSection(viewModel = viewModel, profile = profile)
 
     Card(
@@ -3898,6 +3928,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                         style = TextStyle(shadow = hudShadow)
                     )
                     RunGoalsHud(simState)
+                    ChallengeHud(simState.score)
                 }
 
                 Column(horizontalAlignment = Alignment.End) {
@@ -4902,6 +4933,11 @@ fun GameOverOverlayScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                androidx.compose.foundation.Image(
+                    painter = androidx.compose.ui.graphics.painter.BitmapPainter(ImageBitmap.imageResource(id = R.drawable.pilot_dizzy)),
+                    contentDescription = null,
+                    modifier = Modifier.size(width = 143.dp, height = 100.dp)
+                )
                 Text(
                     text = "SYSTEM FAILURE",
                     fontSize = 28.sp,
