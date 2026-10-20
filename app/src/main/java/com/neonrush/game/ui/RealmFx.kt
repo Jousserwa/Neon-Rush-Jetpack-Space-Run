@@ -354,5 +354,6 @@ fun realmCaption(zone: Int): String? = when (RealmRules.realmFor(zone)) {
     com.neonrush.game.Realm.SHATTER -> "SHATTER REALM  \u00b7  FLY THROUGH THE GAP"
     com.neonrush.game.Realm.STORM -> if (RealmRules.calm) "THE EYE  \u00b7  CALM BEFORE THE STORM" else "STORM REALM  \u00b7  LEAVE THE GLOWING LANE"
     com.neonrush.game.Realm.PULSE -> "PULSE REALM  ·  MOVE ON THE BEAT"
+    com.neonrush.game.Realm.DARK_AGES -> "DARK AGES  \u00b7  THE EMBER KNIGHT RIDES"
     else -> null
 }
