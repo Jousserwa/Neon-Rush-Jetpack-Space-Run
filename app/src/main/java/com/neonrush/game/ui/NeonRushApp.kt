@@ -65,6 +65,7 @@ import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.ContentScale
 import com.neonrush.game.R
+import com.neonrush.game.NeonSoundEngine
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
@@ -495,6 +496,25 @@ fun NeonRushApp(viewModel: NeonRushViewModel) {
     val simState by viewModel.simState.collectAsState()
     val langCtx = androidx.compose.ui.platform.LocalContext.current
     remember { Lang.init(langCtx); com.neonrush.game.RemoteTuning.start(); com.neonrush.game.LiveEvents.init(langCtx); com.neonrush.game.Social.init(langCtx); true }
+
+    // ---- Music: menu / per-world loop / boss; silent on the game-over screen; pauses when the app is in the background
+    val musicWorld by viewModel.currentWorld.collectAsState()
+    val musicKey: String? = when {
+        !simState.isStarted -> "menu"
+        simState.isCompleted -> null
+        simState.bossActive -> "boss"
+        else -> "w" + musicWorld.worldFamily.coerceIn(1, 8)
+    }
+    LaunchedEffect(musicKey) { NeonSoundEngine.setMusicTrack(musicKey) }
+    val musicOwner = langCtx as? androidx.lifecycle.LifecycleOwner
+    DisposableEffect(musicOwner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, ev ->
+            if (ev == androidx.lifecycle.Lifecycle.Event.ON_STOP) NeonSoundEngine.setMusicSuspended(true)
+            if (ev == androidx.lifecycle.Lifecycle.Event.ON_START) NeonSoundEngine.setMusicSuspended(false)
+        }
+        musicOwner?.lifecycle?.addObserver(obs)
+        onDispose { musicOwner?.lifecycle?.removeObserver(obs) }
+    }
     
     val isPro by RevenueCatManager.isPro.collectAsState()
     LaunchedEffect(isPro, currentProfile.adsRemoved) {
@@ -1196,7 +1216,7 @@ fun LeaderboardsTab(viewModel: NeonRushViewModel, playerProfile: GameProfile) {
 fun GhostRacerTab(viewModel: NeonRushViewModel, onBack: () -> Unit, onRequireTutorial: (() -> Unit) -> Unit = { it() }) {
     var selectedPlayerId by remember { mutableStateOf("ghost_cyberrunner") }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(bottom = 12.dp)
@@ -1281,29 +1301,7 @@ fun GhostRacerTab(viewModel: NeonRushViewModel, onBack: () -> Unit, onRequireTut
             }
         }
 
-        // Ghost Hull Spotlight: each rival "flies" a premium hull the player can preview / buy.
-        run {
-            val hs by viewModel.hangar.ui.collectAsState()
-            val spotAct = LocalContext.current.findActivity()
-            val spotActions = remember(spotAct) { viewModel.hangar.actions { spotAct } }
-            val sold = HullCatalog.SOLD
-            val spotHull = sold.getOrNull(when (selectedPlayerId) { "ghost_retro" -> 0; "ghost_zeroglitch" -> 4; else -> 7 } % sold.size.coerceAtLeast(1))
-            val spotName = when (selectedPlayerId) { "ghost_retro" -> "RetroWave"; "ghost_zeroglitch" -> "ZeroGlitch"; else -> "CyberRunner" }
-            val st = hs
-            if (st != null && spotHull != null) {
-                Spacer(modifier = Modifier.height(12.dp))
-                GhostHullSpotlight(
-                    ghostName = spotName,
-                    hull = spotHull,
-                    owned = spotHull.id in st.ownedHullIds,
-                    priceLabel = st.storePrices[spotHull.productId] ?: spotHull.tier?.fallbackPrice ?: "",
-                    canBuy = HullCatalog.canBuyNow(st.isPro, st.releaseAtMs[spotHull.id] ?: 0L, st.serverNowMs),
-                    onBuy = { spotActions.onBuy(spotHull) }
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         Button(
             onClick = {
@@ -1334,6 +1332,30 @@ fun GhostRacerTab(viewModel: NeonRushViewModel, onBack: () -> Unit, onRequireTut
         }
 
         
+
+        // Ghost Hull Spotlight: each rival "flies" a premium hull the player can preview / buy.
+        run {
+            val hs by viewModel.hangar.ui.collectAsState()
+            val spotAct = LocalContext.current.findActivity()
+            val spotActions = remember(spotAct) { viewModel.hangar.actions { spotAct } }
+            val sold = HullCatalog.SOLD
+            val spotHull = sold.getOrNull(when (selectedPlayerId) { "ghost_retro" -> 0; "ghost_zeroglitch" -> 4; else -> 7 } % sold.size.coerceAtLeast(1))
+            val spotName = when (selectedPlayerId) { "ghost_retro" -> "RetroWave"; "ghost_zeroglitch" -> "ZeroGlitch"; else -> "CyberRunner" }
+            val st = hs
+            if (st != null && spotHull != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                GhostHullSpotlight(
+                    ghostName = spotName,
+                    hull = spotHull,
+                    owned = spotHull.id in st.ownedHullIds,
+                    priceLabel = st.storePrices[spotHull.productId] ?: spotHull.tier?.fallbackPrice ?: "",
+                    canBuy = HullCatalog.canBuyNow(st.isPro, st.releaseAtMs[spotHull.id] ?: 0L, st.serverNowMs),
+                    onBuy = { spotActions.onBuy(spotHull) }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
 Spacer(modifier = Modifier.height(8.dp))
     }
 }
@@ -1551,11 +1573,13 @@ fun ArcadeHomeView(
     val homePulse = homeFx.animateFloat(0f, 1f, infiniteRepeatable(tween(1400, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "hp")
     val homeSweep = homeFx.animateFloat(-0.4f, 1.4f, infiniteRepeatable(tween(3000, easing = LinearEasing), RepeatMode.Restart), label = "hs")
     val minContentHeight = maxHeight
+    val homeScroll = rememberScrollState()
+    val homeScope = rememberCoroutineScope()
     Column(
     modifier = Modifier
         .fillMaxWidth()
         .heightIn(min = minContentHeight)
-        .verticalScroll(rememberScrollState())
+        .verticalScroll(homeScroll)
         .padding(bottom = 12.dp),
     verticalArrangement = Arrangement.SpaceBetween
 ) {
@@ -2089,6 +2113,31 @@ fun ArcadeHomeView(
                     }
                 }
             )
+        }
+    }
+    // Scroll cue: PLAY and the difficulty buttons sit below the fold, so point at them until the player scrolls.
+    androidx.compose.animation.AnimatedVisibility(
+        visible = homeScroll.value < 40 && homeScroll.canScrollForward,
+        enter = androidx.compose.animation.fadeIn(),
+        exit = androidx.compose.animation.fadeOut(),
+        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp)
+    ) {
+        val bob = homePulse.value
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(24.dp))
+                .background(Brush.horizontalGradient(listOf(CyberPrimary.copy(alpha = 0.92f), CyberSecondary.copy(alpha = 0.92f))))
+                .border(1.dp, Color.White.copy(alpha = 0.55f), RoundedCornerShape(24.dp))
+                .clickable { homeScope.launch { homeScroll.animateScrollTo(homeScroll.maxValue) } }
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.offset(y = (bob * 3f - 1.5f).dp)) {
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = Color.White.copy(alpha = 0.55f + 0.45f * (1f - bob)), modifier = Modifier.size(20.dp))
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = Color.White.copy(alpha = 0.55f + 0.45f * bob), modifier = Modifier.size(20.dp).offset(y = (-10).dp))
+            }
+            Text("SCROLL DOWN TO PLAY", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
         }
     }
     }
@@ -4637,7 +4686,12 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                             if (eliteB == null && RealmRules.isRivalZone(simState.currentZoneNumber)) {
                                 drawEchoRival(pilotFrames[(simState.tickIndex / 3) % pilotFrames.size], bossX, bossYPx, bossDisplayHeight * 0.8f, fxClock.value, simState.tickIndex, simState.bossHealth, ch)
                             } else if (eliteB == null && RealmRules.isKnightZone(simState.currentZoneNumber)) {
-                                drawKnightBoss(knightBody, knightWing, knightSword, bossX, bossYPx, bossDisplayHeight * 1.15f, fxClock.value, simState.tickIndex, simState.bossHealth)
+                                run {
+                                    // how long ago a sword left his hand: the nearest bullet to the boss tells us (x ~0.9+ = just thrown)
+                                    val freshX = simState.activeTrackElements.filter { it.type == "bullet" && it.subType != "ECHO" }.maxOfOrNull { it.xOffsetFraction } ?: 0f
+                                    val throwP = if (freshX > 0.8f) ((0.97f - freshX) / 0.17f).coerceIn(0f, 1f) else 1f
+                                    drawKnightBoss(knightBody, knightWing, knightSword, bossX, bossYPx, bossDisplayHeight * 1.15f, fxClock.value, simState.tickIndex, simState.bossHealth, throwP)
+                                }
                             } else if (eliteB != null) {
                                 drawEliteBoss(eliteB, bossImg, bossX, bossYPx, simState.bossY, bossDisplayHeight, fxClock.value, simState.tickIndex, simState.bossHealth, cw, ch)
                             } else {
@@ -4889,6 +4943,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
 }
         StoryBannerHost(viewModel.storyEvent, Modifier.align(Alignment.BottomCenter))
         KnightIntroCard(simState.currentZoneNumber, simState.bossActive)
+        if (simState.activeGhost?.challengeId == "daily_hard_ghost" && simState.isStarted && !simState.isCompleted) com.neonrush.game.StormWindFx(simState.tickIndex)
 }
 }
  @Composable
@@ -5409,6 +5464,18 @@ fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
                     )
                 }
 
+                var musicVol by remember { mutableStateOf(NeonSoundEngine.getMusicVolumePercent().toFloat()) }
+                if (musicEnabled) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Music volume", color = Color.White.copy(alpha = 0.7f), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                        androidx.compose.material3.Slider(
+                            value = musicVol,
+                            onValueChange = { musicVol = it; NeonSoundEngine.setMusicVolumePercent(it.toInt()) },
+                            valueRange = 0f..100f,
+                            modifier = Modifier.weight(1f).padding(start = 10.dp)
+                        )
+                    }
+                }
                 FeelToggleRow("Vibration", viewModel.getHapticsEnabled()) { viewModel.setHapticsEnabled(it) }
                 FeelToggleRow("Screen shake on near-misses", NearMissFx.shakeOn) { viewModel.setNearMissShake(it) }
                 FeelToggleRow("Edge flash on near-misses", NearMissFx.flashOn) { viewModel.setNearMissFlash(it) }
