@@ -11,10 +11,11 @@ import kotlin.math.sqrt
  *   STORM  (330-359): lightning lanes. A warning band shows for 1.1 s, then the bolt strikes that lane. A calm 'eye' of ~5 s comes every ~25 s.
  *   PULSE  (360-389): the world runs on a beat. Obstacles arrive on the beat, and every 4th beat a "drop" of gems appears.
  *   ECHO RIVAL (boss, every 15th zone from 255): your own shadow hunts you, firing along the lanes you were in ~1.7 s ago.
+ *   DARK AGES (390-419): torch-lit castle night; the boss is the winged ember knight, who throws his burning sword (art: darkages_*.webp).
  *   BLACKOUT (420-479): the lights are out. You only see inside your lantern; every 30 ticks (~3.6 s) a sonar ping lights the whole screen for a moment. Faint blips mark what is out there.
  * No new art: everything is code-drawn / tinted (see ui/RealmFx.kt). The finale boss at 480 is not built yet.
  */
-enum class Realm { NONE, MIRROR, PULSE, GRAVITY, BLACKOUT, SHATTER, STORM }
+enum class Realm { NONE, MIRROR, PULSE, GRAVITY, BLACKOUT, SHATTER, STORM, DARK_AGES }
 
 object RealmRules {
     const val PULSE_BEAT = 6          // ticks per beat (~0.72 s)
@@ -28,6 +29,7 @@ object RealmRules {
         in 300..329 -> Realm.GRAVITY
         in 330..359 -> Realm.STORM
         in 360..389 -> Realm.PULSE
+        in 390..419 -> Realm.DARK_AGES
         in 420..479 -> Realm.BLACKOUT
         else -> Realm.NONE
     }
@@ -69,6 +71,9 @@ object RealmRules {
     private val hist = IntArray(64) { 50 }
     fun record(tick: Int, userY: Int) { hist[tick and 63] = userY }
     fun echoY(tick: Int): Int = hist[(tick - ECHO_DELAY) and 63].coerceIn(10, 90)
+
+    /** Dark Ages boss zones: the winged knight. (390 and 405 stay Echo Rival zones.) */
+    fun isKnightZone(zone: Int): Boolean = zone in 390..419 && zone % 5 == 0 && !isRivalZone(zone)
 
     fun isRivalZone(zone: Int): Boolean = zone in 255..480 && zone % 15 == 0
 
