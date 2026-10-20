@@ -24,6 +24,7 @@ object GameAnalytics {
     fun reviveUsed(kind: String, revivesSoFar: Int, cost: Int) =
         log("nr_revive", "kind" to kind, "n" to revivesSoFar, "cost" to cost)
 
+    fun eventClaimed(key: String, tier: Int) = log("nr_event_claim", "event" to key, "tier" to tier)
     fun languageSet(code: String) = log("nr_language_set", "code" to code)
     fun offerShown(id: String) = log("nr_offer_shown", "offer" to id)
     fun offerTapped(id: String) = log("nr_offer_tapped", "offer" to id)
