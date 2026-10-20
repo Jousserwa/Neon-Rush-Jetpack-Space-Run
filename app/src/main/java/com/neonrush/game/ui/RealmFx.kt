@@ -217,7 +217,8 @@ fun DrawScope.drawBlackoutRealm(cw: Float, ch: Float, t: Float, tick: Int, zone:
  * SHATTER: every obstacle tile of a glass wall is drawn as a pane of prism glass. The one gap glows with chevrons. Once a pane is
  * past the pilot it bursts into flying shards. Cracks spread across the screen the deeper you are in the realm.
  */
-fun DrawScope.drawShatterRealm(cw: Float, ch: Float, t: Float, tick: Int, zone: Int, pilot: Offset, elems: List<VisualTrackElement>) {
+fun DrawScope.drawShatterRealm(cw: Float, ch: Float, t: Float, tick: Int, zone: Int, pilot: Offset, elems: List<VisualTrackElement>,
+                               shards: androidx.compose.ui.graphics.ImageBitmap? = null, burst: androidx.compose.ui.graphics.ImageBitmap? = null) {
     val cyan = Color(0xFF7DF9FF)
     val mag = Color(0xFFFF4FD8)
     drawRect(Brush.horizontalGradient(listOf(cyan.copy(alpha = 0.10f), Color.Transparent, mag.copy(alpha = 0.10f))), size = Size(cw, ch), blendMode = BlendMode.Plus)
@@ -249,11 +250,28 @@ fun DrawScope.drawShatterRealm(cw: Float, ch: Float, t: Float, tick: Int, zone: 
         if (gone <= 0f) {
             val tl = Offset(x - tw / 2f, y - th / 2f)
             drawRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.30f), cyan.copy(alpha = 0.16f), mag.copy(alpha = 0.14f)), startY = tl.y, endY = tl.y + th), tl, Size(tw, th))
-            drawRect(cyan.copy(alpha = 0.85f), tl, Size(tw, th), style = Stroke(width = ch * 0.003f))
+            drawRect(cyan.copy(alpha = if (shards != null) 0.35f else 0.85f), tl, Size(tw, th), style = Stroke(width = ch * 0.003f))
+            if (shards != null) {
+                // crystal shard art: 6 cells in one atlas (128x256 each); deeper in the realm the shards are more cracked and jagged
+                val cell = (((zone - 270) / 6) + ((idx + gapC) % 3)).coerceIn(0, 5)
+                val sh = th * 1.12f
+                val sw = sh * 0.5f
+                drawImage(shards, srcOffset = androidx.compose.ui.unit.IntOffset(cell * 128, 0), srcSize = androidx.compose.ui.unit.IntSize(128, 256),
+                    dstOffset = androidx.compose.ui.unit.IntOffset((x - sw / 2f).toInt(), (y - sh / 2f).toInt()),
+                    dstSize = androidx.compose.ui.unit.IntSize(sw.toInt().coerceAtLeast(1), sh.toInt().coerceAtLeast(1)))
+            }
             drawRect(mag.copy(alpha = 0.45f), Offset(tl.x + ch * 0.003f, tl.y + ch * 0.003f), Size(tw, th), style = Stroke(width = ch * 0.0015f))
             val gl = ((t * 0.7f + fxRnd(idx, gapC)) % 1f)
             drawLine(Color.White.copy(alpha = 0.7f * (1f - gl)), Offset(tl.x, tl.y + th * gl), Offset(tl.x + tw, tl.y + th * (gl - 0.4f).coerceAtLeast(0f)), strokeWidth = ch * 0.002f)
         } else if (gone < 1f) {
+            if (burst != null && idx % 3 == 0) {
+                // the crack web flashes where the glass breaks
+                val bw = cw * 0.16f * (0.6f + gone)
+                val bh2 = bw / 2f
+                drawImage(burst, dstOffset = androidx.compose.ui.unit.IntOffset((x - bw / 2f).toInt(), (y - bh2 / 2f).toInt()),
+                    dstSize = androidx.compose.ui.unit.IntSize(bw.toInt().coerceAtLeast(1), bh2.toInt().coerceAtLeast(1)),
+                    alpha = (1f - gone) * 0.9f, blendMode = BlendMode.Plus)
+            }
             for (k in 0 until 5) {
                 val ang = (fxRnd(idx, k) * 6.283f)
                 val d = gone * ch * (0.06f + 0.16f * fxRnd(k, idx))
