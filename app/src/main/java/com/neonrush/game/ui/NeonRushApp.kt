@@ -3780,6 +3780,10 @@ val bossImagesByWorld = mapOf(
     7 to ImageBitmap.imageResource(id = R.drawable.boss_frozen_veil),
     8 to ImageBitmap.imageResource(id = R.drawable.boss_apex_signal)
 )
+// Dark Ages knight (zones 395-415): three small pictures, wing / body / sword
+val knightBody = ImageBitmap.imageResource(id = R.drawable.darkages_body)
+val knightWing = ImageBitmap.imageResource(id = R.drawable.darkages_wing)
+val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
     
     val textMeasurer = rememberTextMeasurer()
     var previousScoreForPopups by remember { mutableStateOf(simState.score) }
@@ -4469,7 +4473,8 @@ val bossImagesByWorld = mapOf(
         }
         val shotSize = when { elem.subType == "SNIPE" -> 1.35f; elem.subType == "CURT" -> 0.8f; elem.subType == "ECHO" -> 1.15f; elem.subType.startsWith("FAN") -> 0.9f; else -> 1f }
         withTransform({ rotate(aimDeg, Offset(x, y)) }) {
-            drawBossShot(if (elem.subType == "ECHO") 1 else (eliteShot?.base ?: (variant?.baseFamily ?: currentWorld.worldFamily)), x, y, ch, fxClock.value, elem.id.hashCode(), bulletImg, shotSize)
+            if (RealmRules.isKnightZone(simState.currentZoneNumber) && elem.subType != "ECHO") drawKnightSword(knightSword, x, y, ch, fxClock.value, shotSize)
+            else drawBossShot(if (elem.subType == "ECHO") 1 else (eliteShot?.base ?: (variant?.baseFamily ?: currentWorld.worldFamily)), x, y, ch, fxClock.value, elem.id.hashCode(), bulletImg, shotSize)
         }
     }
 } 
@@ -4597,6 +4602,8 @@ val bossImagesByWorld = mapOf(
                             val bossPos = Offset(bossX, bossYPx)
                             if (eliteB == null && RealmRules.isRivalZone(simState.currentZoneNumber)) {
                                 drawEchoRival(pilotFrames[(simState.tickIndex / 3) % pilotFrames.size], bossX, bossYPx, bossDisplayHeight * 0.8f, fxClock.value, simState.tickIndex, simState.bossHealth, ch)
+                            } else if (eliteB == null && RealmRules.isKnightZone(simState.currentZoneNumber)) {
+                                drawKnightBoss(knightBody, knightWing, knightSword, bossX, bossYPx, bossDisplayHeight * 1.15f, fxClock.value, simState.tickIndex, simState.bossHealth)
                             } else if (eliteB != null) {
                                 drawEliteBoss(eliteB, bossImg, bossX, bossYPx, simState.bossY, bossDisplayHeight, fxClock.value, simState.tickIndex, simState.bossHealth, cw, ch)
                             } else {
@@ -4847,6 +4854,7 @@ val bossImagesByWorld = mapOf(
 }
 }
         StoryBannerHost(viewModel.storyEvent, Modifier.align(Alignment.BottomCenter))
+        KnightIntroCard(simState.currentZoneNumber, simState.bossActive)
 }
 }
  @Composable
@@ -5380,7 +5388,7 @@ fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
             }
             if (showLab) ReactionLabDialog(onClose = { showLab = false })
             Text("\uD83E\uDDEA ZONE JUMP (testing)", color = Color(0xFFFFD54F), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            listOf(listOf(60, 100, 150, 200), listOf(240, 270, 300, 330), listOf(360, 420, 480, 500)).forEach { rowZones ->
+            listOf(listOf(60, 100, 150, 200), listOf(240, 270, 300, 330), listOf(360, 395, 420, 480)).forEach { rowZones ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                     rowZones.forEach { z ->
                         Button(
