@@ -297,7 +297,7 @@ class NeonRushViewModel(
     val socialComments: StateFlow<List<SocialComment>> = _socialComments.asStateFlow()
 
     val dailyChallengeTitle = "Methane Glitch Rush"
-    val dailyChallengeDesc = "Maximum wind resistance in Zone 3 with critical fuel cells! Finish above 200 points to score bonus gems."
+    val dailyChallengeDesc = "Storm winds shove your ship sideways and you start in Zone 3 on a nearly empty tank (35% fuel). Grab fuel cells and score 200+ to earn 55 bonus gems."
     val dailyChallengeGoal = 200
 
     private var simJob: Job? = null
@@ -1405,10 +1405,14 @@ fun freezeStreak() {
                 zoneReached = 3,
                 yPositionsCsv = ZoneGenerator.generateTelemetryCsv(350, 99)
             )
-            startRacingSimulation(hardGhost)
+            startRacingSimulation(hardGhost, null, 3)
             onComplete(true, newAttempts)
         }
     }
+
+    /** Daily Storm only: gusts that shove the pilot sideways; the player has to keep correcting. */
+    private fun stormWind(st: SimulationState, tick: Int): Int =
+        if (st.activeGhost?.challengeId == "daily_hard_ghost") StormWind.push(tick) else 0
 
     /** Which of the 8 world boss families this zone belongs to (special / New Game+ worlds map onto the same 8). */
     private fun worldFamilyFor(st: SimulationState, zone: Int): Int {
@@ -1568,7 +1572,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
         distanceMeters = startingDistance,
         ghostYPath = ZoneGenerator.parseTelemetry(ghost.yPositionsCsv),
         userYPath = parseTelemetryFromSimParameters(),
-        feedbackMessage = if (isFirstLucky) "LUCKY DRIFT ENGAGED (SLOWER SPEED, MORE POWERUPS)!" else "Synchronizing procedural light grid pathways...",
+        feedbackMessage = if (ghost.challengeId == "daily_hard_ghost") "STORM WINDS + LOW FUEL: grab fuel cells!" else if (isFirstLucky) "LUCKY DRIFT ENGAGED (SLOWER SPEED, MORE POWERUPS)!" else "Synchronizing procedural light grid pathways...",
+        fuelLevelPercent = if (ghost.challengeId == "daily_hard_ghost") 35 else 100,
         currentZoneNumber = startFromZone,
         zoneDNA = startupDna,
         activeTrackElements = emptyList(),
@@ -1779,7 +1784,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 val pullActive = state.activePowerupDurations.containsKey("PU2") || activeDna.mechanicIds.contains(4)
                 RealmRules.record(tick, userY)
                 val gravRes = RealmRules.gravityStep(nextZoneNumber, tick, speedInPx, userY)
-                val gravUserY = (userY + gravRes[0]).coerceIn(10, 90)
+                val gravUserY = (userY + gravRes[0] + stormWind(state, tick)).coerceIn(10, 90)
                 val stormRes = RealmRules.stormStep(nextZoneNumber, tick, userY, speedInPx, updatedElements)
                 EdgeGuard.step(tick, userY, updatedElements)
                 if (stormRes[1] == 1) soundEngine.playTone(70f, 260, "sawtooth")
@@ -2713,7 +2718,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 val pullActive = state.activePowerupDurations.containsKey("PU2") || activeDna.mechanicIds.contains(4)
                 RealmRules.record(tick, userY)
                 val gravRes = RealmRules.gravityStep(nextZoneNumber, tick, speedInPx, userY)
-                val gravUserY = (userY + gravRes[0]).coerceIn(10, 90)
+                val gravUserY = (userY + gravRes[0] + stormWind(state, tick)).coerceIn(10, 90)
                 val stormRes = RealmRules.stormStep(nextZoneNumber, tick, userY, speedInPx, updatedElements)
                 EdgeGuard.step(tick, userY, updatedElements)
                 if (stormRes[1] == 1) soundEngine.playTone(70f, 260, "sawtooth")
