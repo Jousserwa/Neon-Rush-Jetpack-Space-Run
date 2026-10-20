@@ -44,7 +44,7 @@ object DropNotifier {
 
     private fun pending(ctx: Context, e: DropEntry, flags: Int): PendingIntent? {
         val i = Intent(ctx, DropAlarmReceiver::class.java).setAction(ACTION_DROP)
-            .putExtra("id", e.hullId).putExtra("name", e.name).putExtra("emoji", e.emoji).putExtra("early", e.proEarly).putExtra("kind", e.kind)
+            .putExtra("id", e.hullId).putExtra("name", e.name).putExtra("emoji", e.emoji).putExtra("early", e.proEarly).putExtra("kind", e.kind).putExtra("id", e.hullId)
         return PendingIntent.getBroadcast(ctx, (e.kind + ":" + e.hullId).hashCode(), i, flags or PendingIntent.FLAG_IMMUTABLE)
     }
 
@@ -65,16 +65,16 @@ object DropNotifier {
         }
     }
 
-    fun clear(ctx: Context) { sync(ctx, emptyList(), "hull"); sync(ctx, emptyList(), "trail") }
+    private val KINDS = listOf("hull", "trail", "evnew", "evend", "crate", "comeback")
+    fun clear(ctx: Context) { KINDS.forEach { sync(ctx, emptyList(), it) } }
 
     /** Called from the receiver after boot: the alarms are gone, the saved list is not. */
     internal fun rearm(ctx: Context) {
         val all = loadEntries(ctx)
-        sync(ctx, all.filter { it.kind == "hull" }, "hull")
-        sync(ctx, all.filter { it.kind == "trail" }, "trail")
+        KINDS.forEach { k -> sync(ctx, all.filter { it.kind == k }, k) }
     }
 
-    internal fun show(ctx: Context, name: String, emoji: String, early: Boolean, kind: String = "hull") {
+    internal fun show(ctx: Context, name: String, emoji: String, early: Boolean, kind: String = "hull", id: String = "") {
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -85,11 +85,21 @@ object DropNotifier {
             ?.apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP }
         val tap = open?.let { PendingIntent.getActivity(ctx, (kind + name).hashCode(), it, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE) }
         val trail = kind == "trail"
-        val title = if (early) (if (trail) "⭐ Pro early access: $emoji $name trail" else "⭐ Pro early access: $emoji $name")
-                    else (if (trail) "✨ New trail: $emoji $name" else "🚀 New hull: $emoji $name")
-        val text = if (early) "It's yours to buy right now. Everyone else gets it in ${HullCatalog.EARLY_ACCESS_HOURS / 24} days."
-                   else if (trail) "Just dropped in Shop > Trails. Leave it behind you on your next run."
-                   else "Just dropped in the Hangar. Take it for an 8-second test flight."
+        val (title, text) = when (kind) {
+            "evnew" -> "$emoji New event: $name" to "Fresh goals and exclusive rewards. Fly now and earn your medal."
+            "evend" -> "⏳ $name ends tonight" to "Last chance to claim your event rewards."
+            "crate" -> "🎁 Your crate is ready" to "Open today's Daily Crate for shards and gems."
+            "comeback" -> if (id == "cb7") "$emoji Your pilot is waiting" to "A week away! Your crate and the live event rewards are still there."
+                          else "$emoji We saved your seat, pilot" to "A live event is running: $name. Fly one run to join in."
+            else -> {
+                val t = if (early) (if (trail) "⭐ Pro early access: $emoji $name trail" else "⭐ Pro early access: $emoji $name")
+                        else (if (trail) "✨ New trail: $emoji $name" else "🚀 New hull: $emoji $name")
+                val x = if (early) "It's yours to buy right now. Everyone else gets it in ${HullCatalog.EARLY_ACCESS_HOURS / 24} days."
+                        else if (trail) "Just dropped in Shop > Trails. Leave it behind you on your next run."
+                        else "Just dropped in the Hangar. Take it for an 8-second test flight."
+                t to x
+            }
+        }
         val n = NotificationCompat.Builder(ctx, CHANNEL_ID)
             .setSmallIcon(ctx.applicationInfo.icon)
             .setContentTitle(title).setContentText(text)
@@ -109,7 +119,8 @@ class DropAlarmReceiver : BroadcastReceiver() {
                 intent.getStringExtra("name").orEmpty(),
                 intent.getStringExtra("emoji").orEmpty(),
                 intent.getBooleanExtra("early", false),
-                intent.getStringExtra("kind") ?: "hull"
+                intent.getStringExtra("kind") ?: "hull",
+                intent.getStringExtra("id").orEmpty()
             )
         }
     }
