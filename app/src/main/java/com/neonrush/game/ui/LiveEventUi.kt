@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -73,10 +74,18 @@ fun LiveEventCard(onClaim: (Int) -> Unit, modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(
-                "${ev.emoji} ${ev.title}" + if (ev.holiday) "  • SEASON" else "  • WEEKLY",
-                color = accent, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, fontFamily = FontFamily.Monospace, maxLines = 1
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // the pilot cheers while a reward is waiting to be claimed
+                val rewardWaiting = ev.tiers.indices.any { s.progress >= ev.tiers[it].goal && ((s.claimed shr it) and 1) == 0 }
+                if (rewardWaiting) androidx.compose.foundation.Image(
+                    painter = androidx.compose.ui.graphics.painter.BitmapPainter(androidx.compose.ui.res.imageResource(id = com.neonrush.game.R.drawable.pilot_cheer)),
+                    contentDescription = null, modifier = Modifier.size(width = 32.dp, height = 48.dp)
+                )
+                Text(
+                    "${ev.emoji} ${ev.title}" + if (ev.holiday) "  • SEASON" else "  • WEEKLY",
+                    color = accent, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, fontFamily = FontFamily.Monospace, maxLines = 1
+                )
+            }
             Text("ends in $countdown", color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontFamily = FontFamily.Monospace, maxLines = 1)
         }
         Text(ev.blurb, color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
