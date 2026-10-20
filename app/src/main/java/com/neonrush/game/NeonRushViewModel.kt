@@ -781,6 +781,7 @@ fun reviveWithGems(isPro: Boolean) {
             }
         }
         if (didRevive) {
+            GameAnalytics.reviveUsed("gems", _simState.value.reviveCount + 1, cost)
             reviveSimulation(isPro)
         }
     }
@@ -1019,6 +1020,26 @@ fun freezeStreak() {
     }
 
     fun dismissCrateResult() { _crateResult.value = null }
+
+    /** Friends: publish this pilot's saved bests (all difficulties) so friends can see them. Called when the Friends dialog opens. */
+    fun syncSocial(name: String) {
+        viewModelScope.launch {
+            for (t in DifficultyTier.values()) {
+                val best = hangarStore.getLong("best_" + t.name).toInt()
+                if (best > 0) Social.publishScore(name, t.boardKey, best)
+            }
+        }
+    }
+
+    /** Live events: claim one reward tier. The tier is marked taken first (so a double tap pays once), then the gems are added. */
+    fun claimEventReward(tier: Int) {
+        val gems = LiveEvents.claim(tier)
+        if (gems <= 0) return
+        viewModelScope.launch {
+            gameDao.updateProfile { prof -> prof.copy(gems = prof.gems + gems) }
+            soundEngine.playUnlockSkin()
+        }
+    }
 
     fun purchaseUpgrade(upgradeId: String, isPro: Boolean) {
         viewModelScope.launch {
@@ -2276,6 +2297,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
    private suspend fun completeSimulationRun() {
         val finalState = _simState.value
         GameAnalytics.runEnd(finalState.currentZoneNumber, finalState.score, finalState.distanceMeters.toInt(), finalState.reviveCount)
+        LiveEvents.onRunEnd(finalState.currentZoneNumber, finalState.score, finalState.distanceMeters.toInt())
         _simState.value = finalState.copy(
             isCompleted = true,
             feedbackMessage = "Sync terminal drift halt. Run finalized!",
@@ -2495,6 +2517,15 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     val ps = proPerks.snapshot.value
                     FirebaseLeaderboardManager.submitScore(usernameForLeaderboard, finalState.score, activeSkinForLeaderboard,
                         ps.rank.name, ps.isLegend, tierKey = tier.boardKey)
+                    Social.publishScore(usernameForLeaderboard, tier.boardKey, finalState.score)
+                }
+            }
+            // friend challenge: did this run beat the friend's score the pilot was chasing?
+            if (!wasAssisted) {
+                val won = Social.judge(finalState.score, selectedDifficulty.boardKey)
+                if (won > 0) {
+                    gameDao.updateProfile { prof -> prof.copy(gems = prof.gems + won) }
+                    _simState.value = _simState.value.copy(feedbackMessage = "\u2694 Challenge won! +$won gems")
                 }
             }
         }
