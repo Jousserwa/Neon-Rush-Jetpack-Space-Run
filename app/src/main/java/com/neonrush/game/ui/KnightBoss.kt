@@ -112,21 +112,22 @@ fun DrawScope.drawKnightSword(sword: ImageBitmap, x: Float, y: Float, ch: Float,
  */
 @Composable
 fun KnightIntroCard(zone: Int, bossActive: Boolean, modifier: Modifier = Modifier) {
-    val knightZone = RealmRules.isKnightZone(zone)
-    var shownFor by remember { mutableStateOf(-1) }
+    val active = bossActive && RealmRules.isKnightZone(zone)
     val slide = remember { Animatable(1f) }
     val fade = remember { Animatable(0f) }
     val pic = ImageBitmap.imageResource(id = R.drawable.darkages_knight)
-    LaunchedEffect(bossActive, zone) {
-        if (bossActive && knightZone && shownFor != zone) {
-            shownFor = zone
+    // keyed ONLY on "a knight boss is on screen": the card plays once when that turns true and is wiped the moment it turns false.
+    // (Keying it on the zone as well let a mid-animation restart leave the card stuck on screen.)
+    LaunchedEffect(active) {
+        if (active) {
             slide.snapTo(1f); fade.snapTo(0f)
-            fade.animateTo(1f, tween(220))
-            slide.animateTo(0f, tween(520, easing = FastOutSlowInEasing))
-            delay(2100)
-            fade.animateTo(0f, tween(420))
+            fade.animateTo(1f, tween(200))
+            slide.animateTo(0f, tween(480, easing = FastOutSlowInEasing))
+            delay(1500)
+            fade.animateTo(0f, tween(350))
+        } else {
+            fade.snapTo(0f)
         }
-        if (!bossActive) shownFor = -1
     }
     if (fade.value <= 0.01f) return
     Box(modifier = modifier.fillMaxSize().alpha(fade.value)) {
@@ -139,7 +140,7 @@ fun KnightIntroCard(zone: Int, bossActive: Boolean, modifier: Modifier = Modifie
             contentDescription = null,
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .size(300.dp)
+                .size(210.dp)
                 .graphicsLayer { translationX = slide.value * size.width * 1.4f }
         )
         Column(modifier = Modifier.align(Alignment.CenterStart).padding(start = 22.dp)) {
