@@ -75,12 +75,14 @@ class NeonSoundEngine {
             synchronized(this) {
                 if (isInitialized) return
                 appContext = context
+                MusicBank.init(context)
                 sharedPrefs = appContext?.getSharedPreferences("neon_rush_settings", Context.MODE_PRIVATE)
                 
                 // Read configurations
                 soundEffectsEnabled = sharedPrefs?.getBoolean("sound_fx_enabled", true) ?: true
                 ambientEnabled = sharedPrefs?.getBoolean("ambient_enabled", true) ?: true
                 hapticsEnabled = sharedPrefs?.getBoolean("haptics_enabled", true) ?: true
+                MusicBank.musicVolume = (sharedPrefs?.getInt("music_volume", 60) ?: 60) / 100f
                 val volInt = sharedPrefs?.getInt("master_volume", 75) ?: 75
                 masterVolumeSetting = (volInt / 100f) * 0.8f // Maps to masterGain 0 - 0.8f
                 
@@ -182,7 +184,7 @@ class NeonSoundEngine {
             }
             
             // Render drone if active on homepage
-            if (isHomeScreenActive && ambientEnabled) {
+            if (isHomeScreenActive && ambientEnabled && !MusicBank.audible) {
                 renderHomeAmbient(left, right)
             }
             
@@ -220,6 +222,14 @@ class NeonSoundEngine {
                 
                 stereoInterleaved[2 * i] = l * outputMultiplier
                 stereoInterleaved[2 * i + 1] = r * outputMultiplier
+            }
+            
+            // Loop music (own volume; not affected by the score-driven adaptive gain)
+            val mL = FloatArray(BLOCK_SIZE); val mR = FloatArray(BLOCK_SIZE)
+            MusicBank.mix(mL, mR, BLOCK_SIZE, ambientEnabled, masterVolumeSetting / 0.8f)
+            for (i in 0 until BLOCK_SIZE) {
+                stereoInterleaved[2 * i] = (stereoInterleaved[2 * i] + mL[i] * 0.8f).coerceIn(-1f, 1f)
+                stereoInterleaved[2 * i + 1] = (stereoInterleaved[2 * i + 1] + mR[i] * 0.8f).coerceIn(-1f, 1f)
             }
             
             try {
@@ -314,6 +324,14 @@ class NeonSoundEngine {
         fun setHapticsEnabled(enabled: Boolean) {
             hapticsEnabled = enabled
             sharedPrefs?.edit()?.putBoolean("haptics_enabled", enabled)?.apply()
+        }
+
+        fun setMusicTrack(key: String?) = MusicBank.setTrack(key)
+        fun setMusicSuspended(v: Boolean) { MusicBank.suspended = v }
+        fun getMusicVolumePercent(): Int = (MusicBank.musicVolume * 100).toInt()
+        fun setMusicVolumePercent(p: Int) {
+            val c = p.coerceIn(0, 100); MusicBank.musicVolume = c / 100f
+            sharedPrefs?.edit()?.putInt("music_volume", c)?.apply()
         }
 
         fun getMasterVolumePercent(): Int {
