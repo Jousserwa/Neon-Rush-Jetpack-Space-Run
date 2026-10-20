@@ -6,6 +6,7 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.imageResource
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -78,7 +79,7 @@ fun LiveEventCard(onClaim: (Int) -> Unit, modifier: Modifier = Modifier) {
                 // the pilot cheers while a reward is waiting to be claimed
                 val rewardWaiting = ev.tiers.indices.any { s.progress >= ev.tiers[it].goal && ((s.claimed shr it) and 1) == 0 }
                 if (rewardWaiting) androidx.compose.foundation.Image(
-                    painter = androidx.compose.ui.graphics.painter.BitmapPainter(androidx.compose.ui.res.imageResource(id = com.neonrush.game.R.drawable.pilot_cheer)),
+                    painter = androidx.compose.ui.graphics.painter.BitmapPainter(androidx.compose.ui.graphics.ImageBitmap.imageResource(id = com.neonrush.game.R.drawable.pilot_cheer)),
                     contentDescription = null, modifier = Modifier.size(width = 32.dp, height = 48.dp)
                 )
                 Text(
