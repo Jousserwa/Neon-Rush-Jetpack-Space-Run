@@ -38,7 +38,7 @@ import kotlin.math.sin
 @Composable
 fun RealmBackdrop(zone: Int, distanceMeters: Float) {
     val realm = RealmRules.realmFor(zone)
-    val supported = realm == Realm.SHATTER || realm == Realm.STORM || realm == Realm.GRAVITY
+    val supported = realm == Realm.SHATTER || realm == Realm.STORM || realm == Realm.GRAVITY || realm == Realm.DARK_AGES
     var shown by remember { mutableStateOf(Realm.NONE) }
     if (supported) shown = realm
     val a by animateFloatAsState(if (supported) 1f else 0f, tween(1400), label = "realmBackdrop")
@@ -60,6 +60,7 @@ fun RealmBackdrop(zone: Int, distanceMeters: Float) {
             Realm.SHATTER -> rbShatter(cw, ch, t, s)
             Realm.STORM -> rbStorm(cw, ch, t, s)
             Realm.GRAVITY -> rbGravity(cw, ch, t, s)
+            Realm.DARK_AGES -> rbDarkAges(cw, ch, t, s)
             else -> {}
         }
     
@@ -239,4 +240,54 @@ private fun DrawScope.rbGravity(cw: Float, ch: Float, t: Float, s: Float) {
     drawCircle(Color.Black, radius = r, center = bh)
     drawCircle(Color(0xFFFFE0B2).copy(alpha = 0.8f), radius = r, center = bh, style = Stroke(width = ch * 0.0025f))
     drawRect(Color.Black.copy(alpha = 0.20f), size = Size(cw, ch))
+}
+
+// ------------------------------------------------------------------------------------------------------------ DARK AGES
+
+/** A burning night: blood-red moon, two ridges with castle towers and torch fires, embers rising everywhere. */
+private fun DrawScope.rbDarkAges(cw: Float, ch: Float, t: Float, s: Float) {
+    drawRect(Brush.verticalGradient(listOf(Color(0xFF0A0306), Color(0xFF2A0A0C), Color(0xFF5A1A06), Color(0xFF120403)), 0f, ch), size = Size(cw, ch))
+    val moon = Offset(cw * 0.30f, ch * 0.24f)
+    fxGlow(moon, ch * 0.55f, Color(0xFFFF3D00), 0.22f)
+    drawCircle(Color(0xFFFFB199).copy(alpha = 0.55f), radius = ch * 0.085f, center = moon)
+    drawCircle(Color(0xFF3A0D0D).copy(alpha = 0.35f), radius = ch * 0.03f, center = Offset(moon.x - ch * 0.02f, moon.y + ch * 0.01f))
+    // far ridge, then the castle line (towers with crenellations) on a nearer ridge
+    rbRidge(cw, ch, ch * 0.74f, ch * 0.06f, 0.006f, s * 0.20f, 1.3f, Color(0xFF2B0B0B), Color(0xFF0B0304))
+    val unit = cw * 0.34f
+    val first = Math.floor((s * 0.45f / unit).toDouble()).toInt() - 1
+    for (k in 0 until 5) {
+        val i = first + k
+        val x0 = i * unit - s * 0.45f
+        val h1 = ch * (0.22f + 0.16f * fxRnd(i, 41))
+        val w1 = unit * (0.16f + 0.08f * fxRnd(i, 42))
+        val base = ch * 0.86f
+        val tower = Path().apply {
+            moveTo(x0, base); lineTo(x0, base - h1)
+            val teeth = 4
+            for (q in 0 until teeth) {
+                val qx = x0 + w1 * q / teeth
+                lineTo(qx, base - h1 - ch * 0.018f); lineTo(qx + w1 / teeth * 0.5f, base - h1 - ch * 0.018f)
+                lineTo(qx + w1 / teeth * 0.5f, base - h1); lineTo(qx + w1 / teeth, base - h1)
+            }
+            lineTo(x0 + w1, base); close()
+        }
+        drawPath(tower, Color(0xFF080203))
+        // a torch window that flickers
+        val fl = 0.55f + 0.45f * sin(t * 9f + i * 2.3f) * sin(t * 5.1f + i)
+        val wx = x0 + w1 * 0.5f
+        val wy = base - h1 * 0.62f
+        fxGlow(Offset(wx, wy), ch * 0.07f, Color(0xFFFF9100), 0.55f * fl)
+        drawRect(Color(0xFFFFC46B).copy(alpha = 0.85f * fl), Offset(wx - w1 * 0.06f, wy - ch * 0.016f), Size(w1 * 0.12f, ch * 0.034f))
+    }
+    rbRidge(cw, ch, ch * 0.90f, ch * 0.035f, 0.010f, s * 0.75f, 4.1f, Color(0xFF1A0606), Color(0xFF040101))
+    // embers
+    for (k in 0 until 70) {
+        val depth = 0.2f + 0.8f * fxRnd(k, 51)
+        val span = cw * 1.2f
+        val x = wrap(fxRnd(k, 52) * span - s * 0.4f * depth + sin(t * 0.8f + k) * ch * 0.01f, span) - cw * 0.1f
+        val y = ch * (1.05f - wrap(t * (0.04f + 0.08f * depth) + fxRnd(k, 53), 1f) * 1.1f)
+        val tw = 0.5f + 0.5f * sin(t * 4f + k)
+        drawCircle(Color(0xFFFFA726).copy(alpha = (0.25f + 0.55f * depth) * tw), radius = ch * 0.0022f * (1f + depth), center = Offset(x, y))
+    }
+    drawRect(Color.Black.copy(alpha = 0.12f), size = Size(cw, ch))
 }
