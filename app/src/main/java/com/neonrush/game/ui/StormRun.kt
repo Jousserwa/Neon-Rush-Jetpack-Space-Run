@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
@@ -139,6 +140,7 @@ fun StormCardInfo() {
 
 private class Strike(val t0: Float, val x: Float, val w: Float) { var done = false; var cancelled = false; var hit = false }
 private class Cell(val t0: Float, val x: Float) { var got = false }
+private class Pop(val x: Float, val y: Float, val t0: Float, val text: String, val big: Boolean)
 
 private class Sim(seed: Int, val mode: StormMode, val cellsPerSecondBoost: Float = 1f) {
     val strikes = ArrayList<Strike>()
@@ -149,6 +151,7 @@ private class Sim(seed: Int, val mode: StormMode, val cellsPerSecondBoost: Float
     var score = 0; var combo = 1; var comboT = 0f
     var charge = 0f; var cellsGot = 0; var dodged = 0
     var flash = 0f; var shake = 0f; var wave = 0f
+    val pops = ArrayList<Pop>(); var lastPick = -9f; var lastHit = -9f
     var over = false; var eye = false; var finalBonus = 0
     val rng = Random(seed)
 
@@ -191,12 +194,15 @@ private class Sim(seed: Int, val mode: StormMode, val cellsPerSecondBoost: Float
         if (t < 0f) return
         flash = max(0f, flash - dt * 2.4f); shake = max(0f, shake - dt * 3f); wave = max(0f, wave - dt * 1.3f)
         invuln = max(0f, invuln - dt); immune = max(0f, immune - dt)
+        if (pops.size > 24) pops.removeAll { t - it.t0 > 1.0f }
         comboT -= dt; if (comboT <= 0f) combo = 1
         // wind (sum of two slow sines, different every mode), pushing both the finger target and the ship
         val wnd = (sin(t * 0.55f) * 0.8f + sin(t * 1.9f) * 0.3f) * mode.wind
         target = (target + wnd * dt).coerceIn(0.06f, 0.94f)
         if (mode.slip) { pvx += (target - px) * 9f * dt; pvx *= (1f - 2.2f * dt).coerceAtLeast(0f); px += pvx * dt * 1.0f; px = px.coerceIn(0.06f, 0.94f) }
-        else { px += (target - px) * min(1f, dt * 22f) }
+        else { // smooth, speed-limited follow: obedient, but you cannot teleport across the screen
+            val d = target - px; val stepMax = dt * 1.25f
+            px += (d * min(1f, dt * 11f)).coerceIn(-stepMax, stepMax) }
         if (t >= RUN_SECONDS) { eye = true; over = true; finalBonus = 100 + lives * 50; score += finalBonus; return }
         // strikes
         for (s in strikes) {
@@ -205,7 +211,7 @@ private class Sim(seed: Int, val mode: StormMode, val cellsPerSecondBoost: Float
             if (t >= live0 - 0.02f && immune > 0f) { s.cancelled = true; continue }
             if (t in live0..live1) {
                 if (!s.hit && invuln <= 0f && abs(px - s.x) < s.w * 0.5f + 0.03f) {
-                    s.hit = true; lives -= 1; invuln = 1.5f; flash = 1f; shake = 1f; combo = 1; onHit()
+                    s.hit = true; lives -= 1; invuln = 1.5f; flash = 1f; shake = 1f; combo = 1; lastHit = t; onHit()
                     if (lives <= 0) { over = true; return }
                 }
             }
@@ -219,8 +225,9 @@ private class Sim(seed: Int, val mode: StormMode, val cellsPerSecondBoost: Float
             if (c.got) continue
             val y = cellY(c)
             if (y < 0f || y > 1.1f) continue
-            if (y in 0.78f..0.92f && abs(c.x - px) < 0.085f) {
-                c.got = true; cellsGot += 1; score += 10 * mode.cellMult * combo; combo = min(combo + 1, 4); comboT = 2.2f
+            if (y in 0.68f..0.93f && abs(c.x - px) < 0.11f) {
+                val gain = 10 * mode.cellMult * combo
+                c.got = true; cellsGot += 1; score += gain; pops += Pop(c.x, y, t, "+$gain", combo >= 3); lastPick = t; combo = min(combo + 1, 4); comboT = 2.2f
                 charge = min(1f, charge + 0.12f); onCell()
             }
         }
@@ -269,6 +276,7 @@ private fun StormRunBody(
     val bolt = ImageBitmap.imageResource(id = R.drawable.storm_bolt)
     val warn = ImageBitmap.imageResource(id = R.drawable.storm_warn)
     val badge = ImageBitmap.imageResource(id = R.drawable.storm_badge)
+    val coin = ImageBitmap.imageResource(id = R.drawable.storm_coin)
     val runFrames = listOf(R.drawable.pilot_run_1, R.drawable.pilot_run_2, R.drawable.pilot_run_3, R.drawable.pilot_run_4, R.drawable.pilot_run_5, R.drawable.pilot_run_6)
         .map { ImageBitmap.imageResource(id = it) }
 
@@ -311,11 +319,11 @@ private fun StormRunBody(
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         Canvas(
             modifier = Modifier.fillMaxSize().pointerInput(runKey) {
-                detectDragGestures(onDrag = { ch, d -> ch.consume(); sim.target = (sim.target + d.x / size.width * 1.35f).coerceIn(0.06f, 0.94f) })
+                detectDragGestures(onDrag = { ch, d -> ch.consume(); sim.target = (sim.target + d.x / size.width * 0.85f).coerceIn(0.06f, 0.94f) })
             }
         ) {
             if (frame < 0L) return@Canvas
-            drawStorm(sim, mode, bg, bolt, warn, runFrames)
+            drawStorm(sim, mode, bg, bolt, warn, coin, runFrames)
         }
 
         // HUD
@@ -371,10 +379,10 @@ private fun StormRunBody(
                                     else msg = "Not enough gems"
                                 }
                             }.padding(horizontal = 26.dp, vertical = 12.dp))
-                    Text(AdMobManager.rewardedLabel(RewardedSlot.REVIVE, "\uD83C\uDFAC WATCH AD: SECOND WIND (FREE)"), color = Color.White, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 13.sp,
+                    Text(AdMobManager.rewardedLabel(RewardedSlot.STORM, "\uD83C\uDFAC WATCH AD: SECOND WIND (FREE)"), color = Color.White, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 13.sp,
                         modifier = Modifier.padding(top = 12.dp).clip(RoundedCornerShape(26.dp)).border(1.5.dp, Color(0xFF4CAF50), RoundedCornerShape(26.dp))
                             .clickable {
-                                activity?.let { a -> AdMobManager.showRewardedIfReady(a, RewardedSlot.REVIVE) { usedSecondWind = true; sim.lives = 2; sim.over = false; sim.invuln = 2.2f; sim.immune = 2.2f; phase = 0 } }
+                                activity?.let { a -> AdMobManager.showRewardedIfReady(a, RewardedSlot.STORM) { usedSecondWind = true; sim.lives = 2; sim.over = false; sim.invuln = 2.2f; sim.immune = 2.2f; phase = 0 } }
                             }.padding(horizontal = 22.dp, vertical = 10.dp))
                     Text("NO THANKS", color = Color.White.copy(alpha = 0.7f), fontFamily = FontFamily.Monospace, fontSize = 12.sp,
                         modifier = Modifier.padding(top = 16.dp).clickable { usedSecondWind = true; finish(sim, mode, isPro, onCreditGems) { result = it; phase = 2 } }.padding(10.dp))
@@ -407,9 +415,9 @@ private fun StormRunBody(
                     Text(if (res.gems > 0) "+${res.gems} 💎 EARNED" else "No new reward tier reached", color = if (res.gems > 0) GOLD else Color.White.copy(alpha = 0.6f), fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 18.sp, modifier = Modifier.padding(top = 12.dp))
                     Text("⚡ Storm streak ${res.streak}/7" + (if (res.streakBonus > 0) "  •  DAY 7 BONUS +${res.streakBonus}" else "  •  day 7 pays +$STREAK_BONUS gems"), color = VOLT, fontFamily = FontFamily.Monospace, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
                     if (res.gems > 0 && !doubled) {
-                        Text(AdMobManager.rewardedLabel(RewardedSlot.DOUBLE_GEMS, "\uD83C\uDFAC WATCH AD: DOUBLE TO +${res.gems * 2} \uD83D\uDC8E"), color = Color.Black, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 13.sp,
+                        Text(AdMobManager.rewardedLabel(RewardedSlot.STORM, "\uD83C\uDFAC WATCH AD: DOUBLE TO +${res.gems * 2} \uD83D\uDC8E"), color = Color.Black, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 13.sp,
                             modifier = Modifier.padding(top = 14.dp).clip(RoundedCornerShape(24.dp)).background(Color(0xFF4CAF50))
-                                .clickable { activity?.let { a -> AdMobManager.showRewardedIfReady(a, RewardedSlot.DOUBLE_GEMS) { doubled = true; onCreditGems(res.gems) } } }.padding(horizontal = 20.dp, vertical = 10.dp))
+                                .clickable { activity?.let { a -> AdMobManager.showRewardedIfReady(a, RewardedSlot.STORM) { doubled = true; onCreditGems(res.gems) } } }.padding(horizontal = 20.dp, vertical = 10.dp))
                     } else if (doubled) Text("DOUBLED! +${res.gems} \uD83D\uDC8E more", color = Color(0xFF69F0AE), fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
                     Row(modifier = Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("DONE", color = Color.White, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 14.sp,
@@ -419,10 +427,10 @@ private fun StormRunBody(
                                 .clickable(enabled = attemptsLeft > 0) { onRetry { ok -> if (ok) StormRunHost.runKey += 1 else msg = "No attempts left" } }.padding(horizontal = 22.dp, vertical = 12.dp))
                     }
                     if (attemptsLeft <= 0 && adLeft > 0) {
-                        Text(AdMobManager.rewardedLabel(RewardedSlot.DOUBLE_GEMS, "\uD83C\uDFAC WATCH AD: FREE ATTEMPT ($adLeft left today)"), color = Color.White, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 13.sp,
+                        Text(AdMobManager.rewardedLabel(RewardedSlot.STORM, "\uD83C\uDFAC WATCH AD: FREE ATTEMPT ($adLeft left today)"), color = Color.White, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 13.sp,
                             modifier = Modifier.padding(top = 12.dp).clip(RoundedCornerShape(24.dp)).border(1.5.dp, Color(0xFF4CAF50), RoundedCornerShape(24.dp))
                                 .clickable {
-                                    activity?.let { a -> AdMobManager.showRewardedIfReady(a, RewardedSlot.DOUBLE_GEMS) {
+                                    activity?.let { a -> AdMobManager.showRewardedIfReady(a, RewardedSlot.STORM) {
                                         onFreeAttempt { ok -> if (ok) { StormStore.useAdAttempt(); StormRunHost.runKey += 1 } else msg = "Could not start" }
                                     } }
                                 }.padding(horizontal = 20.dp, vertical = 10.dp))
@@ -455,22 +463,65 @@ private fun finish(sim: Sim, mode: StormMode, isPro: Boolean, credit: (Int) -> U
 
 // ------------------------------------------------------------------------------------------------------ drawing
 
-private fun DrawScope.drawStorm(sim: Sim, mode: StormMode, bg: ImageBitmap, bolt: ImageBitmap, warn: ImageBitmap, run: List<ImageBitmap>) {
+private fun hash01(n: Int): Float { var x = n * 374761393 + 668265263; x = (x xor (x ushr 13)) * 1274126177; x = x xor (x ushr 16); return (x and 0xFFFF) / 65535f }
+
+private fun DrawScope.drawStorm(sim: Sim, mode: StormMode, bg: ImageBitmap, bolt: ImageBitmap, warn: ImageBitmap, coin: ImageBitmap, run: List<ImageBitmap>) {
     val w = size.width; val h = size.height
     val t = sim.t
     val shx = sin(t * 90f) * sim.shake * 9f
+    val wnd = (sin(t * 0.55f) * 0.8f + sin(t * 1.9f) * 0.3f)
+    val wind01 = (wnd * mode.wind / 0.17f).coerceIn(-1f, 1f)          // -1..1, drives rain slant, fog and streaks
+    // sheet lightning in the clouds: a slow pseudo-random schedule, so the sky itself keeps flickering
+    val k = (t * 0.45f).toInt(); val fr = t * 0.45f - k
+    val ambOn = hash01(k + 11) < 0.55f
+    val amb = if (ambOn) (1f - fr).let { it * it * it } * (0.6f + 0.4f * sin(fr * 40f).coerceAtLeast(0f)) else 0f
     withTransform({ translate(shx, 0f) }) {
-        // background, cover-fit with a slow drift
         val sc = max(w / bg.width, h / bg.height) * 1.08f
         val dw = bg.width * sc; val dh = bg.height * sc
         val drift = sin(t * 0.3f) * w * 0.02f
         drawImage(bg, srcSize = IntSize(bg.width, bg.height), dstOffset = IntOffset(((w - dw) / 2f + drift).roundToInt(), ((h - dh) / 2f).roundToInt()), dstSize = IntSize(dw.roundToInt(), dh.roundToInt()))
-        // rain
-        for (i in 0 until 46) {
-            val fx = (i * 0.6180339f) % 1f
-            val fy = ((i * 0.37f) + t * (1.3f + (i % 4) * 0.25f)) % 1f
-            val x = fx * w - fy * h * 0.05f; val y = fy * h
-            drawLine(Color(0xFFBFEFFF).copy(alpha = 0.18f), Offset(x, y), Offset(x - w * 0.012f, y + h * 0.03f), strokeWidth = 1.6f)
+        if (amb > 0.02f) {
+            drawRect(Brush.verticalGradient(listOf(Color(0xFFB9C8FF).copy(alpha = 0.30f * amb), Color.Transparent), endY = h * 0.6f), blendMode = BlendMode.Plus)
+            // a distant forked bolt inside the clouds
+            val bx = (0.15f + 0.7f * hash01(k * 3 + 1)) * w
+            var px0 = bx; var py0 = h * 0.04f
+            for (seg in 0 until 9) {
+                val nx = px0 + (hash01(k * 31 + seg) - 0.5f) * w * 0.12f; val ny = py0 + h * 0.055f
+                drawLine(Color.White.copy(alpha = 0.55f * amb), Offset(px0, py0), Offset(nx, ny), strokeWidth = 3f, cap = StrokeCap.Round, blendMode = BlendMode.Plus)
+                drawLine(Color(0xFF9DB7FF).copy(alpha = 0.35f * amb), Offset(px0, py0), Offset(nx, ny), strokeWidth = 9f, cap = StrokeCap.Round, blendMode = BlendMode.Plus)
+                if (seg % 3 == 1) drawLine(Color.White.copy(alpha = 0.4f * amb), Offset(nx, ny), Offset(nx + (hash01(k + seg * 7) - 0.3f) * w * 0.18f, ny + h * 0.05f), strokeWidth = 2f, cap = StrokeCap.Round, blendMode = BlendMode.Plus)
+                px0 = nx; py0 = ny
+            }
+        }
+        // slow drifting mist near the rooftops
+        for (b in 0 until 3) {
+            val fx = ((t * (0.012f + b * 0.006f) * (if (b % 2 == 0) 1f else -1f) + b * 0.33f) % 1f + 1f) % 1f
+            val cy = h * (0.70f + b * 0.07f)
+            drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color(0xFFB8C6E8).copy(alpha = 0.10f), Color.Transparent), startX = (fx - 0.5f) * w * 2f, endX = (fx + 0.5f) * w * 2f),
+                topLeft = Offset(0f, cy), size = androidx.compose.ui.geometry.Size(w, h * 0.12f))
+        }
+        // rain in three depth layers, slanted by the wind
+        val slant = wind01 * 0.10f + 0.03f
+        for (layer in 0 until 3) {
+            val n = intArrayOf(34, 26, 18)[layer]
+            val spd = floatArrayOf(1.2f, 1.9f, 2.7f)[layer]
+            val len = floatArrayOf(0.022f, 0.036f, 0.055f)[layer]
+            val al = floatArrayOf(0.14f, 0.22f, 0.34f)[layer]
+            val sw = floatArrayOf(1.2f, 1.8f, 2.6f)[layer]
+            for (i in 0 until n) {
+                val fx = (hash01(i * 13 + layer * 101)) * 1.3f - 0.15f
+                val fy = ((hash01(i * 7 + layer * 53) + t * spd * (0.9f + 0.2f * hash01(i))) % 1f)
+                val x = (fx + fy * slant * 2f) * w; val y = fy * h
+                drawLine(Color(0xFFCFE6FF).copy(alpha = al), Offset(x, y), Offset(x - w * slant * len * 5f, y + h * len), strokeWidth = sw, cap = StrokeCap.Round)
+            }
+        }
+        // ripples on the wet roof
+        for (i in 0 until 9) {
+            val ph0 = (t * 1.3f + hash01(i * 5)) % 1f
+            val rx = (0.05f + 0.9f * hash01(i * 17 + (t * 1.3f + hash01(i * 5)).toInt())) * w
+            val ry = h * (0.915f + 0.05f * hash01(i * 3))
+            val rr = w * 0.035f * ph0
+            drawOval(Color(0xFFCFE6FF).copy(alpha = 0.35f * (1f - ph0)), topLeft = Offset(rx - rr, ry - rr * 0.3f), size = androidx.compose.ui.geometry.Size(rr * 2f, rr * 0.6f), style = Stroke(width = 1.6f))
         }
         if (mode.dark) drawRect(Color.Black.copy(alpha = 0.72f))
         // columns: warning, then the bolt
@@ -480,60 +531,103 @@ private fun DrawScope.drawStorm(sim: Sim, mode: StormMode, bg: ImageBitmap, bolt
             if (t < s.t0 || t > live1 + 0.15f) continue
             val cx = s.x * w
             if (t < live0) {
-                val k = ((t - s.t0) / WARN).coerceIn(0f, 1f)
-                val a = (0.25f + 0.65f * k) * (0.7f + 0.3f * sin(t * (10f + 14f * k)))
-                val ww = w * (s.w + 0.06f) * 1.9f
+                val kk = ((t - s.t0) / WARN).coerceIn(0f, 1f)
+                val a = (0.25f + 0.65f * kk) * (0.7f + 0.3f * sin(t * (10f + 14f * kk)))
+                val ww = w * (s.w + 0.04f) * 1.6f
                 drawImage(warn, srcSize = IntSize(warn.width, warn.height), dstOffset = IntOffset((cx - ww / 2f).roundToInt(), 0), dstSize = IntSize(ww.roundToInt(), h.roundToInt()), alpha = a.coerceIn(0f, 1f), blendMode = BlendMode.Plus)
-                // ground ring where it will land
-                drawCircle(GOLD.copy(alpha = 0.35f * k), radius = w * s.w * (0.45f + 0.5f * k), center = Offset(cx, h * 0.9f), style = Stroke(width = 3f))
+                drawCircle(GOLD.copy(alpha = 0.45f * kk), radius = w * s.w * (0.45f + 0.5f * kk), center = Offset(cx, h * 0.9f), style = Stroke(width = 3f))
             } else if (t <= live1) {
-                val ww = w * (s.w + 0.1f) * 2.6f
-                val a = 1f
-                drawImage(bolt, srcSize = IntSize(bolt.width, bolt.height), dstOffset = IntOffset((cx - ww / 2f).roundToInt(), 0), dstSize = IntSize(ww.roundToInt(), h.roundToInt()), alpha = a, blendMode = BlendMode.Plus)
-                drawImage(bolt, srcSize = IntSize(bolt.width, bolt.height), dstOffset = IntOffset((cx - ww * 0.3f).roundToInt(), 0), dstSize = IntSize((ww * 0.6f).roundToInt(), h.roundToInt()), alpha = 0.8f, blendMode = BlendMode.Plus)
+                val ww = w * (s.w + 0.05f) * 1.7f
+                drawImage(bolt, srcSize = IntSize(bolt.width, bolt.height), dstOffset = IntOffset((cx - ww / 2f).roundToInt(), 0), dstSize = IntSize(ww.roundToInt(), h.roundToInt()), alpha = 1f, blendMode = BlendMode.Plus)
                 drawCircle(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.9f), VOLT.copy(alpha = 0.4f), Color.Transparent), center = Offset(cx, h * 0.9f), radius = w * 0.2f), radius = w * 0.2f, center = Offset(cx, h * 0.9f), blendMode = BlendMode.Plus)
             }
         }
-        // storm cells
+        // storm coins: spinning medallions that bob and shed sparks as they fall
         for (c in sim.cells) {
             if (c.got) continue
             val y = sim.cellY(c)
-            if (y < -0.05f || y > 1.1f) continue
-            val cx = c.x * w; val cy = y * h
-            val r = w * 0.035f * (1f + 0.12f * sin(t * 8f + c.x * 20f))
-            drawCircle(Brush.radialGradient(listOf(GOLD.copy(alpha = 0.55f), Color.Transparent), center = Offset(cx, cy), radius = r * 3f), radius = r * 3f, center = Offset(cx, cy), blendMode = BlendMode.Plus)
-            drawCircle(VOLT, radius = r, center = Offset(cx, cy))
-            drawCircle(Color.White, radius = r * 0.45f, center = Offset(cx, cy))
-            drawCircle(GOLD, radius = r * 1.35f, center = Offset(cx, cy), style = Stroke(width = 2.5f))
+            if (y < -0.08f || y > 1.1f) continue
+            val sway = sin(t * 2.3f + c.x * 17f) * w * 0.012f
+            val cx = c.x * w + sway; val cy = y * h
+            val d = w * 0.12f
+            val spin = 0.30f + 0.70f * abs(kotlin.math.cos(t * 3.4f + c.x * 9f))
+            drawCircle(Brush.radialGradient(listOf(GOLD.copy(alpha = 0.50f), VOLT.copy(alpha = 0.18f), Color.Transparent), center = Offset(cx, cy), radius = d * 0.95f), radius = d * 0.95f, center = Offset(cx, cy), blendMode = BlendMode.Plus)
+            for (sp in 0 until 5) {   // little sparks trailing up behind the coin
+                val a = (t * 1.6f + sp * 0.2f) % 1f
+                drawCircle(GOLD.copy(alpha = 0.55f * (1f - a)), radius = 3.2f * (1f - a) + 1f, center = Offset(cx + sin(sp * 2.1f + t * 3f) * d * 0.35f, cy - d * 0.3f - a * d * 1.1f), blendMode = BlendMode.Plus)
+            }
+            val dw2 = d * spin
+            withTransform({ rotate(sin(t * 2.1f + c.x * 5f) * 9f, Offset(cx, cy)) }) {
+                drawImage(coin, srcSize = IntSize(coin.width, coin.height), dstOffset = IntOffset((cx - dw2 / 2f).roundToInt(), (cy - d / 2f).roundToInt()), dstSize = IntSize(dw2.roundToInt().coerceAtLeast(2), d.roundToInt()))
+            }
+            drawCircle(Color.White.copy(alpha = 0.4f * spin * spin), radius = d * 0.06f, center = Offset(cx - dw2 * 0.18f, cy - d * 0.22f), blendMode = BlendMode.Plus)
         }
-        // the pilot, running on the rooftop
-        val ph = h * 0.17f
+        // pick-up bursts: the coin pops, a ring and sparks fly out, the score floats up
+        val textPaint = android.graphics.Paint().apply { isAntiAlias = true; textAlign = android.graphics.Paint.Align.CENTER; typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD) }
+        for (p in sim.pops) {
+            val age = t - p.t0
+            if (age < 0f || age > 0.9f) continue
+            val cx = p.x * w; val cy = p.y * h
+            val u = (age / 0.45f).coerceIn(0f, 1f)
+            if (u < 1f) {
+                val d = w * 0.12f * (1f + 0.9f * u)
+                drawImage(coin, srcSize = IntSize(coin.width, coin.height), dstOffset = IntOffset((cx - d / 2f).roundToInt(), (cy - d / 2f).roundToInt()), dstSize = IntSize(d.roundToInt(), d.roundToInt()), alpha = 1f - u, blendMode = BlendMode.Plus)
+                drawCircle(GOLD.copy(alpha = 0.8f * (1f - u)), radius = w * (0.05f + 0.16f * u), center = Offset(cx, cy), style = Stroke(width = 6f * (1f - u) + 1f))
+                for (sp in 0 until 10) {
+                    val ang = sp * 0.6283f + p.x * 5f
+                    val rr = w * (0.04f + 0.17f * u)
+                    drawCircle((if (sp % 2 == 0) GOLD else Color.White).copy(alpha = 1f - u), radius = 4.5f * (1f - u) + 1f, center = Offset(cx + kotlin.math.cos(ang) * rr, cy + sin(ang) * rr), blendMode = BlendMode.Plus)
+                }
+            }
+            val rise = age * h * 0.10f
+            textPaint.textSize = w * (if (p.big) 0.075f else 0.06f)
+            textPaint.color = (if (p.big) 0xFFFFD166 else 0xFFFFFFFF).toInt()
+            textPaint.alpha = ((1f - age / 0.9f).coerceIn(0f, 1f) * 255).toInt()
+            drawContext.canvas.nativeCanvas.drawText(p.text, cx, cy - h * 0.06f - rise, textPaint)
+        }
+        // the pilot, running on the rooftop: bigger, and he reacts when he catches a coin
+        val sinceP = t - sim.lastPick
+        val pulse = (1f - sinceP / 0.4f).coerceIn(0f, 1f)
+        val ph = h * 0.235f * (1f + 0.14f * pulse)
         val frameIdx = ((t * 12f).toInt().coerceAtLeast(0)) % run.size
         val img = run[frameIdx]
         val pw = ph * img.width.toFloat() / img.height.toFloat()
-        val pcx = sim.px * w; val pcy = h * 0.80f
-        val moving = (sim.target - sim.px)
-        val faceLeft = sim.pvx < -0.02f || moving < -0.01f
+        val pcx = sim.px * w; val pcy = h * 0.79f - 0.02f * h * pulse
+        val faceLeft = sim.pvx < -0.02f || (sim.target - sim.px) < -0.004f
         val blink = sim.invuln > 0f && ((t * 14f).toInt() % 2 == 0)
+        if (pulse > 0f || sim.combo >= 2) {
+            val aura = max(pulse, if (sim.combo >= 2) 0.35f else 0f)
+            drawCircle(Brush.radialGradient(listOf(GOLD.copy(alpha = 0.55f * aura), Color.Transparent), center = Offset(pcx, pcy), radius = ph * 0.9f), radius = ph * 0.9f, center = Offset(pcx, pcy), blendMode = BlendMode.Plus)
+        }
         if (!blink) {
             withTransform({ if (faceLeft) scale(-1f, 1f, Offset(pcx, pcy)) }) {
                 drawImage(img, srcSize = IntSize(img.width, img.height), dstOffset = IntOffset((pcx - pw / 2f).roundToInt(), (pcy - ph / 2f).roundToInt()), dstSize = IntSize(pw.roundToInt(), ph.roundToInt()))
             }
+            if (pulse > 0f) {   // golden flash over the pilot
+                withTransform({ if (faceLeft) scale(-1f, 1f, Offset(pcx, pcy)) }) {
+                    drawImage(img, srcSize = IntSize(img.width, img.height), dstOffset = IntOffset((pcx - pw / 2f).roundToInt(), (pcy - ph / 2f).roundToInt()), dstSize = IntSize(pw.roundToInt(), ph.roundToInt()), alpha = 0.45f * pulse, blendMode = BlendMode.Plus)
+                }
+            }
+        }
+        if (pulse > 0f) {   // sparkles orbiting the pilot
+            for (sp in 0 until 6) {
+                val ang = sp * 1.0472f + t * 9f
+                val rr = ph * (0.45f + 0.35f * (1f - pulse))
+                drawCircle(GOLD.copy(alpha = pulse), radius = 4f + 3f * pulse, center = Offset(pcx + kotlin.math.cos(ang) * rr, pcy + sin(ang) * rr * 0.9f), blendMode = BlendMode.Plus)
+            }
         }
         if (sim.immune > 0f) {
-            drawCircle(VOLT.copy(alpha = 0.18f + 0.1f * sin(t * 18f)), radius = ph * 0.75f, center = Offset(pcx, pcy))
-            drawCircle(VOLT.copy(alpha = 0.8f), radius = ph * 0.75f, center = Offset(pcx, pcy), style = Stroke(width = 3f))
+            drawCircle(VOLT.copy(alpha = 0.18f + 0.1f * sin(t * 18f)), radius = ph * 0.72f, center = Offset(pcx, pcy))
+            drawCircle(VOLT.copy(alpha = 0.8f), radius = ph * 0.72f, center = Offset(pcx, pcy), style = Stroke(width = 3f))
         }
-        // discharge shockwave
         if (sim.wave > 0f) {
             val rr = w * (1.3f - sim.wave * 1.2f)
             drawCircle(VOLT.copy(alpha = sim.wave * 0.7f), radius = rr, center = Offset(pcx, pcy), style = Stroke(width = 12f * sim.wave + 2f))
         }
-        // wind streaks (sideways) and the gust chevrons
-        val wnd = (sin(t * 0.55f) * 0.8f + sin(t * 1.9f) * 0.3f)
-        val strength = (abs(wnd) * mode.wind / 0.17f).coerceIn(0f, 1f)
+        // gust streaks
+        val strength = abs(wind01)
         if (strength > 0.12f) {
-            val dir = if (wnd >= 0f) 1f else -1f
+            val dir = if (wind01 >= 0f) 1f else -1f
             for (i in 0 until 14) {
                 val fy = (i * 0.173f) % 1f * h * 0.8f + h * 0.05f
                 val fx = (((i * 0.37f) + t * (0.5f + (i % 3) * 0.2f) * dir * (0.4f + strength)) % 1f + 1f) % 1f
@@ -541,7 +635,6 @@ private fun DrawScope.drawStorm(sim: Sim, mode: StormMode, bg: ImageBitmap, bolt
             }
         }
         if (mode.dark) {
-            // a little light around the pilot so the player can still see their ship
             drawCircle(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.22f), Color.Transparent), center = Offset(pcx, pcy), radius = w * 0.3f), radius = w * 0.3f, center = Offset(pcx, pcy), blendMode = BlendMode.Plus)
         }
     }
