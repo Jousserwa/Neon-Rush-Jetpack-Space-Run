@@ -495,7 +495,7 @@ fun NeonRushApp(viewModel: NeonRushViewModel) {
     var showGhostSelection by remember { mutableStateOf(false) }
     val simState by viewModel.simState.collectAsState()
     val langCtx = androidx.compose.ui.platform.LocalContext.current
-    remember { Lang.init(langCtx); com.neonrush.game.RemoteTuning.start(); com.neonrush.game.LiveEvents.init(langCtx); com.neonrush.game.Social.init(langCtx); StormStore.init(langCtx); true }
+    remember { Lang.init(langCtx); com.neonrush.game.RemoteTuning.start(); com.neonrush.game.LiveEvents.init(langCtx); com.neonrush.game.Social.init(langCtx); StormStore.init(langCtx); DuelStore.init(langCtx); true }
 
     // ---- Music: menu / per-world loop / boss; silent on the game-over screen; pauses when the app is in the background
     val musicWorld by viewModel.currentWorld.collectAsState()
@@ -505,6 +505,7 @@ fun NeonRushApp(viewModel: NeonRushViewModel) {
     }
     val musicKey: String? = when {
         StormRunHost.open -> "r_storm"
+        GhostDuelHost.open -> "r_pulse"
         !simState.isStarted -> "menu"
         simState.isCompleted -> null
         simState.bossActive -> "boss"
@@ -534,6 +535,9 @@ fun NeonRushApp(viewModel: NeonRushViewModel) {
     val isPro by RevenueCatManager.isPro.collectAsState()
     LaunchedEffect(isPro, currentProfile.adsRemoved) {
         AdMobManager.setAdState(isPro, currentProfile.adsRemoved)
+    }
+    if (GhostDuelHost.open) {
+        GhostDuelScreen(isPro = isPro, onCreditGems = { viewModel.creditStormGems(it) }, onExit = { GhostDuelHost.open = false })
     }
     // STORM RUN: the daily mini-game, a full-screen layer above everything
     if (StormRunHost.open) {
@@ -1244,150 +1248,8 @@ fun LeaderboardsTab(viewModel: NeonRushViewModel, playerProfile: GameProfile) {
 
 @Composable
 fun GhostRacerTab(viewModel: NeonRushViewModel, onBack: () -> Unit, onRequireTutorial: (() -> Unit) -> Unit = { it() }) {
-    var selectedPlayerId by remember { mutableStateOf("ghost_cyberrunner") }
-
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(bottom = 12.dp)
-        ) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.ArrowBack,
-                    contentDescription = "Back to home dashboard",
-                    tint = CyberPrimary,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "👾 INVICIBLE RACE",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                color = CyberPrimary,
-                fontFamily = FontFamily.Monospace
-            )
-        }
-
-        Text(
-            text = "Race against the exact flight paths recorded by top pilots. Slide to match their offsets in the light stream.",
-            color = CyberOnSurface.copy(alpha = 0.7f),
-            fontSize = 12.sp,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
-
-        Text(
-            text = "Select Competitor Ghost:",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color.White,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
-
-        val competitors = listOf(
-            Pair("ghost_retro", "RetroWave (240 pts)"),
-            Pair("ghost_zeroglitch", "ZeroGlitch (480 pts)"),
-            Pair("ghost_cyberrunner", "CyberRunner (850 pts)")
-        )
-
-        competitors.forEach { comp ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (selectedPlayerId == comp.first) CyberPrimary.copy(alpha = 0.15f) else CyberSurface)
-                    .border(
-                        1.dp,
-                        if (selectedPlayerId == comp.first) CyberPrimary else Color.Transparent,
-                        RoundedCornerShape(8.dp)
-                    )
-                    .clickable { selectedPlayerId = comp.first }
-                    .padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                RadioButton(
-                    selected = selectedPlayerId == comp.first,
-                    onClick = { selectedPlayerId = comp.first },
-                    colors = RadioButtonDefaults.colors(selectedColor = CyberPrimary)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text(
-                        text = comp.second,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = "Click to select neural race path telemetry data stream.",
-                        fontSize = 10.sp,
-                        color = CyberOnSurface.copy(alpha = 0.5f)
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Button(
-            onClick = {
-                val selectedGhost = when (selectedPlayerId) {
-                    "ghost_retro" -> com.neonrush.game.db.GhostChallengeEntity("ghost_retro", "RetroWave", 240, 2, ZoneGenerator.generateTelemetryCsv(240, 42))
-                    "ghost_zeroglitch" -> com.neonrush.game.db.GhostChallengeEntity("ghost_zeroglitch", "ZeroGlitch", 480, 3, ZoneGenerator.generateTelemetryCsv(480, 84))
-                    else -> com.neonrush.game.db.GhostChallengeEntity("ghost_cyberrunner", "CyberRunner", 850, 4, ZoneGenerator.generateTelemetryCsv(850, 111))
-                }
-                onRequireTutorial { viewModel.startRacingSimulation(selectedGhost) }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .testTag("sync_ghosts_button")
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = "Launch", tint = CyberBackground)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "▶ START RUSH",
-                    color = CyberBackground,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        
-
-        // Ghost Hull Spotlight: each rival "flies" a premium hull the player can preview / buy.
-        run {
-            val hs by viewModel.hangar.ui.collectAsState()
-            val spotAct = LocalContext.current.findActivity()
-            val spotActions = remember(spotAct) { viewModel.hangar.actions { spotAct } }
-            val sold = HullCatalog.SOLD
-            val spotHull = sold.getOrNull(when (selectedPlayerId) { "ghost_retro" -> 0; "ghost_zeroglitch" -> 4; else -> 7 } % sold.size.coerceAtLeast(1))
-            val spotName = when (selectedPlayerId) { "ghost_retro" -> "RetroWave"; "ghost_zeroglitch" -> "ZeroGlitch"; else -> "CyberRunner" }
-            val st = hs
-            if (st != null && spotHull != null) {
-                Spacer(modifier = Modifier.height(12.dp))
-                GhostHullSpotlight(
-                    ghostName = spotName,
-                    hull = spotHull,
-                    owned = spotHull.id in st.ownedHullIds,
-                    priceLabel = st.storePrices[spotHull.productId] ?: spotHull.tier?.fallbackPrice ?: "",
-                    canBuy = HullCatalog.canBuyNow(st.isPro, st.releaseAtMs[spotHull.id] ?: 0L, st.serverNowMs),
-                    onBuy = { spotActions.onBuy(spotHull) }
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-Spacer(modifier = Modifier.height(8.dp))
-    }
+    // GHOST DUEL: the old "pick a ghost, play the normal game" screen became a real head-to-head mode (see GhostDuel.kt)
+    GhostDuelLobby(onBack = onBack)
 }
 @Composable
 fun SpecialModeTab(profile: GameProfile, viewModel: NeonRushViewModel, onStartSpecialMode: (Int) -> Unit) {
@@ -1846,7 +1708,7 @@ fun ArcadeHomeView(
                         Text("👻", fontSize = 16.sp, modifier = Modifier.padding(end = 8.dp))
                         Column(verticalArrangement = Arrangement.Center) {
                             Text(
-                                text = "INVICIBLE RACE",
+                                text = "GHOST DUEL",
                                 color = CyberSecondary,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 10.sp,
