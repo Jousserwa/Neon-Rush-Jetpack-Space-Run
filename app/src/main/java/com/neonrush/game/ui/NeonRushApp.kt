@@ -495,15 +495,30 @@ fun NeonRushApp(viewModel: NeonRushViewModel) {
     var showGhostSelection by remember { mutableStateOf(false) }
     val simState by viewModel.simState.collectAsState()
     val langCtx = androidx.compose.ui.platform.LocalContext.current
-    remember { Lang.init(langCtx); com.neonrush.game.RemoteTuning.start(); com.neonrush.game.LiveEvents.init(langCtx); com.neonrush.game.Social.init(langCtx); true }
+    remember { Lang.init(langCtx); com.neonrush.game.RemoteTuning.start(); com.neonrush.game.LiveEvents.init(langCtx); com.neonrush.game.Social.init(langCtx); StormStore.init(langCtx); true }
 
     // ---- Music: menu / per-world loop / boss; silent on the game-over screen; pauses when the app is in the background
     val musicWorld by viewModel.currentWorld.collectAsState()
+    val musicPro by RevenueCatManager.isPro.collectAsState()
+    val musicVariantFamily: Int? = remember(musicWorld.id, simState.currentZoneNumber, musicPro) {
+        WorldVariants.variantFor(musicWorld, simState.currentZoneNumber, isPro = musicPro || TESTING_DISABLE_PRO_GATE)?.baseFamily
+    }
     val musicKey: String? = when {
+        StormRunHost.open -> "r_storm"
         !simState.isStarted -> "menu"
         simState.isCompleted -> null
         simState.bossActive -> "boss"
-        else -> "w" + musicWorld.worldFamily.coerceIn(1, 8)
+        else -> when (com.neonrush.game.RealmRules.realmFor(simState.currentZoneNumber)) {
+            // each realm has its own piece; in the normal worlds the music follows the world you SEE (rift looks borrow another world's family)
+            com.neonrush.game.Realm.MIRROR -> "r_mirror"
+            com.neonrush.game.Realm.SHATTER -> "r_shatter"
+            com.neonrush.game.Realm.GRAVITY -> "r_gravity"
+            com.neonrush.game.Realm.STORM -> "r_storm"
+            com.neonrush.game.Realm.PULSE -> "r_pulse"
+            com.neonrush.game.Realm.DARK_AGES -> "r_darkages"
+            com.neonrush.game.Realm.BLACKOUT -> "r_blackout"
+            else -> "w" + (musicVariantFamily ?: musicWorld.worldFamily).coerceIn(1, 8)
+        }
     }
     LaunchedEffect(musicKey) { NeonSoundEngine.setMusicTrack(musicKey) }
     val musicOwner = langCtx as? androidx.lifecycle.LifecycleOwner
@@ -519,6 +534,21 @@ fun NeonRushApp(viewModel: NeonRushViewModel) {
     val isPro by RevenueCatManager.isPro.collectAsState()
     LaunchedEffect(isPro, currentProfile.adsRemoved) {
         AdMobManager.setAdState(isPro, currentProfile.adsRemoved)
+    }
+    // STORM RUN: the daily mini-game, a full-screen layer above everything
+    if (StormRunHost.open) {
+        val stormToday = remember { java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.getDefault()).format(java.util.Date()) }
+        val stormUsed = if (currentProfile.lastDailyRushDate == stormToday) currentProfile.dailyAttemptsToday else 0
+        StormRunScreen(
+            gems = currentProfile.gems,
+            attemptsLeft = (viewModel.stormDailyMax() - stormUsed).coerceAtLeast(0),
+            isPro = isPro,
+            onSpendGems = { n, cb -> viewModel.spendStormGems(n, cb) },
+            onCreditGems = { viewModel.creditStormGems(it) },
+            onRetry = { cb -> viewModel.consumeStormAttempt(cb) },
+            onFreeAttempt = { cb -> viewModel.grantAndConsumeStormAttempt(cb) },
+            onExit = { StormRunHost.open = false }
+        )
     }
     LaunchedEffect(simState.isStarted, simState.isCompleted) {
         AdMobManager.refresh()
@@ -2384,7 +2414,7 @@ fun DailyChallengeTab(viewModel: NeonRushViewModel, profile: GameProfile) {
                     }
 
                     Text(
-                        text = "Attempts Used: ${profile.dailyAttemptsToday}/3",
+                        text = "Attempts Used: ${if (profile.lastDailyRushDate == java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.getDefault()).format(java.util.Date())) profile.dailyAttemptsToday else 0}/${viewModel.stormDailyMax()}",
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         color = CyberPrimary
@@ -2408,15 +2438,16 @@ fun DailyChallengeTab(viewModel: NeonRushViewModel, profile: GameProfile) {
                     fontSize = 13.sp,
                     color = CyberOnSurface.copy(alpha = 0.8f)
                 )
+                StormCardInfo()
 
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Button(
+    enabled = StormStore.unlocked(profile.totalRuns) || TESTING_DISABLE_PRO_GATE,
     onClick = {
-        viewModel.runDailyRushChallenge { success, attempt ->
-            if (!success) {
-                alertMsg = "Maximum of 3 Daily Rush attempts reached. Buy an extra attempt below, or wait till tomorrow!"
-            }
+        viewModel.consumeStormAttempt { success ->
+            if (success) { StormRunHost.runKey += 1; StormRunHost.open = true; alertMsg = "" }
+            else alertMsg = "All of today's Storm attempts are used. Buy an extra one below, or come back tomorrow!"
         }
     },
                     colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary),
@@ -2426,7 +2457,7 @@ fun DailyChallengeTab(viewModel: NeonRushViewModel, profile: GameProfile) {
                         .testTag("daily_rush_button")
                 ) {
                     Text(
-                        text = "LAUNCH DAILY STORM ATTEMPT",
+                        text = if (StormStore.unlocked(profile.totalRuns) || TESTING_DISABLE_PRO_GATE) "\u26A1 ENTER THE STORM" else "\uD83D\uDD12 UNLOCKS TOMORROW (or after ${StormStore.UNLOCK_RUNS} runs: ${profile.totalRuns.coerceAtMost(StormStore.UNLOCK_RUNS)}/${StormStore.UNLOCK_RUNS})",
                         color = Color.White,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
@@ -2443,7 +2474,7 @@ fun DailyChallengeTab(viewModel: NeonRushViewModel, profile: GameProfile) {
     )
 }
 
-if (profile.dailyAttemptsToday >= 3) {
+if ((if (profile.lastDailyRushDate == java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.getDefault()).format(java.util.Date())) profile.dailyAttemptsToday else 0) >= viewModel.stormDailyMax()) {
     Spacer(modifier = Modifier.height(8.dp))
     Button(
         onClick = { viewModel.buyExtraAttempt() },
