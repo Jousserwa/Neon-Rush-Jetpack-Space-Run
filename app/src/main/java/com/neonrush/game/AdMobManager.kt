@@ -34,11 +34,13 @@ import java.util.TimeZone
  *  REVIVE       NeonRush_Rewarded_Revive      (game-over "watch ad to revive")
  *  DOUBLE_GEMS  NeonRush_Rewarded_DoubleGems  (game-over double gems + in-run sector bonus)
  *  DAILY_CRATE  Daily Crate Rewarded Ad       (daily crate)
+ *  STORM        Storm Run Rewarded Ad         (second wind, double reward, free attempt)
  */
 enum class RewardedSlot(val unitId: String, val analyticsName: String) {
     REVIVE("ca-app-pub-3841327492203214/4182218315", "revive"),
     DOUBLE_GEMS("ca-app-pub-3841327492203214/8797213140", "double_gems"),
-    DAILY_CRATE("ca-app-pub-3841327492203214/6016158632", "daily_crate")
+    DAILY_CRATE("ca-app-pub-3841327492203214/6016158632", "daily_crate"),
+    STORM("ca-app-pub-3841327492203214/8328000355", "storm")
 }
 
 /**
@@ -82,6 +84,7 @@ object AdMobManager {
         RewardedSlot.REVIVE -> 9          // 3 runs x 3 revives
         RewardedSlot.DOUBLE_GEMS -> 6
         RewardedSlot.DAILY_CRATE -> 2
+        RewardedSlot.STORM -> 6           // second wind + double reward + free attempt
     }
 
     private const val PREFS = "neon_ad_prefs"
