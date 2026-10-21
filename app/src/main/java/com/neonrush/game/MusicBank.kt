@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Loop music: tiny .ogg files in res/raw are decoded once to PCM and mixed (with crossfades)
- * into the game's own audio stream by NeonSoundEngine. Keys: "menu", "w1".."w8", "boss".
+ * into the game's own audio stream by NeonSoundEngine. Keys: "menu", "w1".."w8", "boss", and one per realm ("r_mirror", "r_shatter", "r_gravity", "r_storm", "r_pulse", "r_darkages", "r_blackout").
  */
 object MusicBank {
     private const val TAG = "MusicBank"
@@ -36,6 +36,13 @@ object MusicBank {
         "w7" -> R.raw.music_w7
         "w8" -> R.raw.music_w8
         "boss" -> R.raw.music_boss
+        "r_mirror" -> R.raw.music_r_mirror
+        "r_shatter" -> R.raw.music_r_shatter
+        "r_gravity" -> R.raw.music_r_gravity
+        "r_storm" -> R.raw.music_r_storm
+        "r_pulse" -> R.raw.music_r_pulse
+        "r_darkages" -> R.raw.music_r_darkages
+        "r_blackout" -> R.raw.music_r_blackout
         else -> 0
     }
 
