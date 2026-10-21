@@ -296,8 +296,8 @@ class NeonRushViewModel(
     private val _socialComments = MutableStateFlow<List<SocialComment>>(emptyList())
     val socialComments: StateFlow<List<SocialComment>> = _socialComments.asStateFlow()
 
-    val dailyChallengeTitle = "Methane Glitch Rush"
-    val dailyChallengeDesc = "Storm winds shove your ship sideways and you start in Zone 3 on a nearly empty tank (35% fuel). Grab fuel cells and score 200+ to earn 55 bonus gems."
+    val dailyChallengeTitle = "Storm Run"
+    val dailyChallengeDesc = "90 seconds in the heart of the storm. Dodge the lightning columns, grab storm cells, fight the wind. One course for every pilot today; climb the reward ladder and keep your streak alive."
     val dailyChallengeGoal = 200
 
     private var simJob: Job? = null
@@ -1375,6 +1375,47 @@ fun freezeStreak() {
                 soundEngine.playTone(880f, 500, "sawtooth")
                 loadDefaultLeaderboard()
             }
+        }
+    }
+
+    /** Storm Run: how many attempts a day this player gets (Pro gets 2 extra). */
+    fun stormDailyMax(): Int = if (RevenueCatManager.isPro.value) 5 else 3
+
+    /** Uses one Storm Run attempt (no sim is started; the Storm Run screen is its own mini-game). */
+    fun consumeStormAttempt(onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            var ok = false
+            val max = stormDailyMax()
+            gameDao.updateProfile { prof ->
+                val todayDate = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date())
+                val attempts = if (prof.lastDailyRushDate == todayDate) prof.dailyAttemptsToday else 0
+                if (attempts >= max) prof else { ok = true; prof.copy(dailyAttemptsToday = attempts + 1, lastDailyRushDate = todayDate) }
+            }
+            onResult(ok)
+        }
+    }
+
+    /** A rewarded ad earned one more Storm Run attempt: give one back, then spend it immediately on the new run. */
+    fun grantAndConsumeStormAttempt(onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            gameDao.updateProfile { prof ->
+                val todayDate = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date())
+                if (prof.lastDailyRushDate == todayDate) prof.copy(dailyAttemptsToday = (prof.dailyAttemptsToday - 1).coerceAtLeast(0)) else prof
+            }
+            consumeStormAttempt(onResult)
+        }
+    }
+
+    fun creditStormGems(n: Int) {
+        if (n <= 0) return
+        viewModelScope.launch { gameDao.updateProfile { p -> p.copy(gems = p.gems + n, totalGemsEarned = p.totalGemsEarned + n) } }
+    }
+
+    fun spendStormGems(n: Int, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            var ok = false
+            gameDao.updateProfile { p -> if (p.gems >= n) { ok = true; p.copy(gems = p.gems - n) } else p }
+            onResult(ok)
         }
     }
 
