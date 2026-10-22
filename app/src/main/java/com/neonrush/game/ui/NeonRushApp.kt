@@ -2746,9 +2746,10 @@ fun DailyCrateDialog(profile: GameProfile, isPro: Boolean, viewModel: NeonRushVi
                     )
                 }
             } else {
-                Text(
-                    "🎉", fontSize = 64.sp,
-                    modifier = Modifier.graphicsLayer(scaleX = reveal.value, scaleY = reveal.value)
+                Image(
+                    painter = androidx.compose.ui.graphics.painter.BitmapPainter(ImageBitmap.imageResource(id = R.drawable.pilot_thumb)),
+                    contentDescription = null,
+                    modifier = Modifier.size(width = 96.dp, height = 144.dp).graphicsLayer(scaleX = reveal.value, scaleY = reveal.value)
                 )
                 if (res.isStreakBonus) {
                     Text(res.message ?: "", color = gold, fontWeight = FontWeight.Black, fontSize = 14.sp, textAlign = TextAlign.Center)
@@ -4994,6 +4995,11 @@ fun GameOverOverlayScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(top = 8.dp, bottom = 110.dp)
             ) {
+                Image(
+                    painter = androidx.compose.ui.graphics.painter.BitmapPainter(ImageBitmap.imageResource(id = if (simState.score > 0 && simState.score >= profile.bestScore) R.drawable.pilot_thumb else R.drawable.pilot_sad)),
+                    contentDescription = null,
+                    modifier = Modifier.size(width = 84.dp, height = 126.dp)
+                )
                 Text(
                     text = "GAME OVER",
                     fontSize = 28.sp,
@@ -5461,6 +5467,7 @@ private fun TutorialCard(
     icon: String,
     title: String,
     accent: Color = CyberPrimary,
+    pose: Pose? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Card(
@@ -5484,6 +5491,7 @@ private fun TutorialCard(
                     color = accent,
                     fontFamily = FontFamily.Monospace
                 )
+                if (pose != null) { Spacer(modifier = Modifier.weight(1f)); PilotPose(pose, 52.dp) }
             }
             content()
         }
@@ -5733,7 +5741,7 @@ fun TutorialScreen(onBack: () -> Unit) {
                     }
                 }
 
-                TutorialCard("🎮", "THE BASICS") {
+                TutorialCard("🎮", "THE BASICS", pose = Pose.CHEER) {
                     TutorialBullet("Drag up or down anywhere on the screen to steer. Your pilot flies forward on its own.")
                     TutorialBullet("Survive as long as you can — distance, zones cleared and score all grow the further you fly.")
                     TutorialIconRow(
@@ -5750,7 +5758,7 @@ fun TutorialScreen(onBack: () -> Unit) {
                     )
                 }
 
-                TutorialCard("⛽", "FUEL & REFUELING", accent = Color(0xFFFF9800)) {
+                TutorialCard("⛽", "FUEL & REFUELING", accent = Color(0xFFFF9800), pose = Pose.SAD) {
                     TutorialBullet("The fuel bar at the bottom of the screen shows your tank. It drains as you fly.")
                     TutorialBullet("TAP THE FUEL BAR to refuel. It is a button: each tap spends gems and refills your tank.")
                     TutorialBullet("The bar text shows your fuel %, the gem cost (TAP: 20💎) and how many refuels you have left.")
@@ -5771,7 +5779,7 @@ fun TutorialScreen(onBack: () -> Unit) {
                     TutorialBullet("Once you own one, every run starts with a \"CURRENT LONGEVITY\" reminder.")
                 }
 
-                TutorialCard("💔", "REVIVES", accent = Color(0xFFFF5252)) {
+                TutorialCard("💔", "REVIVES", accent = Color(0xFFFF5252), pose = Pose.DIZZY) {
                     TutorialBullet("When your run ends you can revive with gems or by watching a short ad and keep flying from where you fell.")
                     TutorialBullet("Free players get up to 3 revives per run. After that it's game over and your run is saved to your profile.")
                     TutorialBullet("Every revive also wraps your pilot in a fresh shield (see PILOT SHIELD below).")
@@ -5795,7 +5803,7 @@ fun TutorialScreen(onBack: () -> Unit) {
                     TutorialBullet("Each difficulty has its own leaderboard and its own personal best.")
                 }
 
-                TutorialCard("💨", "CLOSE CALLS", accent = Color(0xFF00E5FF)) {
+                TutorialCard("💨", "CLOSE CALLS", accent = Color(0xFF00E5FF), pose = Pose.BOOST) {
                     TutorialBullet("Slip past an obstacle by a hair and you score a CLOSE CALL bonus.")
                     TutorialBullet("Chain close calls to build a combo. A long chain triggers OVERDRIVE, with a golden frame and bonus points.")
                     TutorialBullet("A razor-thin pass is worth the most and gives a gold flash. Razor dodges also count toward Locker milestones.")
@@ -5803,7 +5811,7 @@ fun TutorialScreen(onBack: () -> Unit) {
                     TutorialBullet("Screen shake and edge flash can be switched off in Profile > Settings.")
                 }
 
-                TutorialCard("⚡", "POWER-UPS", accent = Color(0xFF69F0AE)) {
+                TutorialCard("⚡", "POWER-UPS", accent = Color(0xFF69F0AE), pose = Pose.BOOST) {
                     TutorialBullet("Fly through a power-up icon to activate it. Most last a few seconds. Each one lights up your pilot while it is working, and fades away just before it ends.")
                     TutorialIconRow(puShield, "Shield", "Puts your pilot shield back on, 2 hits strong. Collect it again to refill the rings.", Color(0xFF69F0AE))
                     TutorialIconRow(puMagnet, "Magnet", "Pulls nearby gems, fuel and power-ups toward you.", Color(0xFF69F0AE))
@@ -5832,7 +5840,7 @@ fun TutorialScreen(onBack: () -> Unit) {
                     TutorialIconRow(standard, "Block", "A basic obstacle straight in your path.", Color(0xFFFF7043))
                 }
 
-                TutorialCard("☠️", "SPECIAL THREATS", accent = Color(0xFFFF1744)) {
+                TutorialCard("☠️", "SPECIAL THREATS", accent = Color(0xFFFF1744), pose = Pose.SAD) {
                     Text(
                         text = "BLINK STRIKE CREATURES",
                         color = Color.White,
@@ -5886,7 +5894,7 @@ fun TutorialScreen(onBack: () -> Unit) {
                     )
                 }
 
-                TutorialCard("🔥", "COMBO & MASTERY") {
+                TutorialCard("🔥", "COMBO & MASTERY", pose = Pose.THUMB) {
                     TutorialBullet("Stay tight on the ghost marker and your combo streak grows. Every streak point adds +0.5% to your score multiplier, up to +100%.")
                     TutorialBullet("Any hit resets your combo to zero — clean flying is what really drives big scores.")
                     TutorialBullet("Your best-ever streak is saved on your profile as a permanent skill record.")
@@ -5998,12 +6006,16 @@ fun PaywallDialog(onDismiss: () -> Unit, reason: String) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(
-                text = "⚡ NEON RUSH PRO",
-                color = CyberPrimary,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                PilotPose(Pose.BOOST, 76.dp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "⚡ NEON RUSH PRO",
+                    color = CyberPrimary,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         },
         // All three buttons live inside the content as one vertical stack. Putting two
         // buttons in confirmButton and one in dismissButton made the dialog's button
