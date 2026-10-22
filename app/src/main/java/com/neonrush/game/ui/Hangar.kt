@@ -701,6 +701,7 @@ private fun HullCelebration(hullId: String, onDismiss: () -> Unit) {
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color(0xEE000000)).clickable { onDismiss() }.padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally) {
+            PilotPose(Pose.CHEER, 96.dp)
             Text("✨ NEW HULL UNLOCKED ✨", color = Color(0xFFFFD23F), fontWeight = FontWeight.Black,
                 fontFamily = FontFamily.Monospace, fontSize = 14.sp)
             Spacer(Modifier.height(10.dp))
