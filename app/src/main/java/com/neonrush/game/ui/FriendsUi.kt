@@ -115,7 +115,10 @@ fun FriendsDialog(myName: String, tierKey: String, tierLabel: String, onSync: ()
             }
             // board
             if (loading) Text("Loading...", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-            if (rows.size <= 1 && !loading) Text("No friends yet. Share your code, or enter theirs above.", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+            if (rows.size <= 1 && !loading) Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                PilotPose(Pose.CHEER, 84.dp)
+                Text("No friends yet. Share your code, or enter theirs above.", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+            }
             LazyColumn(modifier = Modifier.heightIn(max = 300.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(rows.size) { idx ->
                     val f = rows[idx]
