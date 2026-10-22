@@ -25,7 +25,7 @@ import java.util.*
 // Pro-flagged phase are freely reachable without the paywall gate,
 // so all 5 main worlds can be QA'd end-to-end in one run.
 // ============================================================
-const val TESTING_DISABLE_PRO_GATE = true
+const val TESTING_DISABLE_PRO_GATE = false
 
 /** EASY (kids) mode: hits the pilot's shield soaks up at run start and after every refuel / revive. */
 /** Power-ups were too rare: drop-rate multiplier, and a guaranteed one if none showed up for this many ticks (8 ticks = 1 s). */
