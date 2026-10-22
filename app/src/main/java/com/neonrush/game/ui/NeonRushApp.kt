@@ -536,6 +536,7 @@ fun NeonRushApp(viewModel: NeonRushViewModel) {
     LaunchedEffect(isPro, currentProfile.adsRemoved) {
         AdMobManager.setAdState(isPro, currentProfile.adsRemoved)
     }
+    StarterWalletDialog()   // new-player starter wallet message (first 3 days)
     if (GhostDuelHost.open) {
         GhostDuelScreen(isPro = isPro, onCreditGems = { viewModel.creditStormGems(it) }, onExit = { GhostDuelHost.open = false })
     }
