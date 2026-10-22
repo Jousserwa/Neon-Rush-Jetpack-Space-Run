@@ -3,6 +3,9 @@ package com.neonrush.game.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,8 +36,12 @@ fun ToastPopup(text: String) {
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text(text, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center)
+            val pose = poseForMessage(text)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (pose != null) { PilotPose(pose, 40.dp); Spacer(Modifier.width(8.dp)) }
+                Text(text, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace, textAlign = if (pose != null) TextAlign.Start else TextAlign.Center, modifier = Modifier.weight(1f, fill = false))
+            }
         }
     }
 }
