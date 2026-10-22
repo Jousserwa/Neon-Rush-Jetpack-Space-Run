@@ -24,7 +24,7 @@ object StarterWalletHost { var pending by mutableStateOf<StarterTopUp?>(null) }
  * Only for installs that had zero runs when this first ran: existing players are never touched.
  */
 object StarterWallet {
-    const val FLOOR = 900
+    const val FLOOR = 500
     const val DAYS = 3
     const val WINDOW_DAYS = 7
     const val ROOKIE_RUNS = 5          // slower fuel drain, cheaper impacts
