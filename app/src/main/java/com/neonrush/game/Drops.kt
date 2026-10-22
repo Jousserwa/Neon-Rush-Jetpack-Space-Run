@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
  */
 object DropSchedule {
     /** QA only: true = every drop is open so the shop can be tested. Keep false: the real locks are on. */
-    const val TEST_OPEN = true
+    const val TEST_OPEN = false
 
     // ---------- Pilot parts: 2 a month, always a cheaper piece paired with a dearer one, never two premiums together ----------
     // (id, drop month, best zone the pilot must have reached: cheap 5-7, mid 7-9, premium 10)
