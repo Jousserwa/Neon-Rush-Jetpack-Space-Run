@@ -59,7 +59,8 @@ fun LockInfoDialog(info: LockInfo, onDismiss: () -> Unit) {
                 .border(2.dp, lerp(info.accent.copy(alpha = 0.4f), info.accent, pulse), shape).padding(18.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("🔒", fontSize = 30.sp)
+            PilotPose(Pose.SAD, 84.dp)
+            Text("🔒", fontSize = 22.sp)
             Text("${info.emoji} ${info.title}", color = Color.White, fontWeight = FontWeight.Black, fontSize = 17.sp,
                 fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
             Text(info.headline, color = info.accent, fontWeight = FontWeight.Bold, fontSize = 12.sp, textAlign = TextAlign.Center,
