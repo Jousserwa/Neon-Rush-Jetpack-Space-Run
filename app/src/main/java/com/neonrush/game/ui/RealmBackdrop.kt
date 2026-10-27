@@ -38,7 +38,8 @@ import kotlin.math.sin
 @Composable
 fun RealmBackdrop(zone: Int, distanceMeters: Float) {
     val realm = RealmRules.realmFor(zone)
-    val supported = realm == Realm.SHATTER || realm == Realm.STORM || realm == Realm.GRAVITY || realm == Realm.DARK_AGES
+    val supported = realm == Realm.SHATTER || realm == Realm.STORM || realm == Realm.GRAVITY || realm == Realm.DARK_AGES || realm == Realm.DUNES
+    val duneBg = androidx.compose.ui.res.imageResource(id = com.neonrush.game.R.drawable.dunes_bg)
     var shown by remember { mutableStateOf(Realm.NONE) }
     if (supported) shown = realm
     val a by animateFloatAsState(if (supported) 1f else 0f, tween(1400), label = "realmBackdrop")
@@ -61,6 +62,7 @@ fun RealmBackdrop(zone: Int, distanceMeters: Float) {
             Realm.STORM -> rbStorm(cw, ch, t, s)
             Realm.GRAVITY -> rbGravity(cw, ch, t, s)
             Realm.DARK_AGES -> rbDarkAges(cw, ch, t, s)
+            Realm.DUNES -> rbDunes(cw, ch, t, s, duneBg)
             else -> {}
         }
     
@@ -290,4 +292,25 @@ private fun DrawScope.rbDarkAges(cw: Float, ch: Float, t: Float, s: Float) {
         drawCircle(Color(0xFFFFA726).copy(alpha = (0.25f + 0.55f * depth) * tw), radius = ch * 0.0022f * (1f + depth), center = Offset(x, y))
     }
     drawRect(Color.Black.copy(alpha = 0.12f), size = Size(cw, ch))
+}
+
+// ------------------------------------------------------------------------------------------------------------ DUNES
+
+/** The sunset desert picture (dunes_bg.webp) scrolls slowly, two copies side by side so it wraps. A warm haze and drifting sand sit on top. */
+private fun DrawScope.rbDunes(cw: Float, ch: Float, t: Float, s: Float, bg: androidx.compose.ui.graphics.ImageBitmap) {
+    drawRect(Color(0xFF2A0F3A), size = Size(cw, ch))
+    val dw = ch * bg.width.toFloat() / bg.height.toFloat()
+    val off = wrap(s * 0.25f, dw)
+    var x = -off
+    while (x < cw) {
+        drawImage(bg, dstOffset = androidx.compose.ui.unit.IntOffset(x.toInt(), 0), dstSize = androidx.compose.ui.unit.IntSize(dw.toInt() + 1, ch.toInt()))
+        x += dw
+    }
+    fxGlow(Offset(cw * 0.86f, ch * 0.34f), ch * 0.5f, Color(0xFFFFD54F), 0.12f + 0.03f * sin(t * 1.3f))
+    for (k in 0 until 24) {
+        val sp = 0.4f + fxRnd(k, 5)
+        val px = wrap(fxRnd(k, 6) * cw * 1.2f - t * cw * 0.12f * sp - s * 0.4f, cw * 1.2f) - cw * 0.1f
+        val py = ch * (0.45f + 0.5f * fxRnd(k, 7))
+        drawLine(Color(0xFFFFE0A0).copy(alpha = 0.18f), Offset(px, py), Offset(px + cw * 0.04f * sp, py), strokeWidth = ch * 0.002f, cap = StrokeCap.Round)
+    }
 }
