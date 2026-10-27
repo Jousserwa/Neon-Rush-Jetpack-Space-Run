@@ -184,6 +184,7 @@ class NeonRushViewModel(
     context: Context
 ) : ViewModel() {
 
+    private val appCtx: Context = context.applicationContext
     private val soundEngine = NeonSoundEngine()
 
     val profile = gameDao.getProfileFlow()
@@ -1594,7 +1595,7 @@ fun checkpointEvery(): Int = if (RevenueCatManager.isPro.value || TESTING_DISABL
 /** Pro daily gems: pays +75 once per day to Pro subscribers (see ProDaily). */
 fun claimProDaily(onDone: (Int) -> Unit = {}) {
     if (!(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE)) return
-    viewModelScope.launch { val g = ProDaily.claim(context.applicationContext, gameDao); if (g > 0) onDone(g) }
+    viewModelScope.launch { val g = ProDaily.claim(appCtx, gameDao); if (g > 0) onDone(g) }
 }
 
 /** TESTING ONLY (shown in Settings while TESTING_DISABLE_PRO_GATE is true): start a run straight at [zone], free. */
