@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
@@ -39,7 +40,7 @@ import kotlin.math.sin
 fun RealmBackdrop(zone: Int, distanceMeters: Float) {
     val realm = RealmRules.realmFor(zone)
     val supported = realm == Realm.SHATTER || realm == Realm.STORM || realm == Realm.GRAVITY || realm == Realm.DARK_AGES || realm == Realm.DUNES
-    val duneBg = androidx.compose.ui.res.imageResource(id = com.neonrush.game.R.drawable.dunes_bg)
+    val duneBg = androidx.compose.ui.graphics.ImageBitmap.imageResource(id = com.neonrush.game.R.drawable.dunes_bg)
     var shown by remember { mutableStateOf(Realm.NONE) }
     if (supported) shown = realm
     val a by animateFloatAsState(if (supported) 1f else 0f, tween(1400), label = "realmBackdrop")
