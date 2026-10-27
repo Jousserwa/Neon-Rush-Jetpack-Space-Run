@@ -1663,7 +1663,7 @@ fun ArcadeHomeView(
         }
 
         Spacer(modifier = Modifier.height(10.dp))
-        QuoteLine(mode = "day", modifier = Modifier.padding(horizontal = 6.dp))
+        QuoteLine(mode = "day", modifier = Modifier.padding(horizontal = 6.dp), isPro = isPro, onUpgrade = { showPlanPaywall = true })
         Spacer(modifier = Modifier.height(10.dp))
 
         if (profile.transcendenceCount > 0) {
@@ -3467,6 +3467,7 @@ Spacer(modifier = Modifier.height(20.dp))
     Spacer(modifier = Modifier.height(16.dp))
 }
 
+if (!StarterPack.bought(LocalContext.current)) {
 Text(
     text = "⚡ STARTER PACK",
     fontSize = 16.sp,
@@ -3492,7 +3493,7 @@ Row(
             color = Color.White
         )
         Text(
-            text = "Limited-time offer for new pilots",
+            text = "One-time offer for new pilots. Buy it once, the gems are yours to keep.",
             color = CyberOnSurface.copy(alpha = 0.65f),
             fontSize = 11.sp
         )
@@ -3508,6 +3509,7 @@ Row(
     }
 }
 Spacer(modifier = Modifier.height(16.dp))
+}
 
 Text(
     text = "💎 GET MORE GEMS",
@@ -3531,31 +3533,16 @@ Text(
             Triple(RevenueCatManager.PRODUCT_ID_GEMS_MEDIUM, RevenueCatManager.GEMS_MEDIUM_AMOUNT, RevenueCatManager.GEMS_MEDIUM_PRICE_USD),
             Triple(RevenueCatManager.PRODUCT_ID_GEMS_LARGE, RevenueCatManager.GEMS_LARGE_AMOUNT, RevenueCatManager.GEMS_LARGE_PRICE_USD)
         ).forEach { (productId, amount, price) ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(CyberSurface)
-                    .padding(14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "💎 $amount Gems",
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                Button(
-                    onClick = {
-                        activity?.let { viewModel.purchaseGemPack(it, productId, amount) }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary),
-                    shape = RoundedCornerShape(4.dp)
-                ) {
-                    Text(text = "BUY $price", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
-                }
-            }
+            // the bonus % is worked out from the USD list prices (not the localized store string, which can be any currency)
+            val usd = when (productId) { RevenueCatManager.PRODUCT_ID_GEMS_LARGE -> RevenueCatManager.GEMS_LARGE_PRICE_USD; RevenueCatManager.PRODUCT_ID_GEMS_MEDIUM -> RevenueCatManager.GEMS_MEDIUM_PRICE_USD; else -> RevenueCatManager.GEMS_SMALL_PRICE_USD }
+            val perDollar = amount / (usd.removePrefix("$").toFloatOrNull() ?: 1f)
+            val basePer = RevenueCatManager.GEMS_SMALL_AMOUNT / (RevenueCatManager.GEMS_SMALL_PRICE_USD.removePrefix("$").toFloatOrNull() ?: 1f)
+            GemPackRow(
+                amount = amount, price = price,
+                tag = when (productId) { RevenueCatManager.PRODUCT_ID_GEMS_LARGE -> "BEST"; RevenueCatManager.PRODUCT_ID_GEMS_MEDIUM -> "POPULAR"; else -> "" },
+                bonusPct = ((perDollar / basePer - 1f) * 100f).toInt().coerceAtLeast(0),
+                onBuy = { activity?.let { viewModel.purchaseGemPack(it, productId, amount) } }
+            )
         }
     }
 }
@@ -4904,13 +4891,7 @@ fun GameOverOverlayScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 PilotPose(Pose.DIZZY, 100.dp)
-                Text(
-                    text = "SYSTEM FAILURE",
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Black,
-                    color = CyberPrimary,
-                    fontFamily = FontFamily.Monospace
-                )
+                CantGiveUpTitle()
 
                 if (simState.firstFlightReward) {
                     FirstFlightBanner()
@@ -6050,7 +6031,7 @@ fun PaywallDialog(onDismiss: () -> Unit, reason: String) {
                 Text(
                     text = when (reason) {
                         "world4" -> "World 4: Green Hell requires Pro subscription. Unlock all Worlds, remove ads, and get Legendary difficulty!"
-                        else -> "Upgrade to Pro: +75 \uD83D\uDC8E gems EVERY day, remove ads, all Worlds, Legendary difficulty, and exclusive skins!"
+                        else -> "Upgrade to Pro: +50 \uD83D\uDC8E gems EVERY day, remove ads, all Worlds, LEGENDARY (a whole other Neon Rush, not just a harder level), and exclusive skins!"
                     },
                     color = Color.White,
                     fontFamily = FontFamily.Monospace,
