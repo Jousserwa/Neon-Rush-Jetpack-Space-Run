@@ -39,10 +39,10 @@ const val GEMS_LARGE_PRICE_USD = "$9.99"
 const val REMOVE_ADS_PRICE_USD = "$2.99"
 const val STARTER_PACK_PRICE_USD = "$0.99"
 
-const val GEMS_SMALL_AMOUNT = 100
-const val GEMS_MEDIUM_AMOUNT = 550
-const val GEMS_LARGE_AMOUNT = 1200
-const val STARTER_PACK_GEMS_AMOUNT = 250
+const val GEMS_SMALL_AMOUNT = 350
+const val GEMS_MEDIUM_AMOUNT = 2000
+const val GEMS_LARGE_AMOUNT = 4200
+const val STARTER_PACK_GEMS_AMOUNT = 700
 
     private val _isPro = MutableStateFlow(false)
     val isPro: StateFlow<Boolean> = _isPro.asStateFlow()
