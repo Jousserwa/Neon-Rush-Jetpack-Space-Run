@@ -1691,6 +1691,11 @@ fun ArcadeHomeView(
         }
         // Pro daily gems: collectable card for Pro, glowing locked teaser for free players
         ProDailyCard(isPro = isPro, onCollect = { viewModel.claimProDaily { g -> android.widget.Toast.makeText(proCtx, "+$g \uD83D\uDC8E Pro daily gems collected!", android.widget.Toast.LENGTH_SHORT).show() } }, onUpgrade = { showPlanPaywall = true }, modifier = Modifier.padding(vertical = 4.dp))
+        // Pro Vault: what Pro gives (live for Pro, locked teaser for free)
+        run {
+            val vaultPerks by viewModel.proPerks.snapshot.collectAsState()
+            ProVaultCard(perks = vaultPerks, isPro = isPro, onClaimStipend = { viewModel.proPerks.claimStipend() }, onUpgrade = { showPlanPaywall = true }, modifier = Modifier.padding(vertical = 4.dp))
+        }
         // glowing ad for Storm Run / Ghost Duel until the player has tried them (disappears after the first play)
         ModePromo(
             stormNew = !StormStore.everPlayed(),
