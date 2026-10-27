@@ -37,6 +37,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.neonrush.game.AdMobManager
 import com.neonrush.game.NeonSoundEngine
 import com.neonrush.game.RewardedSlot
+import com.neonrush.game.StormBonus
 import androidx.compose.ui.platform.LocalContext
 import com.neonrush.game.R
 import java.util.Calendar
