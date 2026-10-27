@@ -13,12 +13,16 @@ object DailyQuote {
     private var wins: List<String> = emptyList()
     private var losses: List<String> = emptyList()
     private var loaded = false
+    private val BUILT_IN = listOf("You can make it!", "Today is your day!", "Don't give up!", "You are not alone!", "It's hard, but it's possible!", "[loss]Crashing is part of flying. Get back up!", "[win]Look at you go! That's your best yet!")
 
     private fun load(ctx: Context) {
         if (loaded) return
         loaded = true
         try {
-            val lines = ctx.applicationContext.resources.openRawResource(R.raw.quotes).bufferedReader(Charsets.UTF_8).readLines()
+            // looked up by name, so the build never fails if res/raw/quotes.txt has not been added yet
+            val res = ctx.applicationContext.resources
+            val id = res.getIdentifier("quotes", "raw", ctx.applicationContext.packageName)
+            val lines = (if (id != 0) res.openRawResource(id).bufferedReader(Charsets.UTF_8).readLines() else BUILT_IN)
                 .map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }
             general = lines.filter { !it.startsWith("[") }.distinct()
             wins = lines.filter { it.startsWith("[win]") }.map { it.removePrefix("[win]").trim() }.distinct()
@@ -31,13 +35,24 @@ object DailyQuote {
         return c.get(Calendar.YEAR) * 366 + c.get(Calendar.DAY_OF_YEAR)
     }
 
-    /** mode: "day" (home), "win" or "loss" (game over). Falls back to the general list, then to a safe default. */
+    private const val BLOCK = 15          // quotes used per month
+    private const val BASE_MONTH = 2026 * 12 + 9   // October 2026 = first block
+
+    /** mode: "day" (home) or "win" / "loss" (game over). Home: this month's block of 15 quotes, one a day in a month-seeded random order. */
     fun today(ctx: Context, mode: String = "day"): String {
         load(ctx)
-        val pool = when (mode) { "win" -> wins.ifEmpty { general }; "loss" -> losses.ifEmpty { general }; else -> general }
-        if (pool.isEmpty()) return "You can make it!"
-        // after a run the pick also changes with the run count so two runs in a day do not show the same line
-        val salt = if (mode == "day") 0 else (System.currentTimeMillis() / 60_000L).toInt()
-        return pool[Math.floorMod(dayNum() * 31 + salt, pool.size)]
-    }
-}
+        if (mode == "win" || mode == "loss") {
+            val pool = (if (mode == "win") wins else losses).ifEmpty { general }
+            if (pool.isEmpty()) return "You can make it!"
+            return pool[Math.floorMod((System.currentTimeMillis() / 60_000L).toInt() + dayNum(), pool.size)]
+        }
+        if (general.isEmpty()) return "You can make it!"
+        val c = Calendar.getInstance()
+        val monthIdx = (c.get(Calendar.YEAR) * 12 + c.get(Calendar.MONTH)) - BASE_MONTH
+        val blocks = ((general.size + BLOCK - 1) / BLOCK).coerceAtLeast(1)
+        val start = Math.floorMod(monthIdx, blocks) * BLOCK
+        val block = general.subList(start, minOf(start + BLOCK, general.size))
+        // shuffle the block with a seed from the month, so every player sees the same order and each quote shows once before any repeats
+        val order = block.indices.toMutableList().also { java.util.Collections.shuffle(it, java.util.Random(monthIdx * 7919L + 13L)) }
+        return block[order[(c.get(Calendar.DAY_OF_MONTH) - 1) % block.size]]
+    }}
