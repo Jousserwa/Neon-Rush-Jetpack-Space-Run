@@ -256,7 +256,7 @@ private fun HullCard(h: PremiumHull, state: HangarUiState, actions: HangarAction
 
     // Every card is exactly the same size: hero (animation + name + buttons + price) and a fixed info area.
     Column(
-        Modifier.fillMaxWidth().height(330.dp).clip(RoundedCornerShape(18.dp))
+        Modifier.fillMaxWidth().height(330.dp).readyGlow(canBuy && !owned && !upcoming, Color(0xFF69F0AE), 18.dp).clip(RoundedCornerShape(18.dp))
             .background(CyberSurface)
             .border(1.5.dp, if (active) CyberPrimary else CyberTertiary.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
     ) {
@@ -278,6 +278,7 @@ private fun HullCard(h: PremiumHull, state: HangarUiState, actions: HangarAction
                     upcoming -> Badge("COMING ${dateFmt.format(java.util.Date(release)).uppercase()}", Color(0xFFFF9100))
                     proEarly -> Badge("PRO EARLY ACCESS", CyberSecondary)
                     proWindow -> Badge("PRO FIRST", Color(0xFF9C6BFF))
+                    canBuy -> Badge("✨ READY TO BUY", Color(0xFF69F0AE))
                 }
             }
             // bottom bar: TRY on the left, price / action on the right, all on top of the animation
@@ -721,7 +722,7 @@ private fun HullCelebration(hullId: String, onDismiss: () -> Unit) {
 @Composable
 fun HangarEntryCard(activeHullId: String, owned: Int, total: Int, onOpen: () -> Unit, newHulls: Int = 0) {
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { onOpen() }
+        Modifier.fillMaxWidth().readyGlow(newHulls > 0, Color(0xFFFF5252), 16.dp).clip(RoundedCornerShape(16.dp)).clickable { onOpen() }
             .background(Brush.verticalGradient(listOf(Color(0xFF1B0B4A), CyberSurface)))
             .border(1.5.dp, CyberTertiary.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
     ) {
