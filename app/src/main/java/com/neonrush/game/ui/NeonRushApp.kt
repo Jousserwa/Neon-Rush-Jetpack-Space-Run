@@ -518,6 +518,7 @@ fun NeonRushApp(viewModel: NeonRushViewModel) {
             com.neonrush.game.Realm.PULSE -> "r_pulse"
             com.neonrush.game.Realm.DARK_AGES -> "r_darkages"
             com.neonrush.game.Realm.BLACKOUT -> "r_blackout"
+            com.neonrush.game.Realm.DUNES -> "r_gravity"
             else -> "w" + (musicVariantFamily ?: musicWorld.worldFamily).coerceIn(1, 8)
         }
     }
@@ -1042,12 +1043,7 @@ fun HeaderProfileDeck(profile: GameProfile, viewModel: NeonRushViewModel) {
                     run {
                         val hoursLeft = com.neonrush.game.WelcomeBonus.hoursLeft(profile, System.currentTimeMillis())
                         if (hoursLeft > 0) {
-                            Text(
-                                text = "🎁 ${minOf(profile.bonusGems, profile.gems)} bonus expire in ${hoursLeft}h",
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = Color(0xFFFFD23F)
-                            )
+                            BonusExpiryChip(minOf(profile.bonusGems, profile.gems), hoursLeft)
                         }
                     }
                     Text(
@@ -1444,6 +1440,7 @@ fun ArcadeHomeView(
     var showCheckpoints by remember { mutableStateOf(false) }
     // Play In-App Review: only on the calm home screen, after a happy milestone (never mid-run or right after dying).
     val reviewActivity = LocalContext.current.findActivity()
+    val proCtx = LocalContext.current
     LaunchedEffect(Unit) {
         delay(2500)
         val act = reviewActivity
@@ -1689,7 +1686,21 @@ fun ArcadeHomeView(
                     textAlign = TextAlign.Center
                 )
             }
-        } else {
+        }
+        // Pro daily gems: collectable card for Pro, glowing locked teaser for free players
+        ProDailyCard(isPro = isPro, onCollect = { viewModel.claimProDaily { g -> android.widget.Toast.makeText(proCtx, "+$g \uD83D\uDC8E Pro daily gems collected!", android.widget.Toast.LENGTH_SHORT).show() } }, onUpgrade = { showPlanPaywall = true }, modifier = Modifier.padding(vertical = 4.dp))
+        // glowing ad for Storm Run / Ghost Duel until the player has tried them (disappears after the first play)
+        ModePromo(
+            stormNew = !StormStore.everPlayed(),
+            stormOpen = StormStore.unlocked(profile.totalRuns) || TESTING_DISABLE_PRO_GATE,
+            duelNew = !DuelStore.everPlayed(),
+            onStorm = { if (StormStore.unlocked(profile.totalRuns) || TESTING_DISABLE_PRO_GATE) viewModel.consumeStormAttempt { ok -> if (ok) { StormRunHost.runKey += 1; StormRunHost.open = true } } },
+            onDuel = { onShowGhostSelection() }
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        // the Ghost Duel button is ALWAYS reachable: the Transcendence banner no longer replaces it
+        Spacer(modifier = Modifier.height(8.dp))
+        run {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1716,7 +1727,7 @@ fun ArcadeHomeView(
                                 fontFamily = FontFamily.Monospace
                             )
                             Text(
-                                text = "Race against pilot ghost telemetry trails",
+                                text = "Race a rival head to head. Beat them, they get faster!",
                                 color = CyberOnSurface.copy(alpha = 0.65f),
                                 fontSize = 9.sp,
                                 maxLines = 1,
@@ -2747,11 +2758,7 @@ fun DailyCrateDialog(profile: GameProfile, isPro: Boolean, viewModel: NeonRushVi
                     )
                 }
             } else {
-                Image(
-                    painter = androidx.compose.ui.graphics.painter.BitmapPainter(ImageBitmap.imageResource(id = R.drawable.pilot_thumb)),
-                    contentDescription = null,
-                    modifier = Modifier.size(width = 96.dp, height = 144.dp).graphicsLayer(scaleX = reveal.value, scaleY = reveal.value)
-                )
+                PilotPose(Pose.THUMB, 144.dp, Modifier.graphicsLayer(scaleX = reveal.value, scaleY = reveal.value))
                 if (res.isStreakBonus) {
                     Text(res.message ?: "", color = gold, fontWeight = FontWeight.Black, fontSize = 14.sp, textAlign = TextAlign.Center)
                 }
@@ -3031,11 +3038,13 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                 val dropSuit = DropSchedule.isDropSuit(skin.id)
                 val dropReleased = !dropSuit || DropSchedule.suitReleased(skin.id, com.neonrush.game.ServerClock.bestNowMs())
                 val gateOpen = (suitGate == null && !dropSuit) || gatesOpen.contains(skin.id) || (dropSuit && DropSchedule.TEST_OPEN)
+                val readyToBuy = !isUnlocked && !isActive && skin.purchasable && gateOpen
 
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp)
+                        .readyGlow(readyToBuy, Color(0xFF69F0AE), 8.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(if (isActive) CyberPrimary.copy(alpha = 0.15f) else CyberSurface)
                         .border(
@@ -3058,6 +3067,7 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
+                        if (readyToBuy) ReadyTag()
                         Text(
                             text = skin.description,
                             fontSize = 11.sp,
@@ -3134,7 +3144,7 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = if (gateOpen) CyberSecondary else CyberSurface.copy(alpha = 0.8f)),
                             shape = RoundedCornerShape(4.dp),
-                            modifier = if (gateOpen) Modifier else Modifier.border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+                            modifier = if (gateOpen) Modifier.readyPulse(true) else Modifier.border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
                         ) {
                             Text(text = if (gateOpen) "BUY ${skin.priceUsd}" else "🔒 ${skin.priceUsd}", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
                         }
@@ -3758,6 +3768,8 @@ val bossImagesByWorld = mapOf(
 // Shatter realm art: shard atlas (6 cells) and the crack-web burst
 val shatterShards = ImageBitmap.imageResource(id = R.drawable.shatter_shards)
 val shatterBurst = ImageBitmap.imageResource(id = R.drawable.shatter_burst)
+val dunesSide = ImageBitmap.imageResource(id = R.drawable.dunes_scarab_side)
+val dunesFront = ImageBitmap.imageResource(id = R.drawable.dunes_scarab_front)
 val knightBody = ImageBitmap.imageResource(id = R.drawable.darkages_body)
 val knightWing = ImageBitmap.imageResource(id = R.drawable.darkages_wing)
 val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
@@ -4051,7 +4063,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                         for (elem in simState.activeTrackElements) {
                             val x = cw * elem.xOffsetFraction
                             val y = ch * (elem.yMatchPos / 100f)
-                            if (elem.subType == "GLASS" || elem.subType == "STRIKE") continue // drawn by the realm overlay
+                            if (elem.subType == "GLASS" || elem.subType == "SCARAB" || elem.subType == "STRIKE") continue // drawn by the realm overlay
                             if (drawThreat(elem, x, y, cw, ch, simState.tickIndex, pilotFrames[(simState.tickIndex / 3) % pilotFrames.size], fxClock.value)) continue
                             
                             when (elem.type) {
@@ -4467,6 +4479,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                             if (realmNow == Realm.MIRROR) drawMirrorRealm(cw, ch, fxClock.value, simState.tickIndex, simState.mirrorSide, simState.mirrorFlipTick, realmPilot, simState.activeTrackElements)
                             else if (realmNow == Realm.GRAVITY) drawGravityRealm(cw, ch, fxClock.value, realmPilot, RealmRules.wells, RealmRules.skimming, gravityWellImg)
                             else if (realmNow == Realm.SHATTER) drawShatterRealm(cw, ch, fxClock.value, simState.tickIndex, simState.currentZoneNumber, realmPilot, simState.activeTrackElements, shatterShards, shatterBurst)
+                            else if (realmNow == Realm.DUNES) drawDunesRealm(cw, ch, fxClock.value, simState.tickIndex, simState.currentZoneNumber, realmPilot, simState.activeTrackElements, dunesSide, dunesFront)
                             else if (realmNow == Realm.STORM) drawStormRealm(cw, ch, fxClock.value, simState.tickIndex, realmPilot)
                             else if (realmNow == Realm.BLACKOUT) drawBlackoutRealm(cw, ch, fxClock.value, simState.tickIndex, simState.currentZoneNumber, realmPilot, simState.activeTrackElements)
                             else if (realmNow == Realm.PULSE) drawPulseRealm(cw, ch, fxClock.value, simState.tickIndex, realmPilot)
@@ -4883,11 +4896,7 @@ fun GameOverOverlayScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                androidx.compose.foundation.Image(
-                    painter = androidx.compose.ui.graphics.painter.BitmapPainter(ImageBitmap.imageResource(id = R.drawable.pilot_dizzy)),
-                    contentDescription = null,
-                    modifier = Modifier.size(width = 143.dp, height = 100.dp)
-                )
+                PilotPose(Pose.DIZZY, 100.dp)
                 Text(
                     text = "SYSTEM FAILURE",
                     fontSize = 28.sp,
@@ -4996,11 +5005,7 @@ fun GameOverOverlayScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(top = 8.dp, bottom = 110.dp)
             ) {
-                Image(
-                    painter = androidx.compose.ui.graphics.painter.BitmapPainter(ImageBitmap.imageResource(id = if (simState.score > 0 && simState.score >= profile.bestScore) R.drawable.pilot_thumb else R.drawable.pilot_sad)),
-                    contentDescription = null,
-                    modifier = Modifier.size(width = 84.dp, height = 126.dp)
-                )
+                PilotPose(if (simState.score > 0 && simState.score >= profile.bestScore) Pose.THUMB else Pose.SAD, 126.dp)
                 Text(
                     text = "GAME OVER",
                     fontSize = 28.sp,
@@ -5037,14 +5042,25 @@ fun GameOverOverlayScreen(
                     PassOfferCard(offerPass, onBuy = { offerAct?.let { viewModel.seasonPass.buy(it) } })
                 }
                 if (simState.dailyBonusLabel.isNotEmpty()) {
-                    Text(
-                        text = simState.dailyBonusLabel,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFFFD23F),
-                        fontFamily = FontFamily.Monospace
-                    )
+                    if (simState.dailyBonusLabel.contains("DAILY BONUS") || simState.dailyBonusLabel.contains("SPECIAL BONUS")) {
+                        DailyBonusCard(simState.dailyBonusLabel)       // animated: pop-in, counting gems, shimmer, day dots
+                    } else {
+                        Text(
+                            text = simState.dailyBonusLabel,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFFD23F),
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
                 }
+                ModePromo(
+                    stormNew = !StormStore.everPlayed(),
+                    stormOpen = StormStore.unlocked(profile.totalRuns) || TESTING_DISABLE_PRO_GATE,
+                    duelNew = !DuelStore.everPlayed(),
+                    onStorm = { if (StormStore.unlocked(profile.totalRuns) || TESTING_DISABLE_PRO_GATE) viewModel.consumeStormAttempt { ok -> if (ok) { StormRunHost.runKey += 1; StormRunHost.open = true } } },
+                    onDuel = { if (DuelStore.left(profile.subscriptionPro) > 0) { DuelStore.useAttempt(); GhostDuelHost.rival = 0; GhostDuelHost.runKey += 1; GhostDuelHost.open = true } }
+                )
                 if (profile.fuelTiersOwned < 5) {
                     Text(
                         text = "⛽ Out of fuel again? Upgrade your Fuel Tank for longer runs — permanent!",
@@ -5395,7 +5411,7 @@ fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
             }
             if (showLab) ReactionLabDialog(onClose = { showLab = false })
             Text("\uD83E\uDDEA ZONE JUMP (testing)", color = Color(0xFFFFD54F), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            listOf(listOf(60, 100, 150, 200), listOf(240, 270, 300, 330), listOf(360, 395, 420, 480)).forEach { rowZones ->
+            listOf(listOf(60, 100, 150, 200), listOf(240, 270, 300, 330), listOf(395, 420, 480, 505)).forEach { rowZones ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                     rowZones.forEach { z ->
                         Button(
@@ -5796,7 +5812,7 @@ fun TutorialScreen(onBack: () -> Unit) {
                     TutorialBullet("This is different from the Shield power-up, which is a timed bubble you pick up in the zone.")
                 }
 
-                TutorialCard("🎚️", "DIFFICULTY", accent = Color(0xFF69F0AE)) {
+                TutorialCard("🎚️", "DIFFICULTY", accent = Color(0xFF69F0AE), pose = Pose.RUN_RIBBON) {
                     TutorialBullet("Pick EASY, MEDIUM, HARD or LEGENDARY on the home screen. Your choice is remembered.")
                     TutorialBullet("EASY is calm and friendly, great for new pilots and kids: slower speed, far fewer obstacles, a gentle boss, a forgiving hitbox, and hits cost less fuel.")
                     TutorialBullet("HARD and LEGENDARY are faster and denser, and they pay out more gems. LEGENDARY is for Pro pilots.")
@@ -5901,7 +5917,7 @@ fun TutorialScreen(onBack: () -> Unit) {
                     TutorialBullet("Your best-ever streak is saved on your profile as a permanent skill record.")
                 }
 
-                TutorialCard("🚀", "SECTORS", accent = Color(0xFFFFD700)) {
+                TutorialCard("🚀", "SECTORS", accent = Color(0xFFFFD700), pose = Pose.RUN_RIBBON) {
                     TutorialBullet("Every 2 zones is a new sector: the obstacle mix, mechanics and environment all change, and a banner announces it.")
                     TutorialBullet("Every 4 zones the banner also pays out +2💎, and a WATCH AD button appears for a few seconds — tap it to double the bonus.")
                     TutorialBullet("Pro players still get the bonus, without the ad prompt.")
@@ -6026,7 +6042,7 @@ fun PaywallDialog(onDismiss: () -> Unit, reason: String) {
                 Text(
                     text = when (reason) {
                         "world4" -> "World 4: Green Hell requires Pro subscription. Unlock all Worlds, remove ads, and get Legendary difficulty!"
-                        else -> "Upgrade to Pro to unlock all features: remove ads, access all Worlds, Legendary difficulty, and exclusive skins!"
+                        else -> "Upgrade to Pro: +75 \uD83D\uDC8E gems EVERY day, remove ads, all Worlds, Legendary difficulty, and exclusive skins!"
                     },
                     color = Color.White,
                     fontFamily = FontFamily.Monospace,
