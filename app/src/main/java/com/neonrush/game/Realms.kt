@@ -13,9 +13,10 @@ import kotlin.math.sqrt
  *   ECHO RIVAL (boss, every 15th zone from 255): your own shadow hunts you, firing along the lanes you were in ~1.7 s ago.
  *   DARK AGES (390-419): torch-lit castle night; the boss is the winged ember knight, who throws his burning sword (art: darkages_*.webp).
  *   BLACKOUT (420-479): the lights are out. You only see inside your lantern; every 30 ticks (~3.6 s) a sonar ping lights the whole screen for a moment. Faint blips mark what is out there.
- * No new art: everything is code-drawn / tinted (see ui/RealmFx.kt). The finale boss at 480 is not built yet.
+ *   DUNES (480-509): golden desert at sunset; walls of glowing scarab beetles with one gap (art: dunes_bg / dunes_scarab_*.webp).
+ * Mostly no new art: everything is code-drawn / tinted (see ui/RealmFx.kt). The finale boss at 480 is not built yet.
  */
-enum class Realm { NONE, MIRROR, PULSE, GRAVITY, BLACKOUT, SHATTER, STORM, DARK_AGES }
+enum class Realm { NONE, MIRROR, PULSE, GRAVITY, BLACKOUT, SHATTER, STORM, DARK_AGES, DUNES }
 
 object RealmRules {
     const val PULSE_BEAT = 6          // ticks per beat (~0.72 s)
@@ -31,6 +32,7 @@ object RealmRules {
         in 360..389 -> Realm.PULSE
         in 390..419 -> Realm.DARK_AGES
         in 420..479 -> Realm.BLACKOUT
+        in 480..509 -> Realm.DUNES
         else -> Realm.NONE
     }
 
@@ -44,6 +46,7 @@ object RealmRules {
     fun spacingMul(zone: Int): Float = when (realmFor(zone)) {
         Realm.MIRROR -> 0.7f
         Realm.SHATTER -> 1.9f   // each obstacle is a whole glass wall
+        Realm.DUNES -> 1.8f     // each obstacle is a whole wall of scarabs
         Realm.STORM -> 1.4f     // the lightning does the work, so fewer plain obstacles
         else -> 1f
     }
@@ -160,7 +163,7 @@ object RealmRules {
      * previous one and always stays between lanes 28 and 72, so there is always an exit that can be reached in time.
      * Tile id: gp_<tick>_<gapCentre>_<index>; the draw reads the gap from the id.
      */
-    fun glassPane(tick: Int, userY: Int, out: MutableList<VisualTrackElement>) {
+    fun glassPane(tick: Int, userY: Int, out: MutableList<VisualTrackElement>, sub: String = "GLASS") {
         val h = hash(tick)
         val wish = if (h < 0.34f) userY else lastGap + ((hash(tick + 7) - 0.5f) * 64f).toInt()
         val c = wish.coerceIn(lastGap - 32, lastGap + 32).coerceIn(28, 72)
@@ -168,9 +171,9 @@ object RealmRules {
         val half = 12
         var i = 0
         var y = c - half - 15
-        while (y >= -12) { out += VisualTrackElement("gp_${tick}_${c}_$i", 1.2f, y.coerceAtLeast(0), "obstacle", "GLASS"); i++; y -= 14 }
+        while (y >= -12) { out += VisualTrackElement("gp_${tick}_${c}_$i", 1.2f, y.coerceAtLeast(0), "obstacle", sub); i++; y -= 14 }
         y = c + half + 15
-        while (y <= 112) { out += VisualTrackElement("gp_${tick}_${c}_$i", 1.2f, y.coerceAtMost(100), "obstacle", "GLASS"); i++; y += 14 }
+        while (y <= 112) { out += VisualTrackElement("gp_${tick}_${c}_$i", 1.2f, y.coerceAtMost(100), "obstacle", sub); i++; y += 14 }
     }
 
     // ------------------------------------------------------------------ STORM: lightning lanes
