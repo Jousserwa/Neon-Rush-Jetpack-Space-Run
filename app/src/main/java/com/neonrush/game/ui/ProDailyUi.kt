@@ -58,6 +58,7 @@ fun ProDailyCard(isPro: Boolean, onCollect: () -> Unit, onUpgrade: () -> Unit, m
     val inf = rememberInfiniteTransition(label = "proDaily")
     val t by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(2400, easing = LinearEasing), RepeatMode.Restart), label = "t")
     val fast by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(800, easing = LinearEasing), RepeatMode.Restart), label = "f")
+    val lap by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(if (can) 2600 else 5200, easing = LinearEasing), RepeatMode.Restart), label = "lap")
     val tau = 6.2831855f
     val pop = remember { Animatable(0.85f) }
     LaunchedEffect(Unit) { pop.animateTo(1f, spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMediumLow)) }
@@ -76,6 +77,7 @@ fun ProDailyCard(isPro: Boolean, onCollect: () -> Unit, onUpgrade: () -> Unit, m
                 val w = size.width; val h = size.height
                 val x = (t * 1.7f - 0.35f) * w
                 drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color.White.copy(alpha = if (can) 0.20f else 0.10f), Color.Transparent), startX = x - w * 0.15f, endX = x + w * 0.15f), blendMode = BlendMode.Plus)
+                travelBorder(lap, if (isPro) PGOLD else PMAG, 16.dp.toPx(), 2.5.dp.toPx())
                 if (can) for (i in 0 until 12) {
                     val ph = (t * 1.6f + i * 0.083f) % 1f
                     val px = w * (0.06f + 0.88f * (((i * 41) % 100) / 100f)) + sin(ph * tau + i) * 6f
@@ -86,13 +88,8 @@ fun ProDailyCard(isPro: Boolean, onCollect: () -> Unit, onUpgrade: () -> Unit, m
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-            val icon = if (!isPro) "🔒" else if (can) "🎁" else "✅"
-            Text(icon, fontSize = 30.sp,
-                modifier = Modifier.graphicsLayer {
-                    if (can) { translationY = -abs(sin(fast * 3.1415927f)) * 9f; rotationZ = sin(t * tau * 2f) * 8f }
-                    else if (!isPro) { rotationZ = sin(t * tau) * 6f }
-                })
-            Spacer(Modifier.width(10.dp))
+            PilotPose(if (!isPro) Pose.BOOST else if (can) Pose.CHEER else Pose.THUMB, 64.dp)
+            Spacer(Modifier.width(8.dp))
             Column {
                 Text(
                     if (!isPro) "PRO MEMBERS GET +${ProDaily.GEMS} 💎 EVERY DAY" else if (can) "PRO DAILY GEMS  •  TAP TO COLLECT" else "PRO DAILY GEMS  •  COLLECTED",
