@@ -787,11 +787,13 @@ fun reviveWithGems(isPro: Boolean) {
     }
 }
 fun fuelRefillCostForCurrentRun(): Int {
-    return when (_simState.value.fuelRefillCount) {
+    val n = _simState.value.fuelRefillCount
+    val base = when (n) {
         0 -> 20
         1 -> 25
         else -> 30
     }
+    return StarterWallet.refuelCost(activeTotalRuns, n, base)   // gentler for the first runs, normal later
 }
 fun onFuelTierChanged(tier: String) {
     when (tier) {
@@ -918,6 +920,8 @@ fun freezeStreak() {
             RevenueCatManager.isPro.collect { fuelGate.touchAsync(it); proPerks.refresh(); seasonPass.refresh(); thrusters.recheckDrops(); try { gameDao.getProfileDirect()?.let { thrusters.evaluate(it) } } catch (_: Exception) {} }
         }
         restoreDifficulty()
+        viewModelScope.launch { while (true) { StormBonus.applyExpiry(gameDao); delay(60_000) } }   // storm gems expire after 2 days
+        viewModelScope.launch { StarterWallet.check(context.applicationContext, gameDao) }   // new players: starter wallet, first 3 days
         viewModelScope.launch { loadSuitGates() }
         // ── Offline purchase sync ──────────────────────────────────────────────────
         // Whenever the store (or the encrypted local ledger) reports entitlements, mirror them into the game.
@@ -1379,7 +1383,7 @@ fun freezeStreak() {
     }
 
     /** Storm Run: how many attempts a day this player gets (Pro gets 2 extra). */
-    fun stormDailyMax(): Int = if (RevenueCatManager.isPro.value) 5 else 3
+    fun stormDailyMax(): Int = if (RevenueCatManager.isPro.value) 6 else 3
 
     /** Uses one Storm Run attempt (no sim is started; the Storm Run screen is its own mini-game). */
     fun consumeStormAttempt(onResult: (Boolean) -> Unit) {
@@ -1584,6 +1588,15 @@ fun startFromCheckpoint(checkpointZone: Int) {
     }
 }
 
+/** Checkpoint spacing: every 35 zones for Pro, every 45 for free players. */
+fun checkpointEvery(): Int = if (RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE) 35 else 45
+
+/** Pro daily gems: pays +75 once per day to Pro subscribers (see ProDaily). */
+fun claimProDaily(onDone: (Int) -> Unit = {}) {
+    if (!(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE)) return
+    viewModelScope.launch { val g = ProDaily.claim(context.applicationContext, gameDao); if (g > 0) onDone(g) }
+}
+
 /** TESTING ONLY (shown in Settings while TESTING_DISABLE_PRO_GATE is true): start a run straight at [zone], free. */
 fun testJumpToZone(zone: Int) {
     if (!TESTING_DISABLE_PRO_GATE) return
@@ -1782,7 +1795,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         }
                     }
 
-                    val isCheckpointZone = nextZoneNumber % 50 == 0
+                    val isCheckpointZone = nextZoneNumber % checkpointEvery() == 0
                     if (isCheckpointZone) {
                         gameDao.updateProfile { current ->
                             val reached = current.checkpointsReachedCsv.split(",").filter { it.isNotEmpty() }
@@ -1863,7 +1876,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (RealmRules.spawnNow(nextZoneNumber, tick, spacingVal)) {
                     val targetGhostY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     val obstacles = spawnObstacleForSet(activeDna.obstacleSetId, tick, random, targetGhostY, nextZoneNumber)
-                    if (RealmRules.realmFor(nextZoneNumber) == Realm.SHATTER) RealmRules.glassPane(tick, userY, updatedElements) else updatedElements.addAll(obstacles)
+                    if (RealmRules.realmFor(nextZoneNumber) == Realm.SHATTER) RealmRules.glassPane(tick, userY, updatedElements) else if (RealmRules.realmFor(nextZoneNumber) == Realm.DUNES) RealmRules.glassPane(tick, userY, updatedElements, "SCARAB") else updatedElements.addAll(obstacles)
                     if (random.nextFloat() < activeDna.powerupDensity * PU_BOOST * (flavor?.powerupMul ?: 1f) * selectedDifficulty.powerupMul || tick - lastPuSpawnTick >= PU_PITY_TICKS) {
                         lastPuSpawnTick = tick
                         val puType = chooseProceduralPowerupType(random, isSundayLegendary)
@@ -2111,7 +2124,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                     } else {
                                         soundEngine.playCollision()
                                         ReactFx.obstacle(elem.subType, "HIT", elem.xOffsetFraction, elem.yMatchPos)
-                                        if (!TESTING_DISABLE_PRO_GATE) fuelLevelState = (fuelLevelState - (if (kidMode) 12 else 20 - (10 * assist).toInt())).coerceAtLeast(0)
+                                        if (!TESTING_DISABLE_PRO_GATE) fuelLevelState = (fuelLevelState - (if (kidMode || StarterWallet.rookie(activeTotalRuns)) 12 else 20 - (10 * assist).toInt())).coerceAtLeast(0)
                                         updatedMsg = if (isUnstoppableHazard) "BLINK STRIKE HIT: NO SHIELD CAN STOP IT" else "WARNING: IMPACT DETECTED! HULL INTEGRITY LOST"
                                         hitObstaclesHistory.add(elem.subType)
                                         hitThisTick = true
@@ -2234,7 +2247,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                 }
                 if ((tick * 10) % (10 + prof.fuelTiersOwned * 2) < 10 &&
-                    !((assist > 0.5f && tick % 2 == 1) || (assist > 0f && assist <= 0.5f && tick % 4 == 1))) {
+                    !((assist > 0.5f && tick % 2 == 1) || (assist > 0f && assist <= 0.5f && tick % 4 == 1)) &&
+                    !(StarterWallet.rookie(activeTotalRuns) && tick % 3 == 0)) {
                     if (tick >= fuelFreezeUntilTick && !TESTING_DISABLE_PRO_GATE) fuelLevelState = (fuelLevelState - 1)
                 }
                 if (fuelLevelState <= 0) {
@@ -2714,7 +2728,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         }
                     }
 
-                    val isCheckpointZone = nextZoneNumber % 50 == 0
+                    val isCheckpointZone = nextZoneNumber % checkpointEvery() == 0
                     if (isCheckpointZone) {
                         gameDao.updateProfile { current ->
                             val reached = current.checkpointsReachedCsv.split(",").filter { it.isNotEmpty() }
@@ -2797,7 +2811,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (RealmRules.spawnNow(nextZoneNumber, tick, spacingVal)) {
                     val targetGhostY = state.ghostYPath.getOrNull(tick % state.ghostYPath.size.coerceAtLeast(1)) ?: 50
                     val obstacles = spawnObstacleForSet(activeDna.obstacleSetId, tick, random, targetGhostY, nextZoneNumber)
-                    if (RealmRules.realmFor(nextZoneNumber) == Realm.SHATTER) RealmRules.glassPane(tick, userY, updatedElements) else updatedElements.addAll(obstacles)
+                    if (RealmRules.realmFor(nextZoneNumber) == Realm.SHATTER) RealmRules.glassPane(tick, userY, updatedElements) else if (RealmRules.realmFor(nextZoneNumber) == Realm.DUNES) RealmRules.glassPane(tick, userY, updatedElements, "SCARAB") else updatedElements.addAll(obstacles)
                     if (random.nextFloat() < activeDna.powerupDensity * PU_BOOST * (flavor?.powerupMul ?: 1f) * selectedDifficulty.powerupMul || tick - lastPuSpawnTick >= PU_PITY_TICKS) {
                         lastPuSpawnTick = tick
                         val puType = chooseProceduralPowerupType(random, isSundayLegendary)
@@ -3019,7 +3033,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                     } else {
                                         soundEngine.playCollision()
                                         ReactFx.obstacle(elem.subType, "HIT", elem.xOffsetFraction, elem.yMatchPos)
-                                        if (!TESTING_DISABLE_PRO_GATE) fuelLevelState = (fuelLevelState - (if (kidMode) 12 else 20 - (10 * assist).toInt())).coerceAtLeast(0)
+                                        if (!TESTING_DISABLE_PRO_GATE) fuelLevelState = (fuelLevelState - (if (kidMode || StarterWallet.rookie(activeTotalRuns)) 12 else 20 - (10 * assist).toInt())).coerceAtLeast(0)
                                         updatedMsg = if (isUnstoppableHazard) "BLINK STRIKE HIT: NO SHIELD CAN STOP IT" else "IMPACT IMPACT!"
                                         hitThisTick = true
                                         repeat(10) { i ->
@@ -3127,7 +3141,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                 }
                 if ((tick * 10) % (10 + prof.fuelTiersOwned * 2) < 10 &&
-                    !((assist > 0.5f && tick % 2 == 1) || (assist > 0f && assist <= 0.5f && tick % 4 == 1))) {
+                    !((assist > 0.5f && tick % 2 == 1) || (assist > 0f && assist <= 0.5f && tick % 4 == 1)) &&
+                    !(StarterWallet.rookie(activeTotalRuns) && tick % 3 == 0)) {
                     if (tick >= fuelFreezeUntilTick && !TESTING_DISABLE_PRO_GATE) fuelLevelState = (fuelLevelState - 1)
                 }
                 if (fuelLevelState <= 0) {
