@@ -57,10 +57,10 @@ object StormRunHost { var open by mutableStateOf(false); var runKey by mutableSt
 private const val RUN_SECONDS = 90f
 private const val WARN = 1.15f          // seconds a column glows before it strikes
 private const val STRIKE = 0.32f        // seconds the bolt is live
-private val TIER_SCORES = intArrayOf(150, 300, 450, 650)
-private val TIER_GEMS = intArrayOf(15, 35, 70, 120)
+private val TIER_SCORES = intArrayOf(15, 30, 45, 65)      // storm points are small numbers now: a cell is worth 1-4, not 10-40
+private val TIER_GEMS = intArrayOf(3, 7, 15, 35)          // 60 a day at most from tiers; the whole Storm day is capped at 100 (StormBonus)
 private val TIER_NAMES = arrayOf("BRONZE", "SILVER", "GOLD", "STORM LORD")
-private const val STREAK_BONUS = 150
+private const val STREAK_BONUS = 40
 private val GOLD = Color(0xFFFFD166)
 private val VOLT = Color(0xFF7DD3FF)
 
@@ -82,15 +82,15 @@ object StormModes {
 }
 
 class StormResult(val score: Int, val tier: Int, val gems: Int, val streak: Int, val streakBonus: Int, val newBest: Boolean,
-                  val rank: Int = 0, val rankUps: Int = 0, val rankGems: Int = 0, val xpInto: Int = 0, val xpNeed: Int = 1)
+                  val rank: Int = 0, val rankUps: Int = 0, val rankGems: Int = 0, val xpInto: Int = 0, val xpNeed: Int = 1, val capped: Boolean = false)
 
 /** Endless Storm Rank: lifetime score fills the rank bar; every rank pays gems and the ladder never stops. */
 private val RANK_NAMES = arrayOf("Drizzle", "Squall", "Gale", "Cyclone", "Tempest", "Typhoon", "Hurricane", "Storm Lord")
-private fun rankNeed(r: Int): Int = 500 * r + 100 * r * r              // lifetime score needed to REACH rank r
+private fun rankNeed(r: Int): Int = 50 * r + 10 * r * r              // lifetime score needed to REACH rank r
 private fun rankOf(xp: Int): Int { var r = 0; while (xp >= rankNeed(r + 1)) r++; return r }
 fun stormIntensityPct(r: Int): Int = (min(r, 24) * 2.5f).roundToInt()
 fun stormRankTitle(r: Int): String = if (r <= 0) "Rookie" else RANK_NAMES[min((r - 1) / 3, RANK_NAMES.size - 1)] + " " + r
-private fun rankUpGems(r: Int): Int = 20 + 8 * min(r, 20) + (if (r % 10 == 0) 300 else 0)
+private fun rankUpGems(r: Int): Int = 5 + 2 * min(r, 20) + (if (r % 10 == 0) 50 else 0)
 private fun streakDay(s: Int): Int = if (s <= 0) 0 else (s - 1) % 7 + 1
 
 /** Local progress: today's best/claimed tier, the daily streak, all-time best. */
@@ -98,6 +98,7 @@ object StormStore {
     private var sp: SharedPreferences? = null
     fun init(c: Context) {
         if (sp == null) sp = c.applicationContext.getSharedPreferences("neonrush_storm", Context.MODE_PRIVATE)
+        StormBonus.init(c)
         if (gi("firstSeen") == 0) pi("firstSeen", StormModes.dayKey())   // the day this player first opened the game with Storm Run in it
     }
     const val UNLOCK_RUNS = 3
@@ -109,10 +110,12 @@ object StormStore {
 
     fun streak(): Int { val d = StormModes.dayKey(); val last = gi("last"); return if (last == d || last == prevDay(d)) gi("streak") else 0 }
     fun playedToday(): Boolean = gi("last") == StormModes.dayKey()
-    fun bestToday(): Int = if (gi("bestDay") == StormModes.dayKey()) gi("bestToday") else 0
-    fun bestEver(): Int = gi("bestEver")
-    fun rank(): Int = rankOf(gi("xp"))
-    fun rankProgress(): Float { val r = rank(); return ((gi("xp") - rankNeed(r)).toFloat() / (rankNeed(r + 1) - rankNeed(r))).coerceIn(0f, 1f) }
+    /** true once the player has finished at least one Storm Run (the promo banner stops for good). */
+    fun everPlayed(): Boolean = gi("last") != 0 || gi("bestEver10") > 0
+    fun bestToday(): Int = if (gi("bestDay") == StormModes.dayKey()) gi("bestToday10") else 0
+    fun bestEver(): Int = gi("bestEver10")
+    fun rank(): Int = rankOf(gi("xp10"))
+    fun rankProgress(): Float { val r = rank(); return ((gi("xp10") - rankNeed(r)).toFloat() / (rankNeed(r + 1) - rankNeed(r))).coerceIn(0f, 1f) }
     private const val MAX_AD_ATTEMPTS = 2
     fun adAttemptsLeft(): Int = MAX_AD_ATTEMPTS - (if (gi("adDay") == StormModes.dayKey()) gi("adUsed") else 0)
     fun useAdAttempt() { val d = StormModes.dayKey(); val u = if (gi("adDay") == d) gi("adUsed") else 0; pi("adDay", d); pi("adUsed", u + 1) }
@@ -129,15 +132,17 @@ object StormStore {
         if (tier > prevClaim) { pi("claimDay", d); pi("claimTier", tier) }
         var streakBonus = 0
         var st = streak()
-        if (!playedToday()) { st += 1; pi("streak", st); pi("last", d); if (st % 7 == 0) streakBonus = STREAK_BONUS; if (st % 30 == 0) streakBonus += 500 }
+        if (!playedToday()) { st += 1; pi("streak", st); pi("last", d); if (st % 7 == 0) streakBonus = STREAK_BONUS; if (st % 30 == 0) streakBonus += 60 }
         val newBest = score > bestEver()
-        if (newBest) pi("bestEver", score)
-        if (gi("bestDay") != d) { pi("bestDay", d); pi("bestToday", 0) }
-        if (score > gi("bestToday")) pi("bestToday", score)
-        val xp0 = gi("xp"); val r0 = rankOf(xp0)
-        val xp1 = xp0 + score; pi("xp", xp1); val r1 = rankOf(xp1)
+        if (newBest) pi("bestEver10", score)
+        if (gi("bestDay") != d) { pi("bestDay", d); pi("bestToday10", 0) }
+        if (score > gi("bestToday10")) pi("bestToday10", score)
+        val xp0 = gi("xp10"); val r0 = rankOf(xp0)
+        val xp1 = xp0 + score; pi("xp10", xp1); val r1 = rankOf(xp1)
         var rg = 0; for (r in (r0 + 1)..r1) rg += rankUpGems(r)
-        return StormResult(score, tier, gems + streakBonus + rg, st, streakBonus, newBest, r1, r1 - r0, rg, xp1 - rankNeed(r1), rankNeed(r1 + 1) - rankNeed(r1))
+        val raw = gems + streakBonus + rg
+        val paid = StormBonus.take(raw)            // daily cap of 100 storm gems, all of them expiring after 2 days
+        return StormResult(score, tier, paid, st, streakBonus, newBest, r1, r1 - r0, rg, xp1 - rankNeed(r1), rankNeed(r1 + 1) - rankNeed(r1), paid < raw)
     }
 }
 
@@ -149,6 +154,7 @@ fun StormCardInfo() {
         Text("TODAY: ${m.name}", color = GOLD, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
         Text(m.blurb, color = Color.White.ca(0.75f), fontSize = 11.sp)
         Text("⚡ Streak day ${streakDay(StormStore.streak())}/7 (day 7: +$STREAK_BONUS gems, repeats forever)   •   Best today ${StormStore.bestToday()}", color = VOLT, fontFamily = FontFamily.Monospace, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
+        Text("💎 Storm gems today ${StormBonus.earnedToday()}/${StormBonus.DAILY_CAP}  •  they expire after 2 days if unspent", color = Color.White.ca(0.6f), fontFamily = FontFamily.Monospace, fontSize = 10.sp, modifier = Modifier.padding(top = 2.dp))
         Text("🌩 RANK ${StormStore.rank()} • ${stormRankTitle(StormStore.rank())}   ${(StormStore.rankProgress() * 100).roundToInt()}% to next  •  storm +${stormIntensityPct(StormStore.rank())}%", color = GOLD, fontFamily = FontFamily.Monospace, fontSize = 10.sp, modifier = Modifier.padding(top = 2.dp))
     }
 }
@@ -222,7 +228,7 @@ private class Sim(seed: Int, val mode: StormMode, val cellsPerSecondBoost: Float
         else { // smooth, speed-limited follow: obedient, but you cannot teleport across the screen
             val d = target - px; val stepMax = dt * 1.25f
             px += (d * min(1f, dt * 11f)).coerceIn(-stepMax, stepMax) }
-        if (t >= RUN_SECONDS) { eye = true; over = true; finalBonus = 100 + lives * 50; score += finalBonus; return }
+        if (t >= RUN_SECONDS) { eye = true; over = true; finalBonus = 10 + lives * 5; score += finalBonus; return }
         // strikes
         for (s in strikes) {
             if (s.done || s.cancelled) continue
@@ -237,7 +243,7 @@ private class Sim(seed: Int, val mode: StormMode, val cellsPerSecondBoost: Float
             if (t > live1) {
                 s.done = true
                 if (!s.hit) { val d = abs(px - s.x) - s.w * 0.5f; val near = d < 0.085f
-                    dodged += 1; score += if (near) 8 else 3 } }
+                    dodged += 1; score += if (near) 1 else 0 } }
         }
         // cells
         for (c in cells) {
@@ -245,7 +251,7 @@ private class Sim(seed: Int, val mode: StormMode, val cellsPerSecondBoost: Float
             val y = cellY(c)
             if (y < 0f || y > 1.1f) continue
             if (y in 0.68f..0.93f && abs(c.x - px) < 0.11f) {
-                val gain = 10 * mode.cellMult * combo
+                val gain = 1 * mode.cellMult * combo
                 c.got = true; cellsGot += 1; score += gain; pops += Pop(c.x, y, t, "+$gain", combo >= 3); lastPick = t; combo = min(combo + 1, 4); comboT = 2.2f
                 charge = min(1f, charge + 0.12f); onCell()
             }
@@ -254,7 +260,7 @@ private class Sim(seed: Int, val mode: StormMode, val cellsPerSecondBoost: Float
 
     fun discharge() {
         if (charge < 1f) return
-        charge = 0f; immune = 3.5f; wave = 1f; flash = 1f; score += 40
+        charge = 0f; immune = 3.5f; wave = 1f; flash = 1f; score += 4
     }
 }
 
@@ -380,6 +386,7 @@ private fun StormRunBody(
 
         // ready banner
         if (phase == 0 && sim.t < 0f) {
+            PilotPose(Pose.RUN_RIBBON, 130.dp, Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp))
             Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("TODAY: ${mode.name}", color = GOLD, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 24.sp)
                 Text(mode.blurb, color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
@@ -420,7 +427,7 @@ private fun StormRunBody(
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.ca(0.82f)), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                        Image(painter = androidx.compose.ui.graphics.painter.BitmapPainter(if (res.tier >= 0) poseThumb else poseSad), contentDescription = null, modifier = Modifier.size(width = 84.dp, height = 126.dp))
+                        PilotPose(if (res.tier >= 0) Pose.THUMB else Pose.SAD, 126.dp)
                         Canvas(modifier = Modifier.size(120.dp)) {
                             drawImage(badge, dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()), alpha = if (res.tier >= 0) 1f else 0.35f)
                         }
@@ -439,6 +446,7 @@ private fun StormRunBody(
                         }
                     }
                     Text(if (res.gems > 0) "+${res.gems} 💎 EARNED" else "No new reward tier reached", color = if (res.gems > 0) GOLD else Color.White.ca(0.6f), fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 18.sp, modifier = Modifier.padding(top = 12.dp))
+                    Text("Storm gems today ${StormBonus.earnedToday()}/${StormBonus.DAILY_CAP}" + (if (res.capped) "  •  DAILY LIMIT REACHED" else "") + "\nUnspent storm gems expire after 2 days", color = Color.White.ca(0.6f), fontFamily = FontFamily.Monospace, fontSize = 10.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
                     Text("⚡ Storm streak day ${streakDay(res.streak)}/7" + (if (res.streakBonus > 0) "  •  DAY 7 BONUS +${res.streakBonus}" else "  •  day 7 pays +$STREAK_BONUS gems"), color = VOLT, fontFamily = FontFamily.Monospace, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
                     Column(modifier = Modifier.padding(top = 8.dp).fillMaxWidth(0.8f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("🌩 RANK ${res.rank} • ${stormRankTitle(res.rank)}" + (if (res.rankUps > 0) "   RANK UP! +${res.rankGems} 💎" else ""), color = if (res.rankUps > 0) Color(0xFF69F0AE) else GOLD, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
@@ -447,11 +455,12 @@ private fun StormRunBody(
                         }
                         Text("${res.xpInto} / ${res.xpNeed} score to rank ${res.rank + 1}  •  next storm +${stormIntensityPct(res.rank)}% fiercer", color = Color.White.ca(0.55f), fontFamily = FontFamily.Monospace, fontSize = 9.sp, modifier = Modifier.padding(top = 2.dp))
                     }
-                    if (res.gems > 0 && !doubled) {
-                        Text(AdMobManager.rewardedLabel(RewardedSlot.STORM, "\uD83C\uDFAC WATCH AD: DOUBLE TO +${res.gems * 2} \uD83D\uDC8E"), color = Color.Black, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 13.sp,
+                    val dblRoom = minOf(res.gems, StormBonus.room())
+                    if (res.gems > 0 && dblRoom > 0 && !doubled) {
+                        Text(AdMobManager.rewardedLabel(RewardedSlot.STORM, "\uD83C\uDFAC WATCH AD: +$dblRoom MORE \uD83D\uDC8E"), color = Color.Black, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 13.sp,
                             modifier = Modifier.padding(top = 14.dp).clip(RoundedCornerShape(24.dp)).background(Color(0xFF4CAF50))
-                                .clickable { activity?.let { a -> AdMobManager.showRewardedIfReady(a, RewardedSlot.STORM) { doubled = true; onCreditGems(res.gems) } } }.padding(horizontal = 20.dp, vertical = 10.dp))
-                    } else if (doubled) Text("DOUBLED! +${res.gems} \uD83D\uDC8E more", color = Color(0xFF69F0AE), fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
+                                .clickable { activity?.let { a -> AdMobManager.showRewardedIfReady(a, RewardedSlot.STORM) { doubled = true; val got = StormBonus.take(res.gems); if (got > 0) onCreditGems(got) } } }.padding(horizontal = 20.dp, vertical = 10.dp))
+                    } else if (doubled) Text("BONUS PAID!", color = Color(0xFF69F0AE), fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
                     Row(modifier = Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("DONE", color = Color.White, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 14.sp,
                             modifier = Modifier.clip(RoundedCornerShape(24.dp)).border(1.dp, Color.White.ca(0.6f), RoundedCornerShape(24.dp)).clickable { onExit() }.padding(horizontal = 26.dp, vertical = 12.dp))
