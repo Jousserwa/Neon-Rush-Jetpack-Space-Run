@@ -162,7 +162,7 @@ private fun PartCard(
     val worn = equipped[part.slot.name] == part.id
     val shape = RoundedCornerShape(12.dp)
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(shape).background(CyberSurface)
+        Modifier.fillMaxWidth().padding(vertical = 4.dp).readyGlow(!have && status == DropSchedule.PartStatus.OPEN, Color(0xFF69F0AE), 12.dp).clip(shape).background(CyberSurface)
             .border(if (worn || trying) 2.5.dp else 1.5.dp, rc.copy(alpha = if (worn || trying) 1f else 0.55f), shape)
             .clickable { onTry() },
         verticalAlignment = Alignment.CenterVertically
@@ -174,6 +174,7 @@ private fun PartCard(
                     Text(part.rarity.label, color = Color(0xFF05060F), fontSize = 9.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
                 }
                 Text("  ${part.slot.emoji}", fontSize = 12.sp)
+                if (!have && status == DropSchedule.PartStatus.OPEN) { Spacer(Modifier.width(6.dp)); ReadyTag() }
             }
             Text(part.name, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 3.dp))
             Text(part.blurb, fontSize = 11.sp, color = CyberPrimary.copy(alpha = 0.7f), modifier = Modifier.padding(top = 2.dp, bottom = 6.dp))
