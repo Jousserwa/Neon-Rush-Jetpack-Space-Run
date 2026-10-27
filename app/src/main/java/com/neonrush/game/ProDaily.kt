@@ -14,7 +14,7 @@ import java.util.TimeZone
  * [version] changes after a claim so the Home card redraws.
  */
 object ProDaily {
-    const val GEMS = 75
+    const val GEMS = 50
     var version by mutableStateOf(0)
 
     private fun prefs(ctx: Context) = ctx.applicationContext.getSharedPreferences("neonrush_prodaily", Context.MODE_PRIVATE)
