@@ -372,6 +372,63 @@ fun realmCaption(zone: Int): String? = when (RealmRules.realmFor(zone)) {
     com.neonrush.game.Realm.SHATTER -> "SHATTER REALM  \u00b7  FLY THROUGH THE GAP"
     com.neonrush.game.Realm.STORM -> if (RealmRules.calm) "THE EYE  \u00b7  CALM BEFORE THE STORM" else "STORM REALM  \u00b7  LEAVE THE GLOWING LANE"
     com.neonrush.game.Realm.PULSE -> "PULSE REALM  ·  MOVE ON THE BEAT"
+    com.neonrush.game.Realm.DUNES -> "DUNES REALM  \u00b7  FLY THROUGH THE SCARAB GAP"
     com.neonrush.game.Realm.DARK_AGES -> "DARK AGES  \u00b7  THE EMBER KNIGHT RIDES"
     else -> null
+}
+
+/**
+ * DUNES: every obstacle tile of a scarab wall is drawn as a glowing golden beetle (side and front views alternate). The gap glows
+ * with chevrons. Beetles that you pass scatter into gold sparks. Blown sand streaks cross the screen and thicken deeper in.
+ */
+fun DrawScope.drawDunesRealm(cw: Float, ch: Float, t: Float, tick: Int, zone: Int, pilot: Offset, elems: List<VisualTrackElement>,
+                             side: ImageBitmap, front: ImageBitmap) {
+    val gold = Color(0xFFFFC107)
+    val amber = Color(0xFFFF8F00)
+    drawRect(Brush.verticalGradient(listOf(Color.Transparent, amber.copy(alpha = 0.10f)), startY = 0f, endY = ch), size = Size(cw, ch), blendMode = BlendMode.Plus)
+    val depth = ((zone - 480) / 30f).coerceIn(0f, 1f)
+    val n = 10 + (18 * depth).toInt()
+    for (k in 0 until n) {
+        val sp = 0.5f + fxRnd(k, 3)
+        val x = (((fxRnd(k, 1) - t * 0.35f * sp) % 1f) + 1f) % 1f * cw
+        val y = ch * (0.15f + 0.8f * fxRnd(k, 2))
+        drawLine(Color(0xFFFFE0A0).copy(alpha = 0.10f + 0.08f * sp), Offset(x, y), Offset(x + cw * 0.05f * sp, y + ch * 0.004f), strokeWidth = ch * 0.0018f, cap = StrokeCap.Round)
+    }
+    for (e in elems) {
+        if (e.subType != "SCARAB") continue
+        val x = cw * e.xOffsetFraction
+        if (x > cw * 1.1f || x < -cw * 0.1f) continue
+        val y = ch * (e.yMatchPos / 100f)
+        val parts = e.id.split("_")
+        val gapC = parts.getOrNull(2)?.toIntOrNull() ?: 50
+        val idx = parts.getOrNull(3)?.toIntOrNull() ?: 0
+        val gone = ((0.2f - e.xOffsetFraction) / 0.10f).coerceIn(0f, 1f)
+        if (gone <= 0f) {
+            val bmp = if ((idx + gapC) % 2 == 0) side else front
+            val dh = ch * 0.17f
+            val dw = dh * bmp.width.toFloat() / bmp.height.toFloat()
+            val bob = sin(t * 7f + idx * 1.7f + gapC) * ch * 0.006f
+            fxGlow(Offset(x, y + bob), dh * 0.9f, gold, 0.16f)
+            drawImage(bmp, dstOffset = IntOffset((x - dw / 2f).roundToInt(), (y - dh / 2f + bob).roundToInt()),
+                dstSize = IntSize(dw.roundToInt().coerceAtLeast(1), dh.roundToInt().coerceAtLeast(1)))
+        } else if (gone < 1f) {
+            for (k in 0 until 6) {
+                val ang = fxRnd(idx, k) * 6.283f
+                val d = gone * ch * (0.05f + 0.14f * fxRnd(k, idx))
+                val c = Offset(x + cos(ang) * d * 0.8f - gone * cw * 0.02f, y + sin(ang) * d)
+                drawCircle(gold.copy(alpha = (0.7f * (1f - gone)).coerceIn(0f, 1f)), radius = ch * 0.007f * (1f - gone * 0.5f), center = c)
+            }
+        }
+        if (idx == 0 && e.xOffsetFraction > 0.2f) {
+            val gy = ch * (gapC / 100f)
+            fxGlow(Offset(x, gy), ch * 0.2f, gold, 0.26f + 0.1f * sin(t * 6f))
+            for (c in 0 until 3) {
+                val ox = x - cw * 0.035f * (c + 1) - ((t * 0.9f) % 1f) * cw * 0.02f
+                val aa = 0.7f * (1f - c / 3f)
+                drawLine(Color.White.copy(alpha = aa), Offset(ox + cw * 0.01f, gy - ch * 0.03f), Offset(ox, gy), strokeWidth = ch * 0.004f, cap = StrokeCap.Round)
+                drawLine(Color.White.copy(alpha = aa), Offset(ox, gy), Offset(ox + cw * 0.01f, gy + ch * 0.03f), strokeWidth = ch * 0.004f, cap = StrokeCap.Round)
+            }
+        }
+    }
+    fxGlow(pilot, ch * 0.10f, gold, 0.18f)
 }
