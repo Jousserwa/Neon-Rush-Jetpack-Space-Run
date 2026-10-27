@@ -1662,7 +1662,9 @@ fun ArcadeHomeView(
             NeonPilotScreensaver(tier = saverTier)
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(10.dp))
+        QuoteLine(mode = "day", modifier = Modifier.padding(horizontal = 6.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         if (profile.transcendenceCount > 0) {
             Box(
@@ -2071,7 +2073,7 @@ fun CheckpointsDialog(profile: GameProfile, viewModel: NeonRushViewModel, onDism
                 )
             }
             Text(
-                "Each checkpoint you reach is saved here. Unlock one once with gems, then restart from it any time.",
+                "Checkpoints are saved every ${viewModel.checkpointEvery()} zones (Pro: 35, free: 45). Unlock one once with gems, then restart from it any time.",
                 color = CyberOnSurface.copy(alpha = 0.75f), fontSize = 12.sp,
                 modifier = Modifier.padding(top = 6.dp, bottom = 12.dp)
             )
@@ -5041,6 +5043,7 @@ fun GameOverOverlayScreen(
                     val offerAct = LocalContext.current.findActivity()
                     PassOfferCard(offerPass, onBuy = { offerAct?.let { viewModel.seasonPass.buy(it) } })
                 }
+                QuoteLine(mode = if (simState.score > 0 && simState.score >= profile.bestScore) "win" else "loss")
                 if (simState.dailyBonusLabel.isNotEmpty()) {
                     if (simState.dailyBonusLabel.contains("DAILY BONUS") || simState.dailyBonusLabel.contains("SPECIAL BONUS")) {
                         DailyBonusCard(simState.dailyBonusLabel)       // animated: pop-in, counting gems, shimmer, day dots
