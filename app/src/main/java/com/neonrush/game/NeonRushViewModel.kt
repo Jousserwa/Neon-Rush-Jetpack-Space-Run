@@ -566,10 +566,12 @@ class NeonRushViewModel(
     fun getAmbientEnabled(): Boolean = NeonSoundEngine.getAmbientEnabled()
     fun setAmbientEnabled(enabled: Boolean) = NeonSoundEngine.setAmbientEnabled(enabled)
     fun purchaseStarterPack(activity: Activity) {
+    if (StarterPack.bought(appCtx)) { _purchaseErrorEvent.tryEmit("The Starter Pack can only be bought once, and you already have it."); return }
     RevenueCatManager.purchaseStarterPack(activity) { success ->
         if (success) {
+            StarterPack.markBought(appCtx)
             viewModelScope.launch {
-                gameDao.updateProfile { prof -> prof.copy(gems = prof.gems + RevenueCatManager.STARTER_PACK_GEMS_AMOUNT) }
+                gameDao.updateProfile { prof -> prof.copy(gems = prof.gems + RevenueCatManager.STARTER_PACK_GEMS_AMOUNT, totalGemsEarned = prof.totalGemsEarned) }
                 PurchaseLedger.markDeliveredByProduct(RevenueCatManager.PRODUCT_ID_STARTER_PACK)
                 soundEngine.playUnlockSkin()
             }
@@ -1592,7 +1594,7 @@ fun startFromCheckpoint(checkpointZone: Int) {
 /** Checkpoint spacing: every 35 zones for Pro, every 45 for free players. */
 fun checkpointEvery(): Int = if (RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE) 35 else 45
 
-/** Pro daily gems: pays +75 once per day to Pro subscribers (see ProDaily). */
+/** Pro daily gems: pays +50 once per day to Pro subscribers (see ProDaily). */
 fun claimProDaily(onDone: (Int) -> Unit = {}) {
     if (!(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE)) return
     viewModelScope.launch { val g = ProDaily.claim(appCtx, gameDao); if (g > 0) onDone(g) }
