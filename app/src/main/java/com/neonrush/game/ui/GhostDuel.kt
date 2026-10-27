@@ -104,8 +104,13 @@ object DuelStore {
     private fun gi(k: String, d: Int = 0) = try { sp?.getInt(k, d) ?: d } catch (_: Throwable) { d }
     private fun pi(k: String, v: Int) { try { sp?.edit()?.putInt(k, v)?.apply() } catch (_: Throwable) { } }
     private fun day() = StormModes.dayKey()
-    fun maxPerDay(isPro: Boolean) = if (isPro) 5 else 3
+    fun maxPerDay(isPro: Boolean) = if (isPro) 6 else 3
+    /** Pro only: one extra free rematch per day, no ad needed. */
+    fun proBonusAvail(): Boolean = gi("proDay") != day()
+    fun useProBonus() { pi("proDay", day()); pi("used", (used() - 1).coerceAtLeast(0)) }
     fun used(): Int = if (gi("useDay") == day()) gi("used") else 0
+    /** true once the player has started at least one duel (the promo banner stops for good). */
+    fun everPlayed(): Boolean = gi("useDay") != 0
     fun left(isPro: Boolean) = (maxPerDay(isPro) - used()).coerceAtLeast(0)
     fun useAttempt() { val d = day(); pi("useDay", d); pi("used", used() + 1) }
     fun adLeft(): Int = 2 - (if (gi("adDay") == day()) gi("adUsed") else 0)
@@ -248,7 +253,7 @@ fun GhostDuelLobby(onBack: () -> Unit) {
                 Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = CyberPrimary, modifier = Modifier.size(24.dp))
             }
             Spacer(modifier = Modifier.width(8.dp))
-            PilotPose(Pose.BOOST, 44.dp)
+            PilotPose(Pose.RUN_RIBBON, 44.dp)
             Text("👻 GHOST DUEL", fontSize = 18.sp, fontWeight = FontWeight.Black, color = CyberPrimary, fontFamily = FontFamily.Monospace)
         }
         Text("A head-to-head sprint. Jump the barriers, slide under the beams, hit the boost pads, and cross the line before your rival.", color = CyberOnSurface.ca(0.75f), fontSize = 12.sp, modifier = Modifier.padding(bottom = 4.dp))
@@ -391,6 +396,7 @@ private fun DuelBody(isPro: Boolean, onCreditGems: (Int) -> Unit, onExit: () -> 
 
         // countdown + taunt
         if (hudCount > 0 && phase == 0) {
+            PilotPose(Pose.RUN_RIBBON, 150.dp, Modifier.align(Alignment.CenterStart).padding(start = 6.dp))      // you, ready to run
             Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 Image(painter = BitmapPainter(vsImg), contentDescription = null, modifier = Modifier.size(width = 120.dp, height = 108.dp))
                 Image(painter = BitmapPainter(ImageBitmap.imageResource(id = rival.portrait)), contentDescription = null, contentScale = ContentScale.Crop,
@@ -411,10 +417,10 @@ private fun DuelBody(isPro: Boolean, onCreditGems: (Int) -> Unit, onExit: () -> 
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(26.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                         if (won) {
-                            Image(painter = BitmapPainter(poseThumb), contentDescription = null, modifier = Modifier.size(width = 100.dp, height = 150.dp))
+                            PilotPose(Pose.THUMB, 150.dp)
                             Image(painter = BitmapPainter(trophyImg), contentDescription = null, modifier = Modifier.size(width = 100.dp, height = 110.dp))
                         } else {
-                            Image(painter = BitmapPainter(poseSad), contentDescription = null, modifier = Modifier.size(width = 100.dp, height = 150.dp))
+                            PilotPose(Pose.SAD, 150.dp)
                             Image(painter = BitmapPainter(ImageBitmap.imageResource(id = rival.portrait)), contentDescription = null, contentScale = ContentScale.Crop,
                                 modifier = Modifier.size(width = 72.dp, height = 96.dp).clip(RoundedCornerShape(12.dp)).border(2.dp, rival.color, RoundedCornerShape(12.dp)))
                         }
@@ -440,7 +446,12 @@ private fun DuelBody(isPro: Boolean, onCreditGems: (Int) -> Unit, onExit: () -> 
                             modifier = Modifier.clip(RoundedCornerShape(24.dp)).background(if (left > 0) Brush.horizontalGradient(listOf(rival.color, DGOLD)) else Brush.horizontalGradient(listOf(Color.Gray, Color.Gray)))
                                 .clickable(enabled = left > 0) { DuelStore.useAttempt(); GhostDuelHost.runKey += 1 }.padding(horizontal = 22.dp, vertical = 12.dp))
                     }
-                    if (left <= 0 && adLeft > 0) {
+                    if (left <= 0 && isPro && DuelStore.proBonusAvail()) {
+                        Text("\u2B50 PRO BONUS REMATCH (free, once a day)", color = Color.Black, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 13.sp,
+                            modifier = Modifier.padding(top = 12.dp).clip(RoundedCornerShape(24.dp)).background(Brush.horizontalGradient(listOf(DGOLD, DMAG)))
+                                .clickable { DuelStore.useProBonus(); DuelStore.useAttempt(); GhostDuelHost.runKey += 1 }.padding(horizontal = 20.dp, vertical = 10.dp))
+                    }
+                    if (left <= 0 && adLeft > 0 && !(isPro && DuelStore.proBonusAvail())) {
                         Text(AdMobManager.rewardedLabel(RewardedSlot.STORM, "🎬 WATCH AD: FREE REMATCH ($adLeft left today)"), color = Color.White, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 13.sp,
                             modifier = Modifier.padding(top = 12.dp).clip(RoundedCornerShape(24.dp)).border(1.5.dp, Color(0xFF4CAF50), RoundedCornerShape(24.dp))
                                 .clickable { activity?.let { a -> AdMobManager.showRewardedIfReady(a, RewardedSlot.STORM) { DuelStore.grantExtra(); DuelStore.useAttempt(); GhostDuelHost.runKey += 1 } } }.padding(horizontal = 20.dp, vertical = 10.dp))
