@@ -35,6 +35,17 @@ object DailyQuote {
         return c.get(Calendar.YEAR) * 366 + c.get(Calendar.DAY_OF_YEAR)
     }
 
+    /** FREE players only see part of the home quote on every 3rd day of the month; Pro always reads the whole line. */
+    fun isTeaserDay(): Boolean = Calendar.getInstance().get(Calendar.DAY_OF_MONTH) % 3 == 0
+
+    /** The first ~55% of the words, then an ellipsis. */
+    fun teaser(text: String): String {
+        val words = text.split(" ")
+        if (words.size < 4) return text
+        val keep = Math.ceil(words.size * 0.55).toInt().coerceIn(2, words.size - 1)
+        return words.take(keep).joinToString(" ") + " \u2026"
+    }
+
     private const val BLOCK = 15          // quotes used per month
     private const val BASE_MONTH = 2026 * 12 + 9   // October 2026 = first block
 
