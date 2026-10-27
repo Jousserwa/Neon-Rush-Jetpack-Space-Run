@@ -1,5 +1,6 @@
 package com.neonrush.game.ui
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -30,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neonrush.game.HullCatalog
+import com.neonrush.game.ProDaily
 import com.neonrush.game.ProSnapshot
 import java.util.Calendar
 import java.util.TimeZone
@@ -56,6 +58,9 @@ fun ProVaultCard(perks: ProSnapshot, isPro: Boolean, onClaimStipend: () -> Unit,
     val t by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(3000, easing = LinearEasing), RepeatMode.Restart), label = "t")
     val tau = 6.2831855f
     val glow = 0.5f + 0.5f * sin(t * tau)
+    val lap by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(4200, easing = LinearEasing), RepeatMode.Restart), label = "lap")
+    val tick by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(12000, easing = LinearEasing), RepeatMode.Restart), label = "tick")
+    val flame = 0.5f + 0.5f * sin(t * tau * 3f)
     val accent = if (isPro) VGOLD else VMAG
     val shape = RoundedCornerShape(16.dp)
     val loanerName = perks.loanerHullId?.let { HullCatalog.byId(it)?.name ?: it.replace('_', ' ') }
@@ -69,18 +74,24 @@ fun ProVaultCard(perks: ProSnapshot, isPro: Boolean, onClaimStipend: () -> Unit,
                 val w = size.width
                 val x = (t * 1.6f - 0.3f) * w
                 drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.08f), Color.Transparent), startX = x - w * 0.12f, endX = x + w * 0.12f), blendMode = BlendMode.Plus)
+                travelBorder(lap, accent, 16.dp.toPx(), 2.5.dp.toPx())
             }
             .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { open = !open }) {
-            Text(if (isPro) "🗝️" else "🔒", fontSize = 22.sp,
-                modifier = Modifier.graphicsLayer { rotationZ = sin(t * tau) * (if (isPro) 5f else 8f) })
-            Spacer(Modifier.width(8.dp))
+            PilotPose(if (isPro) Pose.THUMB else Pose.BOOST, 52.dp)
+            Spacer(Modifier.width(6.dp))
             Column(Modifier.weight(1f)) {
                 Text(if (isPro) "YOUR PRO VAULT" else "PRO VAULT  •  LOCKED", color = accent, fontWeight = FontWeight.Black, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
-                Text(
+                val perksTicker = listOf("\uD83D\uDC8E +50 gems every day", "\uD83D\uDE80 a new hull every month", "\u26A1 more Storm and Duel runs", "\uD83C\uDFC1 checkpoints every 35 zones", "\uD83D\uDD25 LEGENDARY: a whole other Neon Rush")
+                if (!isPro) {
+                    val idx = ((tick * perksTicker.size * 5f).toInt() / 5).coerceIn(0, perksTicker.size - 1)   // each line holds ~2.4 s
+                    Crossfade(targetState = idx, animationSpec = tween(500), label = "ticker") { i ->
+                        Text(perksTicker[i], color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    }
+                } else Text(
                     if (isPro) (if (perks.rank.label.isNotEmpty()) "${perks.rank.emoji} ${perks.rank.label} Pro • ${perks.months} month${if (perks.months == 1) "" else "s"}" else "Everything Pro gives you, in one place")
-                    else "See what you are missing every day and month",
+                    else "",
                     color = Color.White.copy(alpha = 0.75f), fontSize = 10.sp, fontFamily = FontFamily.Monospace
                 )
             }
@@ -96,7 +107,7 @@ fun ProVaultCard(perks: ProSnapshot, isPro: Boolean, onClaimStipend: () -> Unit,
             Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("💎 MONTHLY GEMS +30", color = if (isPro) Color.White else Color.White.copy(alpha = 0.5f), fontWeight = FontWeight.Bold, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                    Text(if (!isPro) "Plus +75 every single day" else if (perks.stipendClaimable) "Ready to claim" else "Claimed this month", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Text(if (!isPro) "Plus +${ProDaily.GEMS} every single day" else if (perks.stipendClaimable) "Ready to claim" else "Claimed this month", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                 }
                 if (isPro && perks.stipendClaimable) {
                     Text("CLAIM", color = Color.Black, fontWeight = FontWeight.Black, fontSize = 11.sp, fontFamily = FontFamily.Monospace,
@@ -106,7 +117,22 @@ fun ProVaultCard(perks: ProSnapshot, isPro: Boolean, onClaimStipend: () -> Unit,
             }
             VaultRow("⚡", "MORE RUNS EVERY DAY", "Storm Run 6 a day, Ghost Duel 6 plus a free bonus rematch", isPro, 6)
             VaultRow("🏁", "CLOSER CHECKPOINTS", "Saved every 35 zones, not 45", isPro, 6)
-            VaultRow("🔥", "LEGENDARY DIFFICULTY", "Pro-only top difficulty, plus Pro trails and early access to new hulls", isPro, 6)
+            // LEGENDARY: more than a harder level, a different Neon Rush. Gets its own burning banner.
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(12.dp))
+                    .background(Brush.horizontalGradient(listOf(Color(0xFFFF6D00).copy(alpha = 0.18f + 0.12f * flame), VGOLD.copy(alpha = 0.14f + 0.10f * flame), Color(0xFFFF6D00).copy(alpha = 0.18f + 0.12f * flame))))
+                    .border(1.dp, VGOLD.copy(alpha = 0.4f + 0.4f * flame), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("\uD83D\uDD25", fontSize = 24.sp, modifier = Modifier.graphicsLayer { val k = 1f + 0.14f * flame; scaleX = k; scaleY = k; rotationZ = sin(t * tau * 3f) * 5f })
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(if (isPro) "LEGENDARY  \u2022  YOURS" else "LEGENDARY  \u2022  PRO ONLY", color = VGOLD, fontWeight = FontWeight.Black, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                    Text("More than a harder level: a whole other Neon Rush, with its own rewards, aura and powers.", color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                }
+            }
+            VaultRow("🎨", "PRO TRAILS & EARLY HULLS", "Pro-only trails and 4 days early access to every new hull", isPro, 6)
             if (!isPro) {
                 Text("UNLOCK PRO", color = Color.Black, fontWeight = FontWeight.Black, fontSize = 13.sp, fontFamily = FontFamily.Monospace, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     modifier = Modifier.padding(top = 10.dp).fillMaxWidth().graphicsLayer { val k = 1f + 0.02f * glow; scaleX = k; scaleY = k }
