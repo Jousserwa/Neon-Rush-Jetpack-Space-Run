@@ -1,0 +1,64 @@
+# Daily encouragement quotes. One per line. Optional prefix [win] or [loss] = only shown after a good / bad run.
+# Each month the game uses a block of 15 general quotes (lines 1-15 = month 1, 16-30 = month 2, ...), shown in a random order, one a day.
+Efforts produce results, keep it up!
+Your future is in now, not yesterday.
+Be hungry for at least one more step today.
+Save your energy for what matters.
+Smash the lenses of fear, you can!
+A friend is a helpmate, not a gossip mate.
+Being alive is the greatest evidence that things are getting better.
+It's okay to cry, let it all out!
+Be an atmosphere for growth everywhere you are.
+Money is an instrument for your greatness, not an achievement.
+You become what you hear, guard your ears!
+You are not alone, do you know it!
+You are meant to succeed, pull up your stockings!
+Today is your day, go for it!
+That's life, let it go, push on.
+Movements move opportunities to you.
+Who lied to you that you can't?
+I choose to succeed every second of me.
+Do you know how beautiful you are!
+Get up, I said get up, you are my hope.
+You were never meant to fail.
+Your mistakes were your experiences for better results today.
+You are highly favored today!
+I wish you knew how much I admire your persistence.
+Choose your words wisely, they are a two-edged sword.
+No one is coming to help you but the works of your hands.
+Your food is your life span! What are you eating?
+Opportunities are knocking at my door, I am fit to have them.
+Smile, smile, you are wonderfully made.
+Don't stop, don't stop until you breathe no more!
+Doors have opened for me! I feel great.
+I am prospering every minute of me.
+You never know, this is your day, style up!
+Have you written something down? It may be your breakthrough.
+Your calendar is not my calendar, don't judge my timing.
+I call you special for checking on me every day!
+This too will pass, don't stress too much.
+You are born for this, go get it!
+You are my father because you never abandoned me.
+I call you mother because you looked after me!
+Never say I can't, because you can!
+It's okay to have enemies you didn't create! Calm down.
+It starts with you, if you choose.
+Hope is life, oxygen, fuel. Guard it heatedly.
+Is your vision clear? Are you ready to pay the price?
+Normalize a positive environment around you, it's a catalyst.
+Be like running water, never rest until you find the path.
+Every step counts, continue.
+I am better than this, I am overcoming.
+Normal people see normal things, what do you see?
+Not even me can hinder my success, watch the space.
+I can make it, I am making it.
+The speed doesn't matter sometimes, the steps you make do.
+The powerful you is rising, continue working on it.
+I feel something good happening now, it's my time!
+[loss]Crashing is part of flying. Get back up!
+[loss]Every legend lost before they won. Try again!
+[loss]That was only practice. The next run is yours.
+[loss]Don't give up, you were so close!
+[win]Look at you go! That's your best yet!
+[win]You earned it. Keep shining!
+[win]New heights unlocked. Proud of you!
