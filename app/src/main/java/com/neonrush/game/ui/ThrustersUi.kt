@@ -96,8 +96,9 @@ fun ThrustersPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
         val active = st.active == th.id && owned
         val rc = Color(th.rarity.argb)
         val shape = RoundedCornerShape(12.dp)
+        val ready = !owned && th.kind == ThrusterKind.GEMS && ThrusterCatalog.buyableAtMs(th, pro) <= nowMs
         Column(
-            Modifier.fillMaxWidth().padding(vertical = 5.dp).clip(shape).background(CyberSurface)
+            Modifier.fillMaxWidth().padding(vertical = 5.dp).readyGlow(ready, Color(0xFF69F0AE), 12.dp).clip(shape).background(CyberSurface)
                 .border(if (active) 2.5.dp else 1.5.dp, rc.copy(alpha = if (active) 1f else 0.6f), shape)
                 .then(
                     if (!owned && !(th.kind == ThrusterKind.GEMS && ThrusterCatalog.buyableAtMs(th, pro) <= nowMs))
