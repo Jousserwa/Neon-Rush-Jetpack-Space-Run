@@ -78,10 +78,7 @@ fun LiveEventCard(onClaim: (Int) -> Unit, modifier: Modifier = Modifier) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 // the pilot cheers while a reward is waiting to be claimed
                 val rewardWaiting = ev.tiers.indices.any { s.progress >= ev.tiers[it].goal && ((s.claimed shr it) and 1) == 0 }
-                if (rewardWaiting) androidx.compose.foundation.Image(
-                    painter = androidx.compose.ui.graphics.painter.BitmapPainter(androidx.compose.ui.graphics.ImageBitmap.imageResource(id = com.neonrush.game.R.drawable.pilot_cheer)),
-                    contentDescription = null, modifier = Modifier.size(width = 32.dp, height = 48.dp)
-                )
+                if (rewardWaiting) PilotPose(Pose.CHEER, 48.dp)
                 Text(
                     "${ev.emoji} ${ev.title}" + if (ev.holiday) "  • SEASON" else "  • WEEKLY",
                     color = accent, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, fontFamily = FontFamily.Monospace, maxLines = 1
