@@ -25,7 +25,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -37,6 +40,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neonrush.game.DailyQuote
+import kotlin.math.floor
 import kotlin.math.sin
 
 /**
@@ -51,8 +55,8 @@ fun QuoteLine(mode: String = "day", modifier: Modifier = Modifier, isPro: Boolea
     val cut = mode == "day" && !isPro && DailyQuote.isTeaserDay()
     val text = if (cut) DailyQuote.teaser(full) else full
     val words = remember(text) { text.split(" ") }
-    val reveal = remember(text) { Animatable(0f) }
-    LaunchedEffect(text) { reveal.snapTo(0f); reveal.animateTo(words.size.toFloat() + 1f, tween(words.size * 170 + 400, easing = LinearEasing)) }
+    val typed = remember(text) { Animatable(0f) }   // typewriter: how many letters are on the page
+    LaunchedEffect(text) { typed.snapTo(0f); typed.animateTo(text.length.toFloat(), tween((text.length * 48).coerceAtLeast(700), easing = LinearEasing)) }
     val inf = rememberInfiniteTransition(label = "quote")
     val t by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(3600, easing = LinearEasing), RepeatMode.Restart), label = "t")
     val lap by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(5200, easing = LinearEasing), RepeatMode.Restart), label = "lap")
@@ -63,8 +67,9 @@ fun QuoteLine(mode: String = "day", modifier: Modifier = Modifier, isPro: Boolea
     val shape = RoundedCornerShape(16.dp)
     Row(
         modifier = modifier.fillMaxWidth().clip(shape)
-            .background(Brush.horizontalGradient(listOf(col.copy(alpha = 0.05f + 0.05f * breathe), col.copy(alpha = 0.13f + 0.06f * breathe), col.copy(alpha = 0.05f + 0.05f * breathe))))
-            .border(1.dp, col.copy(alpha = 0.25f + 0.2f * breathe), shape)
+            .background(Color(0xFF080620))   // solid dark paper so the words never melt into the background
+            .background(Brush.horizontalGradient(listOf(col.copy(alpha = 0.10f + 0.06f * breathe), col.copy(alpha = 0.24f + 0.10f * breathe), col.copy(alpha = 0.10f + 0.06f * breathe))))
+            .border(2.dp, col.copy(alpha = 0.55f + 0.4f * breathe), shape)
             .then(if (cut) Modifier.clickable { onUpgrade() } else Modifier)
             .drawWithContent {
                 drawContent()
@@ -81,27 +86,36 @@ fun QuoteLine(mode: String = "day", modifier: Modifier = Modifier, isPro: Boolea
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        PilotPose(pose, 54.dp)
+        PilotPose(pose, 64.dp)
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(if (mode == "day") "✨ WORD OF THE DAY ✨" else if (mode == "win") "⭐ WELL DONE ⭐" else "💪 GET BACK UP 💪",
-                color = col.copy(alpha = 0.55f + 0.4f * breathe), fontSize = 9.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, letterSpacing = 1.5.sp)
-            Spacer(Modifier.height(3.dp))
-            val r = reveal.value
+                color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, letterSpacing = 2.sp,
+                modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Brush.horizontalGradient(listOf(col, Color.White, col))).padding(horizontal = 12.dp, vertical = 3.dp))
+            Spacer(Modifier.height(6.dp))
+            val n = typed.value.toInt()
+            val pal = listOf(Color.White, Color(0xFF7DF9FF), Color(0xFFFF8AD8), Color(0xFFFFD23F), Color(0xFF69F0AE))
+            val sh = t * pal.size * 2f
+            val base = floor(sh).toInt(); val fr = sh - base
+            val keyIdx = words.indices.maxByOrNull { words[it].length } ?: 0      // the longest word is the star of the line
+            val cursorOn = ((t * 10f).toInt() % 2) == 0
             Text(
                 buildAnnotatedString {
-                    withStyle(SpanStyle(color = col.copy(alpha = 0.9f), fontSize = 18.sp)) { append("“") }
+                    withStyle(SpanStyle(color = col, fontSize = 22.sp, fontWeight = FontWeight.Black)) { append("“") }
+                    var used = 0
                     words.forEachIndexed { i, wd ->
-                        val a = (r - i).coerceIn(0f, 1f)
-                        // a soft wave of brightness runs through the words once they are in
-                        val wave = 0.82f + 0.18f * sin((t * tau) - i * 0.7f)
-                        withStyle(SpanStyle(color = Color.White.copy(alpha = (a * wave).coerceIn(0f, 1f)))) { append(wd) }
+                        val shown = (n - used).coerceIn(0, wd.length)
+                        val c = if (i == keyIdx) lerp(Color(0xFFFFD23F), Color.White, 0.5f + 0.5f * sin(t * tau * 2f)) else lerp(pal[(i + base) % pal.size], pal[(i + base + 1) % pal.size], fr)
+                        if (shown > 0) withStyle(SpanStyle(color = c, fontWeight = if (i == keyIdx) FontWeight.Black else FontWeight.Bold, fontSize = if (i == keyIdx) 18.sp else 16.sp)) { append(wd.substring(0, shown)) }
+                        if (shown < wd.length) withStyle(SpanStyle(color = Color.Transparent)) { append(wd.substring(shown)) }
+                        used += wd.length + 1
                         if (i < words.size - 1) append(" ")
                     }
-                    withStyle(SpanStyle(color = col.copy(alpha = 0.9f), fontSize = 18.sp)) { append(if (cut) "" else "”") }
+                    if (cut) withStyle(SpanStyle(color = col)) { append("…") } else withStyle(SpanStyle(color = col, fontSize = 22.sp, fontWeight = FontWeight.Black)) { append("”") }
+                    withStyle(SpanStyle(color = if (cursorOn) col else Color.Transparent, fontWeight = FontWeight.Black)) { append("▌") }   // typewriter cursor
                 },
-                fontSize = 14.sp, fontStyle = FontStyle.Italic, fontWeight = FontWeight.Medium, fontFamily = FontFamily.Serif, textAlign = TextAlign.Center,
-                modifier = Modifier.graphicsLayer { translationY = (1f - (r / 2f).coerceIn(0f, 1f)) * 8f }
+                style = TextStyle(fontSize = 16.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, lineHeight = 23.sp,
+                    shadow = Shadow(col.copy(alpha = 0.8f), Offset.Zero, 10f))
             )
             if (cut) {
                 Text("🔒 PRO READS THE WHOLE QUOTE", color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace,
