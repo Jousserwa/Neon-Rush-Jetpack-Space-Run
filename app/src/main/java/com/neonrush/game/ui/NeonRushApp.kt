@@ -1664,6 +1664,8 @@ fun ArcadeHomeView(
         }
 
         Spacer(modifier = Modifier.height(10.dp))
+        ProGreetingBanner(isPro = isPro, onUpgrade = { showPlanPaywall = true }, modifier = Modifier.padding(horizontal = 6.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         QuoteLine(mode = "day", modifier = Modifier.padding(horizontal = 6.dp), isPro = isPro, onUpgrade = { showPlanPaywall = true })
         Spacer(modifier = Modifier.height(10.dp))
 
@@ -3590,7 +3592,8 @@ fun RacingSimulatorScreen(
             .background(Color(0x66000000), RoundedCornerShape(12.dp)).padding(horizontal = 8.dp, vertical = 3.dp)) {
             val hudTier = viewModel.selectedDifficulty
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(hudTier.label.take(3), color = Color(hudTier.colorArgb), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                if (hudTier == NeonRushViewModel.DifficultyTier.LEGENDARY) LegendHudTag()
+                else Text(hudTier.label.take(3), color = Color(hudTier.colorArgb), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.width(8.dp))
                 Text("🎟 $runTokens", color = Color(0xFFFFD23F), fontSize = 12.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
             }
@@ -3825,6 +3828,9 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
         if (variant == null) WorldLife(worldId = currentWorld.worldFamily) // searchlights, embers, rain, fireflies... for worlds 1-5
         if (variant != null) VariantScene(variant, simState.distanceMeters) // every remixed world gets its own code-drawn shapes
         RealmBackdrop(zone = simState.currentZoneNumber, distanceMeters = simState.distanceMeters) // code-drawn scenes for the zone 270+ realms
+        if (viewModel.selectedDifficulty == NeonRushViewModel.DifficultyTier.LEGENDARY && simState.isStarted && !simState.isCompleted) {
+            LegendAura(zone = simState.currentZoneNumber, speedKmh = simState.speedKmh, pilotY = simState.userYPos, onSting = { viewModel.legendSting(it) }) // Pro-only Legendary look + sound
+        }
         variant?.let { WorldWeatherOverlay(weather = it.weather, accent = it.accent) }
         run {
             val familyTitle = variant?.let { v -> Worlds.ALL.find { it.id == v.baseFamily }?.title }
@@ -5030,6 +5036,10 @@ fun GameOverOverlayScreen(
                     val offerAct = LocalContext.current.findActivity()
                     PassOfferCard(offerPass, onBuy = { offerAct?.let { viewModel.seasonPass.buy(it) } })
                 }
+                run {
+                    val goProNow by RevenueCatManager.isPro.collectAsState()
+                    if (goProNow) ProGreetingBanner(isPro = true, onUpgrade = {}, phrase = if (simState.score > 0 && simState.score >= profile.bestScore) "NEW BEST" else "KEEP FLYING", compact = true)
+                }
                 QuoteLine(mode = if (simState.score > 0 && simState.score >= profile.bestScore) "win" else "loss")
                 if (simState.dailyBonusLabel.isNotEmpty()) {
                     if (simState.dailyBonusLabel.contains("DAILY BONUS") || simState.dailyBonusLabel.contains("SPECIAL BONUS")) {
@@ -5386,6 +5396,7 @@ fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
                 FeelToggleRow("Screen shake on near-misses", NearMissFx.shakeOn) { viewModel.setNearMissShake(it) }
                 FeelToggleRow("Edge flash on near-misses", NearMissFx.flashOn) { viewModel.setNearMissFlash(it) }
                 LanguagePicker()
+                GreetingNameSetting()
             }
         }
 
