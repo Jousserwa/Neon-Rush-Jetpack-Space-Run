@@ -1591,6 +1591,16 @@ fun startFromCheckpoint(checkpointZone: Int) {
     }
 }
 
+/** Legendary run sounds: 1 = three rising notes at the start, 2 = a two-note chime every 10 zones. */
+fun legendSting(kind: Int) {
+    viewModelScope.launch {
+        try {
+            if (kind == 1) { soundEngine.playTone(392f, 160, "triangle"); delay(150); soundEngine.playTone(523f, 160, "triangle"); delay(150); soundEngine.playTone(784f, 420, "sine") }
+            else { soundEngine.playTone(880f, 120, "sine"); delay(110); soundEngine.playTone(1175f, 260, "sine") }
+        } catch (_: Throwable) { }
+    }
+}
+
 /** Checkpoint spacing: every 35 zones for Pro, every 45 for free players. */
 fun checkpointEvery(): Int = if (RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE) 35 else 45
 
