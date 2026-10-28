@@ -108,6 +108,7 @@ import com.neonrush.game.AdMobManager
 import com.neonrush.game.RewardedSlot
 import com.neonrush.game.DailyMutations
 import com.neonrush.game.StarterPack
+import com.neonrush.game.Shooting
 import com.neonrush.game.Contracts
 import com.neonrush.game.MutationDay
 import com.neonrush.game.NearMissFx
@@ -535,7 +536,8 @@ fun NeonRushApp(viewModel: NeonRushViewModel) {
         onDispose { musicOwner?.lifecycle?.removeObserver(obs) }
     }
     
-    val isPro by RevenueCatManager.isPro.collectAsState()
+    val isProReal by RevenueCatManager.isPro.collectAsState()
+    val isPro = isProReal || TESTING_DISABLE_PRO_GATE   // testing flag makes every Pro feature open
     LaunchedEffect(isPro, currentProfile.adsRemoved) {
         AdMobManager.setAdState(isPro, currentProfile.adsRemoved)
     }
@@ -1118,6 +1120,7 @@ fun LeaderboardsTab(viewModel: NeonRushViewModel, playerProfile: GameProfile) {
                 }
             }
         }
+        if (boardTier == NeonRushViewModel.DifficultyTier.LEGENDARY) LegendBoardBanner(Modifier.padding(bottom = 10.dp))
         if (rankingList.isEmpty()) {
             Text("No pilots on the ${boardTier.label} board yet. Be the first!", color = CyberOnSurface.copy(alpha = 0.7f),
                 fontSize = 12.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(vertical = 12.dp))
@@ -1129,7 +1132,10 @@ fun LeaderboardsTab(viewModel: NeonRushViewModel, playerProfile: GameProfile) {
         ) {
             items(rankingList) { pilot ->
                 val isSelf = pilot.name == playerProfile.username
-                val borderBrush = if (isSelf) {
+                val onFlame = boardTier == NeonRushViewModel.DifficultyTier.LEGENDARY
+                val borderBrush = if (onFlame && (pilot.rank <= 3 || isSelf)) {
+                    Brush.horizontalGradient(listOf(Color(0xFFFFD23F), Color(0xFFFF6D00), Color(0xFFE53935)))
+                } else if (isSelf) {
                     Brush.horizontalGradient(listOf(CyberPrimary, CyberSecondary))
                 } else {
                     Brush.horizontalGradient(listOf(CyberSurface, CyberSurface))
@@ -1180,6 +1186,7 @@ fun LeaderboardsTab(viewModel: NeonRushViewModel, playerProfile: GameProfile) {
 
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (onFlame) { FlameBadge(pilot.rank, Modifier.size(width = 18.dp, height = 24.dp)); Spacer(Modifier.width(4.dp)) }
                                     if (pilot.auraRank != "NONE") ProName(pilot.name, pilot.isLegend, fontSize = 15.sp)
                                     else Text(
                                         text = pilot.name,
@@ -1701,6 +1708,15 @@ fun ArcadeHomeView(
         LaunchedEffect(Unit) { viewModel.ensureContracts() }
         ContractsCard(isPro = isPro, onClaim = { i -> viewModel.claimContract(i) { g -> android.widget.Toast.makeText(proCtx, "+$g \uD83D\uDC8E contract complete!", android.widget.Toast.LENGTH_SHORT).show() } },
             onReroll = { i -> viewModel.rerollContract(i) }, onUpgrade = { showPlanPaywall = true }, modifier = Modifier.padding(vertical = 4.dp))
+        // Beacon Chain: daily streak that cools instead of resetting
+        BeaconChainCard(isPro = isPro, onClaim = { viewModel.claimBeacon(isPro) { g -> android.widget.Toast.makeText(proCtx, "+$g \uD83D\uDC8E beacon collected!", android.widget.Toast.LENGTH_SHORT).show() } }, modifier = Modifier.padding(vertical = 4.dp))
+        // Pilot Fusion: fuse cores into gems and Fusion Levels
+        FusionCard(onFuse = { kinds, cb -> viewModel.fuseCores(kinds) { n, g -> cb(n, g) } }, modifier = Modifier.padding(vertical = 4.dp))
+        // Armory: ammo packs and bolt looks
+        ArmoryCard(isPro = isPro, onBuyAmmo = { i -> viewModel.buyAmmo(i) { ok -> android.widget.Toast.makeText(proCtx, if (ok) "Ammo pack added!" else "Not enough gems", android.widget.Toast.LENGTH_SHORT).show() } },
+            onBolt = { id -> viewModel.buyBolt(id) { ok -> if (!ok) android.widget.Toast.makeText(proCtx, "Not enough gems", android.widget.Toast.LENGTH_SHORT).show() } }, modifier = Modifier.padding(vertical = 4.dp))
+        // Mystery Realm Doors: one pick a day after a run
+        MysteryDoorsCard(isPro = isPro, onOpenDoor = { i, cb -> viewModel.openDoor(i, cb) }, modifier = Modifier.padding(vertical = 4.dp))
         // Legendary Rewards Track
         LegendTrackCard(isPro = isPro, onClaim = { viewModel.claimLegendTrack { g -> android.widget.Toast.makeText(proCtx, "+$g \uD83D\uDC8E Legendary rewards collected!", android.widget.Toast.LENGTH_SHORT).show() } },
             onUpgrade = { showPlanPaywall = true }, modifier = Modifier.padding(vertical = 4.dp))
@@ -3815,6 +3831,11 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
         if (viewModel.selectedDifficulty == NeonRushViewModel.DifficultyTier.LEGENDARY && simState.isStarted && !simState.isCompleted) {
             LegendAura(zone = simState.currentZoneNumber, speedKmh = simState.speedKmh, pilotY = simState.userYPos, onSting = { viewModel.legendSting(it) }) // Pro-only Legendary look + sound
         }
+        RiskGateOverlay(distanceMeters = simState.distanceMeters, pilotY = simState.userYPos, active = simState.isStarted && !simState.isCompleted, isPro = isPro || TESTING_DISABLE_PRO_GATE) // Risk Gates
+        RivalEchoOverlay(distanceMeters = simState.distanceMeters, pilotY = simState.userYPos, active = simState.isStarted && !simState.isCompleted, tierKey = viewModel.selectedDifficulty.name) // Rival Echo: your best run flies beside you
+        ShootingOverlay(elements = simState.activeTrackElements, pilotY = simState.userYPos, bossActive = simState.bossActive, bossY = simState.bossY,
+            active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, isPro = isPro || TESTING_DISABLE_PRO_GATE,
+            onDestroy = { id -> viewModel.shootDown(id) }, onBossHit = { viewModel.damageBoss(Shooting.BOSS_DAMAGE) }) // Shooting: fire button + bolts
         if (simState.isStarted && !simState.isCompleted) SkyOverlay() // Living World: today's sky
         variant?.let { WorldWeatherOverlay(weather = it.weather, accent = it.accent) }
         run {
