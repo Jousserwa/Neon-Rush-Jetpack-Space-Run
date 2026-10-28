@@ -67,7 +67,9 @@ fun LegendTrackCard(isPro: Boolean, onClaim: () -> Unit, onUpgrade: () -> Unit, 
             .padding(12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("🔥", fontSize = 26.sp)
+            val crown = rememberArt("legend_crown")
+            if (crown != null) androidx.compose.foundation.Image(androidx.compose.ui.graphics.painter.BitmapPainter(crown), contentDescription = null, modifier = Modifier.size(42.dp))
+            else Text("🔥", fontSize = 26.sp)
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
                 Text("LEGENDARY REWARDS TRACK", color = LGOLD, fontSize = 13.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
@@ -168,7 +170,9 @@ fun SkyBanner(isPro: Boolean, onUpgrade: () -> Unit, modifier: Modifier = Modifi
             .clickable { if (!isPro) onUpgrade() }.padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(sky.emoji, fontSize = 26.sp)
+        val skyArt = rememberArt(when (sky) { Sky.SANDSTORM -> "sky_sandstorm"; Sky.AURORA -> "sky_aurora"; Sky.FOG -> "sky_fog"; Sky.METEORS -> "sky_meteors"; Sky.NEON_RAIN -> "sky_rain"; else -> "sky_clear" })
+        if (skyArt != null) androidx.compose.foundation.Image(androidx.compose.ui.graphics.painter.BitmapPainter(skyArt), contentDescription = null, modifier = Modifier.size(40.dp).clip(RoundedCornerShape(6.dp)))
+        else Text(sky.emoji, fontSize = 26.sp)
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text("TODAY: ${sky.label}" + if (sky.bonusPct > 0) "  +${sky.bonusPct}% GEMS" else "", color = col, fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
