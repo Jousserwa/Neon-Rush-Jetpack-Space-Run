@@ -17,6 +17,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -24,6 +25,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neonrush.game.Shooting
@@ -31,6 +34,7 @@ import com.neonrush.game.VisualTrackElement
 import kotlin.math.abs
 
 private class Bolt(var x: Float, val y: Float, val power: Boolean)
+private class Boom(val x: Float, val y: Float, var age: Float = 0f)
 
 /**
  * In-race shooting: a FIRE button with a heat ring (Legendary Pro) or a shot counter (Medium/Hard), the bolts themselves, and the hit tests.
@@ -55,12 +59,18 @@ fun ShootingOverlay(
     var held by remember { mutableStateOf(false) }
     var cooldown by remember { mutableStateOf(0f) }
     val pack = Shooting.selectedBolt(ctx)
+    val booms = remember { ArrayList<Boom>() }
+    var muzzle by remember { mutableStateOf(0f) }
+    val artM = rememberArt("shot_${pack.art}_m"); val artL = rememberArt("shot_${pack.art}_l")
+    val artMuzzle = rememberArt("shot_muzzle")
+    val artBoom = listOf(rememberArt("shot_boom1"), rememberArt("shot_boom2"), rememberArt("shot_boom3"), rememberArt("shot_boom4"))
 
     fun fire() {
         if (cooldown > 0f) return
         if (!Shooting.consume(ctx, mode)) { cooldown = 0.25f; return }
         cooldown = if (mode == 2) Shooting.FIRE_GAP_LEGEND else Shooting.FIRE_GAP_POWER
         bolts.add(Bolt(0.25f, yRef.value.toFloat(), mode == 1))
+        muzzle = 0.12f
     }
 
     LaunchedEffect(active) {
@@ -72,6 +82,8 @@ fun ShootingOverlay(
             last = now
             Shooting.cool(dt)
             if (cooldown > 0f) cooldown -= dt
+            if (muzzle > 0f) muzzle -= dt
+            run { val bi = booms.iterator(); while (bi.hasNext()) { val bm = bi.next(); bm.age += dt; if (bm.age > 0.36f) bi.remove() } }
             if (held && mode == 2 && cooldown <= 0f) fire()
             val iter = bolts.iterator()
             while (iter.hasNext()) {
@@ -81,7 +93,7 @@ fun ShootingOverlay(
                 var used = false
                 for (e in elRef.value) {
                     if (!Shooting.canShoot(e.type, e.subType)) continue
-                    if (e.xOffsetFraction >= from - 0.04f && e.xOffsetFraction <= b.x + 0.04f && abs(e.yMatchPos - b.y) <= 8f) { destroyRef.value(e.id); used = true; break }
+                    if (e.xOffsetFraction >= from - 0.04f && e.xOffsetFraction <= b.x + 0.04f && abs(e.yMatchPos - b.y) <= 8f) { destroyRef.value(e.id); booms.add(Boom(e.xOffsetFraction, e.yMatchPos.toFloat())); used = true; break }
                 }
                 if (!used && mode == 2 && bossRef.value && b.x > 0.72f && abs(bossYRef.value - b.y) <= 14f) { hitRef.value(); used = true }
                 if (used || b.x > 1.1f) iter.remove()
@@ -94,19 +106,42 @@ fun ShootingOverlay(
         Canvas(Modifier.fillMaxSize()) {
             @Suppress("UNUSED_VARIABLE") val f = frame
             val c1 = Color(pack.argb); val c2 = Color(pack.argb2)
+            fun sprite(img: ImageBitmap, rightX: Float, cy: Float, wPx: Float, alpha: Float = 1f) {
+                val hPx = wPx * img.height / img.width
+                drawImage(img, dstOffset = IntOffset((rightX - wPx).toInt(), (cy - hPx / 2f).toInt()), dstSize = IntSize(wPx.toInt(), hPx.toInt()), alpha = alpha)
+            }
             for (b in bolts) {
                 val x = b.x * size.width; val y = b.y / 100f * size.height
-                val len = if (b.power) 64f else 44f
-                drawLine(Brush.horizontalGradient(listOf(Color.Transparent, c1), startX = x - len, endX = x), Offset(x - len, y), Offset(x, y), strokeWidth = if (b.power) 11f else 7f, cap = StrokeCap.Round)
-                drawLine(c2, Offset(x - len * 0.4f, y), Offset(x, y), strokeWidth = if (b.power) 5f else 3f, cap = StrokeCap.Round)
-                drawCircle(c1.copy(alpha = 0.35f), if (b.power) 16f else 10f, Offset(x, y))
+                val img = if (b.power) artL else artM
+                if (img != null) sprite(img, x + 10.dp.toPx(), y, (if (b.power) 124.dp else 88.dp).toPx())
+                else {
+                    val len = if (b.power) 64f else 44f
+                    drawLine(Brush.horizontalGradient(listOf(Color.Transparent, c1), startX = x - len, endX = x), Offset(x - len, y), Offset(x, y), strokeWidth = if (b.power) 11f else 7f, cap = StrokeCap.Round)
+                    drawLine(c2, Offset(x - len * 0.4f, y), Offset(x, y), strokeWidth = if (b.power) 5f else 3f, cap = StrokeCap.Round)
+                    drawCircle(c1.copy(alpha = 0.35f), if (b.power) 16f else 10f, Offset(x, y))
+                }
+            }
+            // muzzle flash at the pilot
+            if (muzzle > 0f) {
+                val my = yRef.value / 100f * size.height; val mx = 0.2f * size.width
+                if (artMuzzle != null) sprite(artMuzzle, mx + 56.dp.toPx(), my, 56.dp.toPx(), (muzzle / 0.12f).coerceIn(0f, 1f))
+                else drawCircle(c2.copy(alpha = (muzzle / 0.12f).coerceIn(0f, 1f)), 14.dp.toPx(), Offset(mx + 24.dp.toPx(), my))
+            }
+            // impact explosions where a bolt destroyed something
+            for (bm in booms) {
+                val k = (bm.age / 0.36f).coerceIn(0f, 0.999f)
+                val fi = (k * 4f).toInt()
+                val ex = bm.x * size.width; val ey = bm.y / 100f * size.height
+                val img = artBoom[fi]
+                if (img != null) sprite(img, ex + 36.dp.toPx(), ey, 72.dp.toPx(), 1f - k * 0.5f)
+                else drawCircle(c1.copy(alpha = 1f - k), (10f + 40f * k).dp.toPx(), Offset(ex, ey), style = Stroke(3.dp.toPx()))
             }
         }
         val hot = mode == 2 && Shooting.overheated
         val ring = if (hot) Color(0xFFFF5252) else Color(pack.argb)
         val left = if (mode == 2) null else Shooting.runShots + Shooting.ammo(ctx)
         Box(
-            Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 110.dp).size(78.dp).clip(CircleShape)
+            Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 16.dp).size(78.dp).clip(CircleShape)
                 .background(Color(0xCC080620)).border(2.dp, ring.copy(alpha = if (left == 0) 0.3f else 0.9f), CircleShape)
                 .pointerInput(mode) { detectTapGestures(onPress = { held = true; fire(); tryAwaitRelease(); held = false }) },
             contentAlignment = Alignment.Center
@@ -133,7 +168,8 @@ fun ArmoryCard(isPro: Boolean, onBuyAmmo: (Int) -> Unit, onBolt: (String) -> Uni
             .border(2.dp, Color(sel.argb).copy(alpha = 0.6f), shape).padding(12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("🔫", fontSize = 22.sp)
+            val crate = rememberArt("ammo_crate")
+            if (crate != null) androidx.compose.foundation.Image(androidx.compose.ui.graphics.painter.BitmapPainter(crate), contentDescription = null, modifier = Modifier.size(34.dp)) else Text("🔫", fontSize = 22.sp)
             Spacer(Modifier.width(8.dp))
             Text("ARMORY", color = Color(sel.argb), fontSize = 13.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
             Text("$ammo power shots", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
