@@ -39,7 +39,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -61,45 +64,79 @@ private val TIER_COLORS = listOf(Color(0xFF69F0AE), Color(0xFF00E5FF), Color(0xF
 private val TIER_PRICES = listOf("$2.99", "$4.99", "$7.99", "$11.99", "$15.99")
 private val TIER_IDS = listOf("fuel_tier_1", "fuel_tier_2", "fuel_tier_3", "fuel_tier_4", "fuel_tier_5")
 
-/** A glass fuel tank: fills with tier colour, bubbles rise, cap and rim shine. Locked tanks are dark and empty. */
+/** A glass fuel tank: wavy liquid that sloshes, rising bubbles, sparks, a light sweeping over the glass and a pulsing glow. Locked tanks are dark and still. */
 @Composable
-private fun TankIcon(tier: Int, color: Color, owned: Boolean, locked: Boolean, phase: Float, modifier: Modifier) {
+private fun TankIcon(tier: Int, color: Color, owned: Boolean, locked: Boolean, phase: Float, modifier: Modifier, buyable: Boolean = false) {
     Canvas(modifier) {
+        val tau = 6.2832f
         val w = size.width; val h = size.height
         val bodyW = w * 0.56f; val bodyH = h * 0.74f
         val left = (w - bodyW) / 2f; val top = h * 0.2f
         val corner = CornerRadius(bodyW * 0.22f)
         val col = if (locked) Color(0xFF5B6275) else color
-        // glow
-        if (owned) drawCircle(Brush.radialGradient(listOf(col.copy(alpha = 0.45f), Color.Transparent)), w * 0.62f, Offset(w / 2f, h * 0.55f))
+        val live = !locked
+        val pulse = 0.5f + 0.5f * sin(phase * tau)
+        // breathing glow
+        if (owned || buyable) drawCircle(Brush.radialGradient(listOf(col.copy(alpha = 0.30f + 0.30f * pulse), Color.Transparent)), w * (0.58f + 0.08f * pulse), Offset(w / 2f, h * 0.55f))
         // cap and neck
         drawRoundRect(col.copy(alpha = 0.9f), Offset(w * 0.4f, h * 0.06f), Size(w * 0.2f, h * 0.16f), CornerRadius(4f))
         drawRoundRect(Color.White.copy(alpha = 0.35f), Offset(w * 0.42f, h * 0.08f), Size(w * 0.05f, h * 0.1f), CornerRadius(2f))
         // glass body
         drawRoundRect(Color(0xFF0A1022), Offset(left, top), Size(bodyW, bodyH), corner)
-        // liquid
+        // liquid with a real wave on top, clipped to the glass
         val frac = if (locked) 0.12f else (0.28f + 0.14f * tier).coerceAtMost(0.95f)
         val liquidTop = top + bodyH * (1f - frac)
-        val wob = sin(phase * 6.2832f) * 3f
-        drawRoundRect(
-            Brush.verticalGradient(listOf(col.copy(alpha = 0.95f), col.copy(alpha = 0.45f)), liquidTop, top + bodyH),
-            Offset(left + 3f, liquidTop + wob * 0.3f), Size(bodyW - 6f, top + bodyH - liquidTop - 3f - wob * 0.3f), CornerRadius(corner.x * 0.8f)
-        )
-        // bubbles
-        if (!locked) for (b in 0 until 4) {
-            val ph = (phase * (0.8f + b * 0.17f) + b * 0.27f) % 1f
-            val bx = left + bodyW * (0.22f + 0.18f * b) + sin((ph + b) * 6.2832f) * 3f
-            val by = top + bodyH - 6f - (top + bodyH - liquidTop - 12f).coerceAtLeast(0f) * ph
-            drawCircle(Color.White.copy(alpha = (0.6f * (1f - ph)).coerceIn(0f, 1f)), 2.4f + b * 0.4f, Offset(bx, by))
+        val amp = if (live) 4.5f else 0f
+        val body = Path().apply { addRoundRect(androidx.compose.ui.geometry.RoundRect(left, top, left + bodyW, top + bodyH, corner)) }
+        clipPath(body) {
+            val wave = Path().apply {
+                moveTo(left - 2f, top + bodyH + 2f)
+                lineTo(left - 2f, liquidTop)
+                val steps = 14
+                for (k in 0..steps) {
+                    val x = left - 2f + (bodyW + 4f) * k / steps
+                    lineTo(x, liquidTop + sin(phase * tau + k * 0.7f) * amp + sin(phase * tau * 2f + k * 1.3f) * amp * 0.4f)
+                }
+                lineTo(left + bodyW + 2f, top + bodyH + 2f)
+                close()
+            }
+            drawPath(wave, Brush.verticalGradient(listOf(col.copy(alpha = 0.95f), col.copy(alpha = 0.4f)), liquidTop, top + bodyH))
+            // second, lighter wave behind for depth
+            if (live) {
+                val wave2 = Path().apply {
+                    moveTo(left - 2f, liquidTop + 2f)
+                    for (k in 0..14) { val x = left - 2f + (bodyW + 4f) * k / 14; lineTo(x, liquidTop + 2f + sin(-phase * tau + k * 0.9f) * amp * 0.8f) }
+                    lineTo(left + bodyW + 2f, liquidTop + 14f); lineTo(left - 2f, liquidTop + 14f); close()
+                }
+                drawPath(wave2, Color.White.copy(alpha = 0.16f))
+            }
+            // bubbles
+            if (live) for (b in 0 until 7) {
+                val ph = (phase * (1 + b % 3) + b * 0.19f) % 1f
+                val bx = left + bodyW * (0.14f + 0.12f * b) + sin((ph * 2f + b) * tau) * 4f
+                val by = top + bodyH - 4f - (top + bodyH - liquidTop - 6f).coerceAtLeast(0f) * ph
+                drawCircle(Color.White.copy(alpha = (0.75f * (1f - ph)).coerceIn(0f, 1f)), 1.8f + (b % 3) * 0.9f, Offset(bx, by))
+            }
         }
         // tier ribs on the glass
         for (r in 1..tier) {
             val ry = top + bodyH * (0.12f + 0.1f * r)
             drawLine(Color.White.copy(alpha = 0.14f), Offset(left + 6f, ry), Offset(left + bodyW - 6f, ry), strokeWidth = 1.5f)
         }
-        // rim and highlight
-        drawRoundRect(col.copy(alpha = if (locked) 0.5f else 1f), Offset(left, top), Size(bodyW, bodyH), corner, style = Stroke(3.2f))
-        drawRoundRect(Color.White.copy(alpha = 0.3f), Offset(left + bodyW * 0.14f, top + bodyH * 0.1f), Size(bodyW * 0.1f, bodyH * 0.6f), CornerRadius(6f))
+        // rim
+        drawRoundRect(col.copy(alpha = if (locked) 0.5f else 0.7f + 0.3f * pulse), Offset(left, top), Size(bodyW, bodyH), corner, style = Stroke(3.2f))
+        // glass highlight that sweeps across the tank
+        if (live) {
+            val sx = left + ((phase % 1f) * 1.6f - 0.3f) * bodyW
+            clipPath(body) {
+                drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.35f), Color.Transparent), startX = sx - bodyW * 0.18f, endX = sx + bodyW * 0.18f), Offset(left, top), Size(bodyW, bodyH))
+            }
+        } else drawRoundRect(Color.White.copy(alpha = 0.18f), Offset(left + bodyW * 0.14f, top + bodyH * 0.1f), Size(bodyW * 0.1f, bodyH * 0.6f), CornerRadius(6f))
+        // sparks hopping off the cap on tanks that are owned or ready to buy
+        if (owned || buyable) for (k in 0 until 3) {
+            val ph = (phase * 2f + k * 0.33f) % 1f
+            drawCircle(col.copy(alpha = (1f - ph).coerceIn(0f, 1f)), 2.2f, Offset(w * (0.38f + 0.12f * k) + sin((ph + k) * tau) * 5f, h * 0.06f - ph * h * 0.06f))
+        }
         // base plate
         drawRoundRect(col.copy(alpha = 0.8f), Offset(left - 4f, top + bodyH - 2f), Size(bodyW + 8f, h * 0.06f), CornerRadius(5f))
     }
@@ -155,8 +192,8 @@ fun FuelTankPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text("TIER $i", color = if (locked) Color.White.copy(alpha = 0.5f) else col, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 12.sp)
-                Box(contentAlignment = Alignment.Center) {
-                    TankIcon(i, col, isOwned, locked, clock.value, Modifier.size(width = 84.dp, height = 96.dp))
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.graphicsLayer { if (!locked) translationY = sin((clock.value + i * 0.17f) * 6.2832f) * 4f }) {
+                    TankIcon(i, col, isOwned, locked, clock.value, Modifier.size(width = 84.dp, height = 96.dp), buyable = buyable)
                     if (locked) Text("🔒", fontSize = 22.sp)
                 }
                 Text(TIER_NAMES[i - 1], color = Color.White, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 11.sp)
@@ -167,7 +204,7 @@ fun FuelTankPanel(viewModel: NeonRushViewModel, profile: GameProfile) {
                     isOwned -> Text("✓ INSTALLED", color = Color(0xFF05060F), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 11.sp,
                         modifier = Modifier.background(col, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp, vertical = 5.dp))
                     buyable -> Text("BUY ${TIER_PRICES[i - 1]}", color = Color(0xFF05060F), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 12.sp,
-                        modifier = Modifier.background(col, RoundedCornerShape(6.dp)).padding(horizontal = 12.dp, vertical = 6.dp))
+                        modifier = Modifier.graphicsLayer { val k = 1f + 0.07f * (0.5f + 0.5f * sin(clock.value * 12.566f)); scaleX = k; scaleY = k }.background(col, RoundedCornerShape(6.dp)).padding(horizontal = 12.dp, vertical = 6.dp))
                     !prevOwned -> Text("Install Tier ${i - 1} first", color = Color.White.copy(alpha = 0.5f), fontSize = 10.sp, textAlign = TextAlign.Center)
                     else -> {
                         val pNeed = FuelGate.proNeed(i); val fNeed = FuelGate.freeNeed(i)
