@@ -13,8 +13,9 @@ import kotlin.random.Random
  * Level, which adds glowing rings to the pilot in the Fusion Chamber. Cores are permanent; nothing expires.
  */
 object FusionCores {
-    val NAMES = listOf("ARC", "EMBER", "VOID")
-    val COLORS = listOf(0xFF3DE8FF, 0xFFFF8A3D, 0xFFB388FF)
+    val NAMES = listOf("ARC", "AEGIS", "VOID")
+    val ART = listOf("core_arc", "core_aegis", "core_void")
+    val COLORS = listOf(0xFFFFC21A, 0xFF22E4FF, 0xFFFF4DD2)
     const val FUSE_COST = 3
     const val DROP_ZONE = 5
     const val DROP_CHANCE = 0.35f
