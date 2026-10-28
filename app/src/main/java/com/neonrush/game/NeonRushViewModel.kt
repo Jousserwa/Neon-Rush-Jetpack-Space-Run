@@ -25,7 +25,7 @@ import java.util.*
 // Pro-flagged phase are freely reachable without the paywall gate,
 // so all 5 main worlds can be QA'd end-to-end in one run.
 // ============================================================
-const val TESTING_DISABLE_PRO_GATE = false
+const val TESTING_DISABLE_PRO_GATE = true   // TESTING: everything Pro, Legendary open, unlimited gems, no fuel drain. MUST be false for release
 
 /** EASY (kids) mode: hits the pilot's shield soaks up at run start and after every refuel / revive. */
 /** Power-ups were too rare: drop-rate multiplier, and a guaranteed one if none showed up for this many ticks (8 ticks = 1 s). */
@@ -1217,7 +1217,7 @@ fun freezeStreak() {
 
     /** Player choice sticks (also across app restarts) until they tap another tier. */
     fun setDifficulty(tier: DifficultyTier) {
-        if (tier == DifficultyTier.LEGENDARY && !RevenueCatManager.isPro.value) return
+        if (tier == DifficultyTier.LEGENDARY && !(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE)) return
         selectedDifficulty = tier
         _difficulty.value = tier
         _boardTier.value = tier
@@ -1235,7 +1235,7 @@ fun freezeStreak() {
         viewModelScope.launch {
             try {
                 val saved = DifficultyTier.values().firstOrNull { it.name == hangarStore.get("difficulty_tier") } ?: DifficultyTier.MEDIUM
-                val tier = if (saved == DifficultyTier.LEGENDARY && !RevenueCatManager.isPro.value) DifficultyTier.MEDIUM else saved
+                val tier = if (saved == DifficultyTier.LEGENDARY && !(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE)) DifficultyTier.MEDIUM else saved
                 selectedDifficulty = tier; _difficulty.value = tier; _boardTier.value = tier
                 FirebaseLeaderboardManager.fetchTopScores(tier.boardKey)
             } catch (_: Exception) {}
@@ -1620,6 +1620,34 @@ fun rerollContract(i: Int) {
     viewModelScope.launch { val p = gameDao.getProfileDirect() ?: return@launch; Contracts.reroll(appCtx, i, p.bestZoneReached, p.bestScore.toInt(), p.bestComboStreak) }
 }
 
+/** Beacon Chain: collect today's beacon. */
+fun claimBeacon(isPro: Boolean, onDone: (Int) -> Unit = {}) {
+    viewModelScope.launch { val g = BeaconChain.claim(appCtx, gameDao, isPro); if (g > 0) onDone(g) }
+}
+/** Mystery Realm Doors: open one of today's three doors. */
+fun openDoor(i: Int, onDone: (Int) -> Unit = {}) {
+    viewModelScope.launch { val g = MysteryDoors.open(appCtx, gameDao, i); onDone(g) }
+}
+
+/** Shooting: a bolt hit an obstacle / the boss. Works on the live state, so both race loops pick the change up on their next tick. */
+fun shootDown(id: String) {
+    val st = _simState.value
+    val e = st.activeTrackElements.firstOrNull { it.id == id } ?: return
+    ReactFx.obstacle(e.subType, "BOOM", e.xOffsetFraction, e.yMatchPos)
+    _simState.value = st.copy(activeTrackElements = st.activeTrackElements.filter { it.id != id }, score = st.score + 3)
+}
+fun damageBoss(amount: Float) {
+    val st = _simState.value
+    if (!st.bossActive) return
+    _simState.value = st.copy(bossHealth = (st.bossHealth - amount).coerceAtLeast(0.001f))
+}
+fun buyAmmo(i: Int, onDone: (Boolean) -> Unit = {}) { viewModelScope.launch { onDone(Shooting.buyAmmo(appCtx, gameDao, i)) } }
+fun buyBolt(id: String, onDone: (Boolean) -> Unit = {}) { viewModelScope.launch { onDone(Shooting.buyBolt(appCtx, gameDao, id)) } }
+/** Pilot Fusion: fuse three cores. */
+fun fuseCores(kinds: List<Int>, onDone: (String, Int) -> Unit = { _, _ -> }) {
+    viewModelScope.launch { FusionCores.fuse(appCtx, gameDao, kinds)?.let { onDone(it.first, it.second) } }
+}
+
 /** Pro daily gems: pays +50 once per day to Pro subscribers (see ProDaily). */
 fun claimProDaily(onDone: (Int) -> Unit = {}) {
     if (!(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE)) return
@@ -1680,6 +1708,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             nearMiss.reset()
             fuelGate.touchAsync(RevenueCatManager.isPro.value)
             assistGemsGiven = 0
+            RiskGates.reset()
+            Shooting.newRun(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE)
             gameDao.updateProfile { p -> p.copy(currentRunGemsCredited = 0, currentRunBossZonesRewarded = "", currentRunMilestonesRewarded = "") }
             var tick = 0
             mirrorSideVar = 0; mirrorFlipTickVar = -100
@@ -2590,6 +2620,11 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             )
             hangar.onRunEnd(finalState.distanceMeters.toInt(), activeSkinForLeaderboard)
             seasonPass.onRunEnd(finalState.distanceMeters.toInt(), finalState.currentZoneNumber, isNewPB)
+            RivalEcho.commit(appCtx, selectedDifficulty.name, finalState.score)   // best run on this difficulty becomes the next Rival Echo
+            FusionCores.runEnded(appCtx, finalState.currentZoneNumber)
+            BeaconChain.runEnded(appCtx)
+            MysteryDoors.runEnded(appCtx)
+            run { val rg = RiskGates.take(); if (rg > 0) gameDao.updateProfile { p -> p.copy(gems = p.gems + rg, totalGemsEarned = p.totalGemsEarned + rg) } }
             if (selectedDifficulty == DifficultyTier.LEGENDARY) LegendTrack.record(appCtx, finalState.currentZoneNumber)
             Contracts.runEnded(appCtx, finalState.currentZoneNumber, finalState.score.toInt(), gemsThisSession, finalState.peakComboStreak)
             gameDao.getProfileDirect()?.let { thrusters.evaluate(it) }
