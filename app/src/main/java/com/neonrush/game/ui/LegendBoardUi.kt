@@ -49,6 +49,18 @@ fun FlameBadge(rank: Int, modifier: Modifier = Modifier) {
     val mid = when { rank == 1 -> Color(0xFFFFE082); rank <= 3 -> Color(0xFFFFA726); else -> Color(0xFFFF7043) }
     val core = when { rank == 1 -> Color.White; rank <= 3 -> Color(0xFFFFF59D); else -> Color(0xFFFFCC80) }
     val scale = when { rank == 1 -> 1f; rank <= 3 -> 0.9f; else -> 0.78f }
+    val art = rememberArt("legend_flame")
+    if (art != null) {
+        Canvas(modifier) {
+            val w = size.width; val h = size.height
+            val f = sin(t * 6.2832f); val f2 = sin(t * 12.566f + 1f)
+            val k = (if (rank == 1) 1f else if (rank <= 3) 0.9f else 0.76f) * (1f + 0.06f * f2)
+            val dh = h * k; val dw = dh * art.width / art.height
+            drawCircle(Brush.radialGradient(listOf(outer.copy(alpha = 0.40f + 0.1f * f), Color.Transparent)), w * 0.65f, Offset(w / 2f, h * 0.6f))
+            drawImage(art, dstOffset = androidx.compose.ui.unit.IntOffset(((w - dw) / 2f + f * w * 0.03f).toInt(), (h - dh).toInt()), dstSize = androidx.compose.ui.unit.IntSize(dw.toInt(), dh.toInt()), alpha = if (rank <= 3) 1f else 0.8f)
+        }
+        return
+    }
     Canvas(modifier) {
         val w = size.width; val h = size.height
         val f1 = sin(t * 6.2832f); val f2 = sin(t * 12.566f + 1f)
@@ -75,7 +87,9 @@ fun LegendBoardBanner(modifier: Modifier = Modifier) {
             .border(2.dp, Color(0xFFFF9800).copy(alpha = 0.5f + 0.4f * pulse), shape).padding(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        FlameBadge(1, Modifier.size(width = 34.dp, height = 44.dp))
+        val crown = rememberArt("legend_crown")
+        if (crown != null) androidx.compose.foundation.Image(androidx.compose.ui.graphics.painter.BitmapPainter(crown), contentDescription = null, modifier = Modifier.size(46.dp))
+        else FlameBadge(1, Modifier.size(width = 34.dp, height = 44.dp))
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("THE LEGENDARY FLAME BOARD", color = Color(0xFFFFD23F), fontSize = 13.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, letterSpacing = 1.sp)
