@@ -17,12 +17,12 @@ import com.neonrush.game.db.GameDao
 object Shooting {
     class AmmoPack(val shots: Int, val gems: Int, val label: String)
     val AMMO = listOf(AmmoPack(10, 30, "10 POWER SHOTS"), AmmoPack(30, 75, "30 POWER SHOTS"))
-    class BoltPack(val id: String, val name: String, val gems: Int, val argb: Long, val argb2: Long)
+    class BoltPack(val id: String, val name: String, val gems: Int, val argb: Long, val argb2: Long, val art: String)
     val BOLTS = listOf(
-        BoltPack("cyan", "NEON CYAN", 0, 0xFF3DE8FF, 0xFFFFFFFF),
-        BoltPack("plasma", "PLASMA PINK", 150, 0xFFFF4DD2, 0xFFFFE0F7),
-        BoltPack("ember", "EMBER", 150, 0xFFFF6D00, 0xFFFFF59D),
-        BoltPack("frost", "FROST", 150, 0xFF80D8FF, 0xFFE1F5FE)
+        BoltPack("cyan", "NEON CYAN", 0, 0xFF3DE8FF, 0xFFFFFFFF, "cyan"),
+        BoltPack("plasma", "PLASMA PINK", 150, 0xFFFF4DD2, 0xFFFFE0F7, "mag"),
+        BoltPack("solar", "SOLAR GOLD", 150, 0xFFFFC21A, 0xFFFFF59D, "gold"),
+        BoltPack("frost", "FROST", 150, 0xFF80D8FF, 0xFFE1F5FE, "ice")
     )
     const val FREE_SHOTS = 3
     const val PRO_SHOTS = 5
