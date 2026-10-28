@@ -127,6 +127,14 @@ internal fun DrawScope.drawThruster(id: String, x: Float, y: Float, h: Float, ti
                 drawLine(c.copy(alpha = a), Offset(px, cy - g), Offset(px - g * 0.5f, cy - g * 0.55f), strokeWidth = 2.2f, cap = StrokeCap.Round)
             }
         }
+        "legend_ember" -> stamps(ox, oy, y, h, time, speedLevel, 14, 1.3f, yAt) { px, py0, f, seed ->
+            val py = py0 - f * h * 0.5f * (0.4f + rnd(seed)) + sin(f * 8f + seed) * u * 0.6f
+            val r = u * (1.0f - 0.7f * f) * (0.7f + 0.6f * rnd(seed * 3))
+            val a = 1f - f
+            val c = if (f < 0.3f) Color(0xFFFFF176) else if (f < 0.65f) Color(0xFFFF9800) else Color(0xFFE53935)
+            drawCircle(c.copy(alpha = 0.35f * a), r * 2.2f, Offset(px, py))
+            drawCircle(c.copy(alpha = a), r, Offset(px, py))
+        }
         "ink_blots" -> stamps(ox, oy, y, h, time, speedLevel, 9, 1.2f, yAt) { px, py0, f, seed ->
             val ink = Color(0xFF1A0B3B)
             val py = py0 + f * f * h * 0.55f * (0.5f + rnd(seed))
