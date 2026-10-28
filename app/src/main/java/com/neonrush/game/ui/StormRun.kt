@@ -9,6 +9,17 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -53,7 +64,7 @@ import kotlin.random.Random
 // Own world, own rules, one course per day (same for every pilot), a reward ladder and a streak.
 // =====================================================================================================================
 
-object StormRunHost { var open by mutableStateOf(false); var runKey by mutableStateOf(0) }
+object StormRunHost { var open by mutableStateOf(false); var runKey by mutableStateOf(0); var results by mutableStateOf(false) }
 
 private const val RUN_SECONDS = 90f
 private const val WARN = 1.15f          // seconds a column glows before it strikes
@@ -277,8 +288,8 @@ fun StormRunScreen(
     onExit: () -> Unit
 ) {
     Dialog(
-        onDismissRequest = { },
-        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = false, dismissOnClickOutside = false)
+        onDismissRequest = { if (StormRunHost.results) onExit() },   // back works on the results screen, never mid-run
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = true, dismissOnClickOutside = false)
     ) {
         StormRunBody(gems, attemptsLeft, isPro, onSpendGems, onCreditGems, onRetry, onFreeAttempt, onExit)
     }
@@ -314,6 +325,8 @@ private fun StormRunBody(
     var result by remember(runKey) { mutableStateOf<StormResult?>(null) }
     var usedSecondWind by remember(runKey) { mutableStateOf(false) }
     var confirmQuit by remember { mutableStateOf(false) }
+    SideEffect { StormRunHost.results = phase == 2 && result != null }
+    DisposableEffect(Unit) { onDispose { StormRunHost.results = false } }
     var msg by remember { mutableStateOf("") }
     LaunchedEffect(runKey) { doubled = false; adLeft = StormStore.adAttemptsLeft() }
     var hudScore by remember(runKey) { mutableStateOf(0) }
@@ -425,8 +438,9 @@ private fun StormRunBody(
         // results
         val res = result
         if (phase == 2 && res != null) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.ca(0.82f)), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.ca(0.82f))) {
+              Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).statusBarsPadding().padding(24.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                         PilotPose(if (res.tier >= 0) Pose.THUMB else Pose.SAD, 126.dp)
                         Canvas(modifier = Modifier.size(120.dp)) {
@@ -436,16 +450,7 @@ private fun StormRunBody(
                     Text(if (sim.eye) "YOU REACHED THE EYE" else "STORM RUN OVER", color = GOLD, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 18.sp, modifier = Modifier.padding(top = 8.dp))
                     Text("${res.score}", color = Color.White, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 44.sp)
                     if (res.newBest) Text("NEW PERSONAL BEST", color = VOLT, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
-                    // the ladder
-                    Column(modifier = Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.ca(0.07f)).padding(12.dp)) {
-                        for (i in TIER_SCORES.indices.reversed()) {
-                            val reached = res.score >= TIER_SCORES[i]
-                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text((if (reached) "✓ " else "○ ") + TIER_NAMES[i], color = if (reached) GOLD else Color.White.ca(0.45f), fontFamily = FontFamily.Monospace, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                Text("${TIER_SCORES[i]} pts  •  ${(TIER_GEMS[i] * mode.rewardMult).roundToInt()} 💎", color = Color.White.ca(if (reached) 0.95f else 0.45f), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
-                            }
-                        }
-                    }
+                    StormTierLadder(res.score, mode.rewardMult, modifier = Modifier.padding(top = 10.dp))
                     Text(if (res.gems > 0) "+${res.gems} 💎 EARNED" else "No new reward tier reached", color = if (res.gems > 0) GOLD else Color.White.ca(0.6f), fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 18.sp, modifier = Modifier.padding(top = 12.dp))
                     Text("Storm gems today ${StormBonus.earnedToday()}/${StormBonus.DAILY_CAP}" + (if (res.capped) "  •  DAILY LIMIT REACHED" else "") + "\nUnspent storm gems expire after 2 days", color = Color.White.ca(0.6f), fontFamily = FontFamily.Monospace, fontSize = 10.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
                     Text("⚡ Storm streak day ${streakDay(res.streak)}/7" + (if (res.streakBonus > 0) "  •  DAY 7 BONUS +${res.streakBonus}" else "  •  day 7 pays +$STREAK_BONUS gems"), color = VOLT, fontFamily = FontFamily.Monospace, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
@@ -462,7 +467,9 @@ private fun StormRunBody(
                             modifier = Modifier.padding(top = 14.dp).clip(RoundedCornerShape(24.dp)).background(Color(0xFF4CAF50))
                                 .clickable { activity?.let { a -> AdMobManager.showRewardedIfReady(a, RewardedSlot.STORM) { doubled = true; val got = StormBonus.take(res.gems); if (got > 0) onCreditGems(got) } } }.padding(horizontal = 20.dp, vertical = 10.dp))
                     } else if (doubled) Text("BONUS PAID!", color = Color(0xFF69F0AE), fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
-                    Row(modifier = Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().background(Color.Black.ca(0.55f)).navigationBarsPadding().padding(horizontal = 24.dp, vertical = 10.dp)) {
+                    Row(modifier = Modifier.padding(top = 0.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("DONE", color = Color.White, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 14.sp,
                             modifier = Modifier.clip(RoundedCornerShape(24.dp)).border(1.dp, Color.White.ca(0.6f), RoundedCornerShape(24.dp)).clickable { onExit() }.padding(horizontal = 26.dp, vertical = 12.dp))
                         Text(if (attemptsLeft > 0) "PLAY AGAIN ($attemptsLeft left)" else "NO ATTEMPTS LEFT", color = Color.Black, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 13.sp,
@@ -480,6 +487,7 @@ private fun StormRunBody(
                     }
                     if (attemptsLeft <= 0) Text("Get more attempts on the Social tab (25 💎) or come back tomorrow.", color = Color.White.ca(0.6f), fontSize = 11.sp, modifier = Modifier.padding(top = 10.dp))
                 }
+              }
             }
         }
 
@@ -506,6 +514,51 @@ private fun finish(sim: Sim, mode: StormMode, isPro: Boolean, credit: (Int) -> U
 }
 
 // ------------------------------------------------------------------------------------------------------ drawing
+
+/** The reward ladder: rows glide in one by one, reached tiers glow and shimmer, the best one reached pulses, the next goal shows how far you were. */
+@Composable
+private fun StormTierLadder(score: Int, mult: Float, modifier: Modifier = Modifier) {
+    val inf = rememberInfiniteTransition(label = "ladder")
+    val t by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart), label = "t")
+    val top = TIER_SCORES.indices.lastOrNull { score >= TIER_SCORES[it] } ?: -1
+    val appear = remember { List(TIER_SCORES.size) { Animatable(0f) } }
+    LaunchedEffect(Unit) { for (k in TIER_SCORES.indices) appear[k].animateTo(1f, tween(420)) }
+    val tau = 6.2831855f
+    val pulse = 0.5f + 0.5f * sin(t * tau)
+    Column(modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.White.ca(0.06f)).padding(8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        for (i in TIER_SCORES.indices.reversed()) {
+            val reached = score >= TIER_SCORES[i]
+            val best = i == top
+            val a = appear[i].value
+            val tierCol = when (i) { 3 -> Color(0xFFFF4DD2); 2 -> Color(0xFFFFD23F); 1 -> Color(0xFFB0C4DE); else -> Color(0xFFCD7F32) }
+            val shape = RoundedCornerShape(10.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth()
+                    .graphicsLayer { alpha = a; translationX = (1f - a) * 120f; val k = if (best) 1f + 0.035f * pulse else 1f; scaleX = k; scaleY = k }
+                    .clip(shape)
+                    .background(if (reached) Brush.horizontalGradient(listOf(tierCol.ca(0.28f + 0.12f * pulse), tierCol.ca(0.08f))) else Brush.horizontalGradient(listOf(Color.White.ca(0.04f), Color.White.ca(0.02f))))
+                    .border(if (best) 2.dp else 1.dp, if (reached) tierCol.ca(if (best) 0.6f + 0.4f * pulse else 0.5f) else Color.White.ca(0.08f), shape)
+                    .drawWithContent {
+                        drawContent()
+                        if (reached) {
+                            val w = size.width
+                            val x = ((t + i * 0.2f) % 1f * 1.6f - 0.3f) * w
+                            drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color.White.ca(0.22f), Color.Transparent), startX = x - w * 0.1f, endX = x + w * 0.1f), blendMode = BlendMode.Plus)
+                        }
+                    }
+                    .padding(horizontal = 12.dp, vertical = if (best) 9.dp else 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text((if (best) "\uD83C\uDFC6 " else if (reached) "\u2714 " else "\u25CB ") + TIER_NAMES[i], color = if (reached) tierCol else Color.White.ca(0.4f),
+                    fontFamily = FontFamily.Monospace, fontSize = if (best) 15.sp else 13.sp, fontWeight = FontWeight.Black)
+                Text("${TIER_SCORES[i]} pts  \u2022  ${(TIER_GEMS[i] * mult).roundToInt()} \uD83D\uDC8E", color = Color.White.ca(if (reached) 0.95f else 0.4f), fontFamily = FontFamily.Monospace, fontSize = 12.sp, fontWeight = if (reached) FontWeight.Bold else FontWeight.Normal)
+            }
+        }
+        val next = TIER_SCORES.indices.firstOrNull { score < TIER_SCORES[it] }
+        if (next != null) Text("${TIER_SCORES[next] - score} more points to reach ${TIER_NAMES[next]}", color = VOLT.ca(0.6f + 0.35f * pulse), fontFamily = FontFamily.Monospace, fontSize = 10.sp,
+            modifier = Modifier.padding(top = 2.dp).align(Alignment.CenterHorizontally))
+    }
+}
 
 private fun hash01(n: Int): Float { var x = n * 374761393 + 668265263; x = (x xor (x ushr 13)) * 1274126177; x = x xor (x ushr 16); return (x and 0xFFFF) / 65535f }
 
