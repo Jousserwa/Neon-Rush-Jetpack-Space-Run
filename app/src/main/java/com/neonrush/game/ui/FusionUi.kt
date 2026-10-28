@@ -45,7 +45,17 @@ private fun DrawScope.core(col: Color, cx: Float, cy: Float, r: Float, t: Float,
 
 @Composable
 private fun CoreOrb(kind: Int, size: Dp, t: Float, glow: Float = 1f) {
-    Canvas(Modifier.size(size)) { core(Color(FusionCores.COLORS[kind]), this.size.width / 2f, this.size.height / 2f, this.size.minDimension * 0.28f, t + kind * 0.33f, glow) }
+    val art = rememberArt(FusionCores.ART[kind])
+    val col = Color(FusionCores.COLORS[kind])
+    Canvas(Modifier.size(size)) {
+        if (art != null) {
+            val k = minOf(this.size.width / art.width, this.size.height / art.height) * 0.92f * (1f + 0.03f * sin((t + kind * 0.33f) * 6.2832f))
+            val dw = art.width * k; val dh = art.height * k
+            drawCircle(Brush.radialGradient(listOf(col.copy(alpha = 0.40f * glow), Color.Transparent), center = Offset(this.size.width / 2f, this.size.height / 2f), radius = this.size.minDimension * 0.62f), this.size.minDimension * 0.62f, Offset(this.size.width / 2f, this.size.height / 2f))
+            drawImage(art, dstOffset = androidx.compose.ui.unit.IntOffset(((this.size.width - dw) / 2f).toInt(), ((this.size.height - dh) / 2f).toInt()),
+                dstSize = androidx.compose.ui.unit.IntSize(dw.toInt(), dh.toInt()), alpha = (0.35f + 0.65f * glow).coerceIn(0f, 1f))
+        } else core(col, this.size.width / 2f, this.size.height / 2f, this.size.minDimension * 0.28f, t + kind * 0.33f, glow)
+    }
 }
 
 /** The Fusion Chamber: tap cores to put three in the slots, see what they will make, press FUSE. */
@@ -67,7 +77,7 @@ fun FusionCard(onFuse: (List<Int>, (String, Int) -> Unit) -> Unit, modifier: Mod
     val shape = RoundedCornerShape(16.dp)
     Column(
         modifier.fillMaxWidth().clip(shape).background(Brush.verticalGradient(listOf(Color(0xFF1B1038), Color(0xFF0A0720))))
-            .border(2.dp, Brush.horizontalGradient(listOf(Color(0xFF3DE8FF), Color(0xFFFF8A3D), Color(0xFFB388FF))), shape).padding(12.dp),
+            .border(2.dp, Brush.horizontalGradient(listOf(Color(0xFFFFC21A), Color(0xFF22E4FF), Color(0xFFFF4DD2))), shape).padding(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -75,7 +85,7 @@ fun FusionCard(onFuse: (List<Int>, (String, Int) -> Unit) -> Unit, modifier: Mod
             Text("PILOT FUSION", color = Color(0xFFFFD23F), fontSize = 13.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
             Text("FUSION LV $level", color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
         }
-        Text("Good runs (zone ${FusionCores.DROP_ZONE}+) can drop cores. Fuse ${FusionCores.FUSE_COST}: three of one kind = PURE +${FusionCores.PURE_GEMS}, three different = RAINBOW +${FusionCores.RAINBOW_GEMS}, otherwise MIXED +${FusionCores.MIXED_GEMS} 💎.",
+        Text("Good runs (zone ${FusionCores.DROP_ZONE}+) can drop cores: ARC (gold), AEGIS (cyan) and VOID (magenta). Fuse ${FusionCores.FUSE_COST}: three of one kind = PURE +${FusionCores.PURE_GEMS}, three different = RAINBOW +${FusionCores.RAINBOW_GEMS}, otherwise MIXED +${FusionCores.MIXED_GEMS} 💎.",
             color = Color.White.copy(alpha = 0.75f), fontSize = 10.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(vertical = 6.dp))
         // inventory
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
