@@ -1629,6 +1629,8 @@ fun openDoor(i: Int, onDone: (Int) -> Unit = {}) {
     viewModelScope.launch { val g = MysteryDoors.open(appCtx, gameDao, i); onDone(g) }
 }
 
+/** Golden Gate pass etc.: a flat score bonus on the live state. */
+fun addBonusScore(n: Int) { val st = _simState.value; _simState.value = st.copy(score = st.score + n) }
 /** Shooting: a bolt hit an obstacle / the boss. Works on the live state, so both race loops pick the change up on their next tick. */
 fun shootDown(id: String) {
     val st = _simState.value
