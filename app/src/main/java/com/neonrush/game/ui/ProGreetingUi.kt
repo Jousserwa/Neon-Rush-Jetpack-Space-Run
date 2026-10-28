@@ -129,8 +129,9 @@ fun ProGreetingBanner(isPro: Boolean, onUpgrade: () -> Unit, modifier: Modifier 
     val tapped = when { !isPro -> onUpgrade; else -> ({ edit = true }) }
     Column(
         modifier = modifier.fillMaxWidth().clip(shape)
-            .background(Brush.horizontalGradient(listOf(look.a.copy(alpha = 0.05f + 0.05f * breathe), look.b.copy(alpha = 0.12f + 0.06f * breathe), look.a.copy(alpha = 0.05f + 0.05f * breathe))))
-            .border(1.dp, look.a.copy(alpha = if (isPro) 0.3f + 0.3f * breathe else 0.15f), shape)
+            .background(Color(0xFF080620))   // solid dark backing so the greeting stands out from every world behind it
+            .background(Brush.horizontalGradient(listOf(look.a.copy(alpha = 0.12f + 0.06f * breathe), look.b.copy(alpha = 0.28f + 0.10f * breathe), look.a.copy(alpha = 0.12f + 0.06f * breathe))))
+            .border(2.dp, look.a.copy(alpha = if (isPro) 0.55f + 0.4f * breathe else 0.4f + 0.2f * breathe), shape)
             .clickable { tapped() }
             .drawWithContent {
                 drawContent()
@@ -140,18 +141,21 @@ fun ProGreetingBanner(isPro: Boolean, onUpgrade: () -> Unit, modifier: Modifier 
                     drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.10f), Color.Transparent), startX = x - w * 0.1f, endX = x + w * 0.1f), blendMode = BlendMode.Plus)
                 }
             }
-            .padding(horizontal = 12.dp, vertical = if (compact) 4.dp else 8.dp),
+            .padding(horizontal = 12.dp, vertical = if (compact) 6.dp else 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (isPro && name.isNotEmpty()) {
-            Text((phrase ?: ProGreeting.phrase()) + ",", color = Color.White.copy(alpha = 0.7f), fontSize = if (compact) 10.sp else 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, letterSpacing = 2.sp)
-            GreetName(name, if (compact) 22 else 28)
-            if (!compact) Text(look.title, color = look.a.copy(alpha = 0.5f + 0.3f * breathe), fontSize = 8.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, letterSpacing = 2.sp)
+            Text((phrase ?: ProGreeting.phrase()) + ",", color = Color.White, fontSize = if (compact) 13.sp else 17.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, letterSpacing = 3.sp,
+                style = TextStyle(shadow = Shadow(look.a.copy(alpha = 0.9f), Offset.Zero, 12f)))
+            GreetName(name, if (compact) 30 else 42)
+            if (!compact) Text(look.title, color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, letterSpacing = 2.sp,
+                modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(8.dp)).background(Brush.horizontalGradient(listOf(look.a, look.b))).padding(horizontal = 10.dp, vertical = 2.dp))
         } else if (isPro) {
             Text("✨ TAP TO CHOOSE THE NAME WE GREET YOU WITH ✨", color = look.a.copy(alpha = 0.6f + 0.4f * breathe), fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center)
         } else if (!compact) {
-            Text(ProGreeting.phrase() + ", PILOT", color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, letterSpacing = 2.sp)
-            Text("🔒 PRO PILOTS ARE GREETED BY NAME, IN A NEW LOOK EVERY DAY", color = Color(0xFFFFD23F).copy(alpha = 0.55f + 0.4f * breathe), fontSize = 9.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center)
+            Text(ProGreeting.phrase() + ", PILOT", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, letterSpacing = 3.sp,
+                style = TextStyle(shadow = Shadow(Color(0xFF7DF9FF).copy(alpha = 0.9f), Offset.Zero, 12f)))
+            Text("🔒 PRO PILOTS ARE GREETED BY NAME, IN A NEW LOOK EVERY DAY", color = Color(0xFFFFD23F).copy(alpha = 0.55f + 0.4f * breathe), fontSize = 10.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center)
         }
     }
 }
