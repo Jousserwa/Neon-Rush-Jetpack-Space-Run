@@ -108,6 +108,7 @@ import com.neonrush.game.AdMobManager
 import com.neonrush.game.RewardedSlot
 import com.neonrush.game.DailyMutations
 import com.neonrush.game.StarterPack
+import com.neonrush.game.Contracts
 import com.neonrush.game.MutationDay
 import com.neonrush.game.NearMissFx
 import com.neonrush.game.DropSchedule
@@ -1694,6 +1695,15 @@ fun ArcadeHomeView(
         }
         // Pro daily gems: collectable card for Pro, glowing locked teaser for free players
         ProDailyCard(isPro = isPro, onCollect = { viewModel.claimProDaily { g -> android.widget.Toast.makeText(proCtx, "+$g \uD83D\uDC8E Pro daily gems collected!", android.widget.Toast.LENGTH_SHORT).show() } }, onUpgrade = { showPlanPaywall = true }, modifier = Modifier.padding(vertical = 4.dp))
+        // Living World: today's sky and its gem bonus
+        SkyBanner(isPro = isPro, onUpgrade = { showPlanPaywall = true }, modifier = Modifier.padding(vertical = 4.dp))
+        // Pilot Contracts: three daily goals
+        LaunchedEffect(Unit) { viewModel.ensureContracts() }
+        ContractsCard(isPro = isPro, onClaim = { i -> viewModel.claimContract(i) { g -> android.widget.Toast.makeText(proCtx, "+$g \uD83D\uDC8E contract complete!", android.widget.Toast.LENGTH_SHORT).show() } },
+            onReroll = { i -> viewModel.rerollContract(i) }, onUpgrade = { showPlanPaywall = true }, modifier = Modifier.padding(vertical = 4.dp))
+        // Legendary Rewards Track
+        LegendTrackCard(isPro = isPro, onClaim = { viewModel.claimLegendTrack { g -> android.widget.Toast.makeText(proCtx, "+$g \uD83D\uDC8E Legendary rewards collected!", android.widget.Toast.LENGTH_SHORT).show() } },
+            onUpgrade = { showPlanPaywall = true }, modifier = Modifier.padding(vertical = 4.dp))
         // Pro Vault: what Pro gives (live for Pro, locked teaser for free)
         run {
             val vaultPerks by viewModel.proPerks.snapshot.collectAsState()
@@ -3479,38 +3489,12 @@ Text(
     fontFamily = FontFamily.Monospace,
     modifier = Modifier.padding(bottom = 6.dp)
 )
-Row(
-    modifier = Modifier
-        .fillMaxWidth()
-        .padding(vertical = 4.dp)
-        .clip(RoundedCornerShape(8.dp))
-        .background(CyberSurface)
-        .padding(14.dp),
-    horizontalArrangement = Arrangement.SpaceBetween,
-    verticalAlignment = Alignment.CenterVertically
-) {
-    Column {
-        Text(
-            text = "💎 ${RevenueCatManager.STARTER_PACK_GEMS_AMOUNT} Gems",
-            fontWeight = FontWeight.Bold,
-            color = Color.White
-        )
-        Text(
-            text = "One-time offer for new pilots. Buy it once, the gems are yours to keep.",
-            color = CyberOnSurface.copy(alpha = 0.65f),
-            fontSize = 11.sp
-        )
-    }
-    Button(
-        onClick = {
-            activity?.let { viewModel.purchaseStarterPack(it) }
-        },
-        colors = ButtonDefaults.buttonColors(containerColor = CyberSecondary),
-        shape = RoundedCornerShape(4.dp)
-    ) {
-        Text(text = "BUY ${RevenueCatManager.STARTER_PACK_PRICE_USD}", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
-    }
-}
+StarterPackCard(
+    amount = RevenueCatManager.STARTER_PACK_GEMS_AMOUNT,
+    price = RevenueCatManager.STARTER_PACK_PRICE_USD,
+    perDollar = (RevenueCatManager.STARTER_PACK_GEMS_AMOUNT / (RevenueCatManager.STARTER_PACK_PRICE_USD.removePrefix("$").toFloatOrNull() ?: 1f)).toInt(),
+    onBuy = { activity?.let { viewModel.purchaseStarterPack(it) } }
+)
 Spacer(modifier = Modifier.height(16.dp))
 }
 
@@ -3831,6 +3815,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
         if (viewModel.selectedDifficulty == NeonRushViewModel.DifficultyTier.LEGENDARY && simState.isStarted && !simState.isCompleted) {
             LegendAura(zone = simState.currentZoneNumber, speedKmh = simState.speedKmh, pilotY = simState.userYPos, onSting = { viewModel.legendSting(it) }) // Pro-only Legendary look + sound
         }
+        if (simState.isStarted && !simState.isCompleted) SkyOverlay() // Living World: today's sky
         variant?.let { WorldWeatherOverlay(weather = it.weather, accent = it.accent) }
         run {
             val familyTitle = variant?.let { v -> Worlds.ALL.find { it.id == v.baseFamily }?.title }
