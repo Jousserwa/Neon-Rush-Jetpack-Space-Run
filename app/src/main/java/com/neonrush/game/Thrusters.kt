@@ -63,6 +63,8 @@ object ThrusterCatalog {
         Thruster("prism_shards", "Prism Shards", "💎", "Tumbling crystal facets in every colour.", ThrusterKind.GEMS, Rarity.EPIC, gemCost = 1500, requirement = "Monthly drop", dropMonth = 10),
         Thruster("circuit_trace", "Circuit Trace", "🔌", "A copper circuit board prints itself behind you, with a pulse running down it. A Pro reward.", ThrusterKind.PRO, Rarity.EPIC,
             requirement = "Pro member + reach Zone 20", earned = { it.bestZoneReached >= 20 }),
+        Thruster("legend_ember", "Legend Ember", "\uD83D\uDD25", "Glowing embers that burn behind you. Earned on the Legendary Rewards Track. A Pro reward.", ThrusterKind.PRO, Rarity.LEGENDARY,
+            requirement = "Pro member + reach Zone 50 on Legendary", earned = { LegendTrack.trailUnlocked() }),
         Thruster("sonic_rings", "Sonic Rings", "🔊", "Sonar arcs ripple out behind every move. A Pro reward.", ThrusterKind.PRO, Rarity.EPIC,
             requirement = "Pro member + score 1,500 in one run", earned = { it.bestScore >= 1500 }),
         // ---- loyalty rewards: given for time, not for spending
