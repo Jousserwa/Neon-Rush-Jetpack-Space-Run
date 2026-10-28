@@ -23,14 +23,14 @@ import kotlin.math.sqrt
 /**
  * Home-screen screensaver scenes.
  *  tier 0 = everyone (the classic cyan run, now brighter)
- *  tier 1 = Pro MONTHLY: violet / magenta / electric blue. Two scenes that cross-fade every 16 s: NEBULA DRIFT <-> AURORA RIFT
+ *  tier 1 = Pro MONTHLY: violet / magenta / electric blue. Two scenes that cross-fade every 16 s: PRISM NEBULA <-> NEON HORIZON (magenta / cyan / amber / blue / mint)
  *  tier 2 = Pro ANNUAL : gold / amber / crimson. Two scenes that cross-fade every 16 s: GOLDEN SUPERNOVA <-> ROYAL WARP
  * Everything is code-drawn from one smooth clock ([t] in seconds), so there are no assets and no layout impact.
  */
 private const val TWO_PI = 6.2831855f
 
 fun screensaverAccent(tier: Int): Color = when (tier) {
-    1 -> Color(0xFFD28BFF)
+    1 -> Color(0xFFFF7AE0)
     2 -> Color(0xFFFFC94A)
     else -> Color(0xFF00E5FF)
 }
@@ -38,7 +38,7 @@ fun screensaverAccent(tier: Int): Color = when (tier) {
 fun screensaverBadge(tier: Int): String = when (tier) { 1 -> "PRO MONTHLY"; 2 -> "PRO ANNUAL"; else -> "" }
 
 fun screensaverSceneName(tier: Int, scene: Int): String = when (tier) {
-    1 -> if (scene == 0) "NEBULA DRIFT" else "AURORA RIFT"
+    1 -> if (scene == 0) "PRISM NEBULA" else "NEON HORIZON"
     2 -> if (scene == 0) "GOLDEN SUPERNOVA" else "ROYAL WARP"
     else -> ""
 }
@@ -134,21 +134,41 @@ private fun DrawScope.freeScene(t: Float) {
 // ------------------------------------------------------------------------------------------------ MONTHLY: violet / magenta / blue
 
 private fun DrawScope.monthlyNebula(t: Float) {
+    // PRISM NEBULA: a bright, many-coloured cosmos. Magenta, cyan, amber, electric blue and mint clouds, turning prism rings, rainbow crystals and light beams.
     val cw = size.width
     val ch = size.height
-    drawRect(Brush.verticalGradient(listOf(Color(0xFF0A0220), Color(0xFF1B0646), Color(0xFF2D0B66))), size = size)
-    val blobs = listOf(Color(0xFFB388FF), Color(0xFFFF3DCB), Color(0xFF4F7CFF))
-    for (i in 0 until 3) {
-        val c = Offset(cw * (0.2f + 0.3f * i + 0.07f * sin(t * 0.2f + i)), ch * (0.4f + 0.18f * sin(t * 0.15f + i * 2f)))
-        fxGlow(c, ch * (0.95f + 0.1f * sin(t * 0.3f + i)), blobs[i], 0.42f)
+    val c = Offset(cw / 2f, ch * 0.55f)
+    val big = maxOf(cw, ch)
+    drawRect(Brush.verticalGradient(listOf(Color(0xFF160542), Color(0xFF5A1085), Color(0xFFA31B97))), size = size)
+    val blobs = listOf(Color(0xFFFF2FB8), Color(0xFF22E4FF), Color(0xFFFF9A3D), Color(0xFF3D6BFF), Color(0xFF52FFB8))
+    for (i in 0 until 5) {
+        val bc = Offset(cw * (0.1f + 0.2f * i + 0.09f * sin(t * 0.25f + i * 1.3f)), ch * (0.45f + 0.25f * sin(t * 0.18f + i * 2.1f)))
+        fxGlow(bc, ch * (0.85f + 0.12f * sin(t * 0.35f + i)), blobs[i], 0.40f)
     }
-    starLayer(t, 70, listOf(Color.White, Color(0xFFD9BFFF), Color(0xFFFFA6E8)), 3f, 1.1f)
-    // slowly turning crystal hexagons
-    for (k in 0 until 5) {
-        val sp = 0.012f + 0.006f * (k % 3)
+    // slow sweeping light beams from the bottom centre
+    for (k in 0 until 4) {
+        val a = -PI.toFloat() / 2f + sin(t * 0.3f + k * 1.6f) * 0.9f + (k - 1.5f) * 0.35f
+        val p = Path()
+        p.moveTo(cw / 2f, ch * 1.05f)
+        p.lineTo(cw / 2f + cos(a - 0.07f) * big * 1.3f, ch * 1.05f + sin(a - 0.07f) * big * 1.3f)
+        p.lineTo(cw / 2f + cos(a + 0.07f) * big * 1.3f, ch * 1.05f + sin(a + 0.07f) * big * 1.3f)
+        p.close()
+        drawPath(p, blobs[k % 5].copy(alpha = 0.12f))
+    }
+    starLayer(t, 80, listOf(Color.White, Color(0xFFBFF4FF), Color(0xFFFFC2F2), Color(0xFFFFE3A8)), 3.5f, 1.2f)
+    // turning dashed prism rings in changing colours
+    for (k in 0 until 3) {
+        val dir = if (k % 2 == 0) 1f else -1f
+        val hue = ((t * 18f + k * 120f) % 360f + 360f) % 360f
+        drawCircle(Color.hsv(hue, 0.55f, 1f).copy(alpha = 0.55f), radius = ch * (0.22f + 0.17f * k), center = c,
+            style = Stroke(width = 1.8.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 16f), dir * t * (22f + 9f * k))))
+    }
+    // turning crystals with rainbow edges
+    for (k in 0 until 6) {
+        val sp = 0.014f + 0.006f * (k % 3)
         val x = (((fxRnd(k, 1) - t * sp) % 1f) + 1f) % 1f * cw
-        val y = ch * (0.15f + 0.7f * fxRnd(k, 2)) + sin(t * 0.5f + k) * ch * 0.03f
-        val r = ch * (0.05f + 0.04f * fxRnd(k, 3))
+        val y = ch * (0.12f + 0.74f * fxRnd(k, 2)) + sin(t * 0.5f + k) * ch * 0.03f
+        val r = ch * (0.05f + 0.045f * fxRnd(k, 3))
         val rot = t * (0.4f + 0.2f * k)
         val p = Path()
         for (j in 0..5) {
@@ -156,57 +176,80 @@ private fun DrawScope.monthlyNebula(t: Float) {
             if (j == 0) p.moveTo(x + cos(a) * r, y + sin(a) * r) else p.lineTo(x + cos(a) * r, y + sin(a) * r)
         }
         p.close()
-        drawPath(p, Color(0xFFB388FF).copy(alpha = 0.16f))
-        drawPath(p, Color(0xFFE9D5FF).copy(alpha = 0.65f), style = Stroke(width = 1.5.dp.toPx()))
+        val hue = ((t * 30f + k * 60f) % 360f + 360f) % 360f
+        drawPath(p, Color.hsv(hue, 0.6f, 1f).copy(alpha = 0.22f))
+        drawPath(p, Color.hsv((hue + 40f) % 360f, 0.45f, 1f).copy(alpha = 0.85f), style = Stroke(width = 1.6.dp.toPx()))
+        fxGlow(Offset(x, y), r * 1.6f, Color.hsv(hue, 0.6f, 1f), 0.25f)
     }
-    // comets with glowing tails
-    for (k in 0 until 3) {
-        val p = (t * 0.22f + k / 3f) % 1f
+    // multicoloured comets
+    for (k in 0 until 4) {
+        val p = (t * 0.24f + k / 4f) % 1f
         val vis = sin(p * PI.toFloat())
         val hx = cw * (1.15f - 1.3f * p)
-        val hy = ch * (0.08f + 0.28f * k) + ch * 0.25f * p
+        val hy = ch * (0.06f + 0.24f * k) + ch * 0.25f * p
+        val tc = listOf(Color(0xFFFF7AE0), Color(0xFF7DF9FF), Color(0xFFFFC46B), Color(0xFFB9A2FF))[k]
         for (s in 0 until 12) {
             val q = s / 12f
-            drawCircle(Color.White.copy(alpha = (1f - q) * 0.7f * vis), radius = (3.2f * (1f - q) + 0.5f).dp.toPx(), center = Offset(hx + q * cw * 0.14f, hy - q * ch * 0.08f))
+            drawCircle(tc.copy(alpha = (1f - q) * 0.8f * vis), radius = (3.4f * (1f - q) + 0.5f).dp.toPx(), center = Offset(hx + q * cw * 0.15f, hy - q * ch * 0.08f))
         }
-        fxGlow(Offset(hx, hy), ch * 0.09f, Color(0xFFFFA6E8), 0.7f * vis)
+        fxGlow(Offset(hx, hy), ch * 0.09f, tc, 0.75f * vis)
     }
 }
 
 private fun DrawScope.monthlyAurora(t: Float) {
+    // NEON HORIZON: a synthwave sunset. Striped sun, glowing mountains, a gliding cyan and magenta grid, falling stars.
     val cw = size.width
     val ch = size.height
-    drawRect(Brush.verticalGradient(listOf(Color(0xFF021B2E), Color(0xFF071238), Color(0xFF1A0B45))), size = size)
-    val cols = listOf(Color(0xFF1DE9B6), Color(0xFF4F7CFF), Color(0xFFB388FF))
-    val n = 28
-    val colW = cw / n
-    for (k in 0 until 3) {
-        for (i in 0 until n) {
-            val x = i * colW
-            val top = ch * (0.05f + 0.12f * k) + sin(x * 0.011f + t * 0.6f + k * 1.7f) * ch * 0.07f
-            val hgt = ch * (0.30f + 0.10f * sin(x * 0.02f + t * 0.4f + k))
-            val a = (0.32f * (0.6f + 0.4f * sin(x * 0.03f - t * 0.8f + k))).coerceIn(0f, 1f)
-            drawRect(Brush.verticalGradient(listOf(Color.Transparent, cols[k].copy(alpha = a), Color.Transparent), startY = top, endY = top + hgt),
-                topLeft = Offset(x, top), size = Size(colW + 1f, hgt))
-        }
+    val hy = ch * 0.64f
+    drawRect(Brush.verticalGradient(0f to Color(0xFF1A0540), 0.35f to Color(0xFF6A1B9A), 0.65f to Color(0xFFFF4081), 1f to Color(0xFFFF9E40), startY = 0f, endY = hy), size = Size(cw, hy))
+    starLayer(t, 46, listOf(Color.White, Color(0xFFFFD1F5), Color(0xFFBFE9FF)), 1.6f, 1.0f)
+    // the sun
+    val sunR = ch * 0.24f
+    val sc = Offset(cw / 2f, hy - sunR * 0.25f)
+    fxGlow(sc, sunR * 2.2f, Color(0xFFFFB74D), 0.45f + 0.08f * sin(t * 1.5f))
+    drawCircle(Brush.verticalGradient(listOf(Color(0xFFFFEE58), Color(0xFFFF9100), Color(0xFFFF2D95)), startY = sc.y - sunR, endY = sc.y + sunR), sunR, sc)
+    for (i in 0 until 6) {
+        val dy = sunR * (0.05f + 0.16f * i) + sin(t * 0.8f) * 1.5f
+        val half = kotlin.math.sqrt((sunR * sunR - dy * dy).coerceAtLeast(0f))
+        drawRect(Color(0xFFC2185B), Offset(sc.x - half, sc.y + dy), Size(half * 2f, (2f + i * 2.2f).dp.toPx()))
     }
-    // glimmer falling slowly through the curtains
-    for (i in 0 until 36) {
-        val x = fxRnd(i, 1) * cw + sin(t * 0.5f + i) * 8f
-        val y = (fxRnd(i, 2) * ch + t * ch * (0.04f + 0.05f * fxRnd(i, 3))) % ch
-        val a = (0.35f + 0.55f * (0.5f + 0.5f * sin(t * 2f + i))).coerceIn(0f, 1f)
-        drawCircle((if (i % 2 == 0) Color(0xFF7CFFE0) else Color(0xFFD1B3FF)).copy(alpha = a), (1f + i % 2).dp.toPx(), Offset(x, y))
+    // distant mountains with a neon edge
+    val m = Path()
+    m.moveTo(0f, hy)
+    val pts = 14
+    for (i in 0..pts) {
+        val x = cw * i / pts
+        val peak = ch * (0.07f + 0.11f * fxRnd(i, 5)) * (if (i % 2 == 0) 1f else 0.55f)
+        m.lineTo(x, hy - peak)
     }
-    // glowing rift horizon with a gliding grid
-    val hy = ch * 0.80f
-    val teal = Color(0xFF1DE9B6)
-    fxGlow(Offset(cw / 2f, hy), cw * 0.5f, teal, 0.20f)
-    drawLine(teal.copy(alpha = 0.75f), Offset(0f, hy), Offset(cw, hy), strokeWidth = 2f)
-    for (i in -6..6) drawLine(teal.copy(alpha = 0.22f), Offset(cw / 2f + i * cw * 0.02f, hy), Offset(cw / 2f + i * cw * 0.16f, ch), strokeWidth = 1.2f)
-    for (k in 0 until 5) {
-        val f = (t * 0.35f + k / 5f) % 1f
+    m.lineTo(cw, hy); m.close()
+    drawPath(m, Color(0xFF2A0A4D))
+    drawPath(m, Color(0xFFFF4DD2).copy(alpha = 0.6f), style = Stroke(width = 1.6.dp.toPx()))
+    // the ground and its gliding grid
+    drawRect(Brush.verticalGradient(listOf(Color(0xFF1B0540), Color(0xFF0B0220)), startY = hy, endY = ch), Offset(0f, hy), Size(cw, ch - hy))
+    val cyan = Color(0xFF22E4FF); val mag = Color(0xFFFF4DD2)
+    fxGlow(Offset(cw / 2f, hy), cw * 0.55f, mag, 0.22f)
+    drawLine(cyan.copy(alpha = 0.9f), Offset(0f, hy), Offset(cw, hy), strokeWidth = 2.dp.toPx())
+    for (i in -10..10) drawLine((if (i % 2 == 0) cyan else mag).copy(alpha = 0.45f), Offset(cw / 2f + i * cw * 0.02f, hy), Offset(cw / 2f + i * cw * 0.20f, ch), strokeWidth = 1.3f)
+    for (k in 0 until 7) {
+        val f = (t * 0.30f + k / 7f) % 1f
         val yy = hy + (ch - hy) * f * f
-        drawLine(teal.copy(alpha = 0.10f + 0.25f * f), Offset(0f, yy), Offset(cw, yy), strokeWidth = 1.2f)
+        drawLine((if (k % 2 == 0) cyan else mag).copy(alpha = 0.15f + 0.45f * f), Offset(0f, yy), Offset(cw, yy), strokeWidth = 1.4f)
+    }
+    // shooting stars and floating gems
+    for (k in 0 until 3) {
+        val p = (t * 0.30f + k / 3f) % 1f
+        val vis = sin(p * PI.toFloat())
+        val x0 = cw * (0.9f - 0.9f * p + 0.1f * k); val y0 = hy * (0.05f + 0.55f * p) * (0.6f + 0.2f * k)
+        drawLine(Color.White.copy(alpha = 0.8f * vis), Offset(x0, y0), Offset(x0 + cw * 0.12f, y0 - ch * 0.05f), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+    }
+    for (k in 0 until 5) {
+        val x = cw * (0.08f + 0.2f * k) + sin(t * 0.6f + k) * 6f
+        val y = hy * (0.18f + 0.5f * fxRnd(k, 8)) + sin(t * 0.9f + k * 2f) * ch * 0.02f
+        val r = ch * 0.025f
+        val col = listOf(cyan, mag, Color(0xFFFFE082), Color(0xFF69F0AE), Color(0xFFB388FF))[k]
+        val d = Path().apply { moveTo(x, y - r); lineTo(x + r * 0.7f, y); lineTo(x, y + r); lineTo(x - r * 0.7f, y); close() }
+        drawPath(d, col.copy(alpha = 0.35f)); drawPath(d, col, style = Stroke(width = 1.4.dp.toPx()))
     }
 }
 
