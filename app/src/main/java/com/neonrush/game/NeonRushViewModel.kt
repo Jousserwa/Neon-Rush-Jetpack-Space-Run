@@ -922,6 +922,7 @@ fun freezeStreak() {
         viewModelScope.launch {
             RevenueCatManager.isPro.collect { fuelGate.touchAsync(it); proPerks.refresh(); seasonPass.refresh(); thrusters.recheckDrops(); try { gameDao.getProfileDirect()?.let { thrusters.evaluate(it) } } catch (_: Exception) {} }
         }
+        LegendTrack.init(appCtx)
         restoreDifficulty()
         viewModelScope.launch { while (true) { StormBonus.applyExpiry(gameDao); delay(60_000) } }   // storm gems expire after 2 days
         viewModelScope.launch { StarterWallet.check(context.applicationContext, gameDao) }   // new players: starter wallet, first 3 days
@@ -1603,6 +1604,21 @@ fun legendSting(kind: Int) {
 
 /** Checkpoint spacing: every 35 zones for Pro, every 45 for free players. */
 fun checkpointEvery(): Int = if (RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE) 35 else 45
+
+/** Legendary Rewards Track: collect every reached tier. */
+fun claimLegendTrack(onDone: (Int) -> Unit = {}) {
+    viewModelScope.launch { val g = LegendTrack.claim(appCtx, gameDao); if (g > 0) onDone(g) }
+}
+/** Pilot Contracts: make today's set, collect, reroll. */
+fun ensureContracts() {
+    viewModelScope.launch { val p = gameDao.getProfileDirect() ?: return@launch; Contracts.ensure(appCtx, p.bestZoneReached, p.bestScore.toInt(), p.bestComboStreak); Contracts.version += 1 }
+}
+fun claimContract(i: Int, onDone: (Int) -> Unit = {}) {
+    viewModelScope.launch { val g = Contracts.claim(appCtx, gameDao, i); if (g > 0) onDone(g) }
+}
+fun rerollContract(i: Int) {
+    viewModelScope.launch { val p = gameDao.getProfileDirect() ?: return@launch; Contracts.reroll(appCtx, i, p.bestZoneReached, p.bestScore.toInt(), p.bestComboStreak) }
+}
 
 /** Pro daily gems: pays +50 once per day to Pro subscribers (see ProDaily). */
 fun claimProDaily(onDone: (Int) -> Unit = {}) {
@@ -2434,7 +2450,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             bonusGems = 55
         }
         val GEM_ECONOMY_RATE = (1f / 3f)
-        val gemsEarnedTotalSoFar = (((finalState.collectedGemsCount + bonusGems + FridayBonus) * valMultiplier) * GEM_ECONOMY_RATE * Upgrades.gemMultiplier(activeUpgradesCsv) * seasonPass.runGemMult * selectedDifficulty.gemMult).toInt()
+        val gemsEarnedTotalSoFar = (((finalState.collectedGemsCount + bonusGems + FridayBonus) * valMultiplier) * GEM_ECONOMY_RATE * Upgrades.gemMultiplier(activeUpgradesCsv) * seasonPass.runGemMult * selectedDifficulty.gemMult * Sky.gemMul()).toInt()
         var gemsToCreditNow = 0
 
         gameDao.updateProfile { prof ->
@@ -2574,6 +2590,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             )
             hangar.onRunEnd(finalState.distanceMeters.toInt(), activeSkinForLeaderboard)
             seasonPass.onRunEnd(finalState.distanceMeters.toInt(), finalState.currentZoneNumber, isNewPB)
+            if (selectedDifficulty == DifficultyTier.LEGENDARY) LegendTrack.record(appCtx, finalState.currentZoneNumber)
+            Contracts.runEnded(appCtx, finalState.currentZoneNumber, finalState.score.toInt(), gemsThisSession, finalState.peakComboStreak)
             gameDao.getProfileDirect()?.let { thrusters.evaluate(it) }
             if (!adsRemovedResult) {
                 AdMobManager.incrementGameOver()
