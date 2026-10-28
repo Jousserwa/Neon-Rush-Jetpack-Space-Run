@@ -62,14 +62,22 @@ fun BeaconChainCard(isPro: Boolean, onClaim: () -> Unit, modifier: Modifier = Mo
             .clickable { if (can) onClaim() }.padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Canvas(Modifier.size(width = 64.dp, height = 84.dp)) {
-            val w = size.width; val h = size.height
-            // tower + one glowing ring per finished chain (up to 4 shown)
-            drawRect(Color(0xFF263159), Offset(w * 0.38f, h * 0.35f), Size(w * 0.24f, h * 0.65f))
-            for (i in 0 until layers.coerceAtMost(4)) drawCircle(Color(0xFFFFD23F).copy(alpha = 0.18f + 0.1f * pulse), w * (0.5f + 0.12f * i), Offset(w * 0.5f, h * 0.3f), style = androidx.compose.ui.graphics.drawscope.Stroke(2f))
-            val c = if (lit > 0) BGOLD else Color(0xFF455A64)
-            drawCircle(c.copy(alpha = if (lit > 0) 0.25f + 0.2f * pulse else 0.1f), w * 0.42f, Offset(w * 0.5f, h * 0.3f))
-            drawCircle(c, w * 0.18f, Offset(w * 0.5f, h * 0.3f))
+        val tower = rememberArt("beacon_${if (lit <= 0) 0 else if (lit < 4) 1 else if (lit < BeaconChain.LENGTH) 2 else 3}")
+        Box(Modifier.size(width = 64.dp, height = 96.dp), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.fillMaxSize()) {
+                val w = size.width; val h = size.height
+                for (i in 0 until layers.coerceAtMost(4)) drawCircle(Color(0xFFFFD23F).copy(alpha = 0.18f + 0.1f * pulse), w * (0.5f + 0.12f * i), Offset(w * 0.5f, h * 0.3f), style = androidx.compose.ui.graphics.drawscope.Stroke(2f))
+                if (tower != null) {
+                    if (lit > 0) drawCircle(BGOLD.copy(alpha = 0.15f + 0.15f * pulse), w * 0.55f, Offset(w * 0.5f, h * 0.2f))
+                    val tw = h * tower.width / tower.height
+                    drawImage(tower, dstOffset = androidx.compose.ui.unit.IntOffset(((w - tw) / 2f).toInt(), 0), dstSize = androidx.compose.ui.unit.IntSize(tw.toInt(), h.toInt()))
+                } else {
+                    drawRect(Color(0xFF263159), Offset(w * 0.38f, h * 0.35f), Size(w * 0.24f, h * 0.65f))
+                    val c = if (lit > 0) BGOLD else Color(0xFF455A64)
+                    drawCircle(c.copy(alpha = if (lit > 0) 0.25f + 0.2f * pulse else 0.1f), w * 0.42f, Offset(w * 0.5f, h * 0.3f))
+                    drawCircle(c, w * 0.18f, Offset(w * 0.5f, h * 0.3f))
+                }
+            }
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
@@ -77,7 +85,7 @@ fun BeaconChainCard(isPro: Boolean, onClaim: () -> Unit, modifier: Modifier = Mo
             Text(
                 if (can) "Beacon $lit is lit! Tap to collect +${BeaconChain.reward(lit, isPro)} 💎"
                 else if (played) "Today's beacon collected. Come back tomorrow."
-                else "Fly one run today to light beacon ${(lit + 1).coerceAtMost(BeaconChain.LENGTH)}. Miss a day and one beacon cools.",
+                else "Fly one run today to light beacon ${(lit + 1).coerceAtMost(BeaconChain.LENGTH)}. Miss a day and one beacon cools. Each finished chain adds a sky layer: stars, then a planet, then a nebula.",
                 color = Color.White.copy(alpha = 0.85f), fontSize = 11.sp, fontFamily = FontFamily.Monospace
             )
             Spacer(Modifier.height(6.dp))
@@ -144,7 +152,7 @@ private fun MysteryDoorsDialog(isPro: Boolean, onOpenDoor: (Int, (Int) -> Unit) 
                     val prize = MysteryDoors.prize(ctx, i)
                     val reveal = pick == i || (pick >= 0 && isPro)
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        DoorView(Color(MysteryDoors.COLORS[i]), opens[i].value.let { if (reveal && pick >= 0 && pick != i) 0.85f else it }, if (reveal) prize else null,
+                        DoorView(Color(MysteryDoors.COLORS[i]), opens[i].value.let { if (reveal && pick >= 0 && pick != i) 0.85f else it }, if (reveal) prize else null, listOf(0f, 150f, 250f)[i],
                             Modifier.fillMaxWidth().clickable(enabled = pick < 0) { onOpenDoor(i) { } })
                         Text(MysteryDoors.NAMES[i], color = Color(MysteryDoors.COLORS[i]), fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                     }
@@ -163,10 +171,37 @@ private fun MysteryDoorsDialog(isPro: Boolean, onOpenDoor: (Int, (Int) -> Unit) 
     }
 }
 
-/** A code-drawn arched door. [open] 0..1 swings the panel aside to show the glow (and prize) behind it. */
+private fun hueMatrix(deg: Float, bright: Float): androidx.compose.ui.graphics.ColorFilter {
+    val r = Math.toRadians(deg.toDouble()); val c = kotlin.math.cos(r).toFloat(); val s = kotlin.math.sin(r).toFloat()
+    val m = floatArrayOf(
+        (0.213f + c * 0.787f - s * 0.213f) * bright, (0.715f - c * 0.715f - s * 0.715f) * bright, (0.072f - c * 0.072f + s * 0.928f) * bright, 0f, 0f,
+        (0.213f - c * 0.213f + s * 0.143f) * bright, (0.715f + c * 0.285f + s * 0.140f) * bright, (0.072f - c * 0.072f - s * 0.283f) * bright, 0f, 0f,
+        (0.213f - c * 0.213f - s * 0.787f) * bright, (0.715f - c * 0.715f + s * 0.715f) * bright, (0.072f + c * 0.928f + s * 0.072f) * bright, 0f, 0f,
+        0f, 0f, 0f, 1f, 0f
+    )
+    return androidx.compose.ui.graphics.ColorFilter.colorMatrix(androidx.compose.ui.graphics.ColorMatrix(m))
+}
+
+/** A realm portal. With the portal art: closed = dim and sealed with a "?", open = full glow and a little swell with the prize on top. Without art: the code-drawn arched door. */
 @Composable
-private fun DoorView(color: Color, open: Float, prize: Int?, modifier: Modifier = Modifier) {
-    Box(modifier.height(130.dp), contentAlignment = Alignment.Center) {
+private fun DoorView(color: Color, open: Float, prize: Int?, hue: Float, modifier: Modifier = Modifier) {
+    val art = rememberArt("realm_portal")
+    Box(modifier.height(150.dp), contentAlignment = Alignment.Center) {
+        if (art != null) {
+            Canvas(Modifier.fillMaxSize()) {
+                val sc = minOf(size.width / art.width, size.height / art.height) * (0.92f + 0.10f * open)
+                val dw = art.width * sc; val dh = art.height * sc
+                if (open > 0.05f) drawCircle(color.copy(alpha = 0.25f * open), minOf(size.width, size.height) * 0.55f, Offset(size.width / 2f, size.height / 2f))
+                drawImage(art, dstOffset = androidx.compose.ui.unit.IntOffset(((size.width - dw) / 2f).toInt(), ((size.height - dh) / 2f).toInt()),
+                    dstSize = androidx.compose.ui.unit.IntSize(dw.toInt(), dh.toInt()), colorFilter = hueMatrix(hue, 0.42f + 0.58f * open))
+            }
+            if (open < 0.3f) Text("?", color = Color.White.copy(alpha = 0.9f), fontSize = 34.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+            if (prize != null && open > 0.6f) {
+                Text(if (prize > 0) "+$prize\n\uD83D\uDC8E" else "\u2728", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, fontFamily = FontFamily.Monospace,
+                    style = androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(Color.Black, Offset.Zero, 14f)))
+            }
+            return@Box
+        }
         Canvas(Modifier.fillMaxSize()) {
             val w = size.width; val h = size.height
             drawRoundRect(color.copy(alpha = 0.9f), Offset(0f, 0f), Size(w, h), CornerRadius(w * 0.45f, w * 0.45f))
@@ -179,7 +214,33 @@ private fun DoorView(color: Color, open: Float, prize: Int?, modifier: Modifier 
             }
         }
         if (prize != null && open > 0.6f) {
-            Text(if (prize > 0) "+$prize\n💎" else "✨", color = Color(0xFF1B1035), fontSize = 18.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, fontFamily = FontFamily.Monospace)
+            Text(if (prize > 0) "+$prize\n\uD83D\uDC8E" else "\u2728", color = Color(0xFF1B1035), fontSize = 18.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, fontFamily = FontFamily.Monospace)
         }
+    }
+}
+
+/**
+ * HOME SKY LAYERS (Beacon Chain reward): every finished chain adds a layer behind the whole app: 1 = a star cluster, 2 = a ringed planet, 3 = a glowing nebula.
+ * They drift slowly. Pictures load by name (home_stars, home_planet, home_nebula); nothing is drawn if a picture is missing.
+ */
+@Composable
+fun BeaconSkyLayers(modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+    @Suppress("UNUSED_VARIABLE") val v = BeaconChain.version
+    val layers = BeaconChain.layers(ctx)
+    if (layers <= 0) return
+    val stars = rememberArt("home_stars"); val planet = rememberArt("home_planet"); val neb = rememberArt("home_nebula")
+    val inf = rememberInfiniteTransition(label = "skyLayers")
+    val t by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(40000, easing = LinearEasing), RepeatMode.Restart), label = "t")
+    Canvas(modifier.fillMaxSize()) {
+        val w = size.width; val h = size.height; val tau = 6.2832f
+        fun put(img: androidx.compose.ui.graphics.ImageBitmap?, cx: Float, cy: Float, wFrac: Float, a: Float) {
+            if (img == null) return
+            val dw = w * wFrac; val dh = dw * img.height / img.width
+            drawImage(img, dstOffset = androidx.compose.ui.unit.IntOffset((cx - dw / 2f).toInt(), (cy - dh / 2f).toInt()), dstSize = androidx.compose.ui.unit.IntSize(dw.toInt(), dh.toInt()), alpha = a)
+        }
+        if (layers >= 1) put(stars, w * (0.5f + 0.05f * sin(t * tau)), h * 0.12f, 0.95f, 0.9f)
+        if (layers >= 2) put(planet, w * (0.72f + 0.02f * sin(t * tau + 1f)), h * (0.30f + 0.012f * sin(t * tau * 2f)), 0.42f, 0.85f)
+        if (layers >= 3) put(neb, w * (0.5f + 0.04f * sin(t * tau + 2f)), h * 0.86f, 1.15f, 0.55f + 0.15f * sin(t * tau * 2f))
     }
 }
