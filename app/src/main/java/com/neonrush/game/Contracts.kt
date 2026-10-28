@@ -15,10 +15,11 @@ import java.util.Random
  */
 object Contracts {
     const val COUNT = 3
-    const val BONUS = 15
+    const val BONUS = 2
+    const val DAILY_CAP = 12   // most gems contracts can ever pay in one day
     val TYPES = listOf("ZONE", "SCORE", "RUNS", "GEMS", "COMBO")
 
-    fun reward(type: String) = when (type) { "ZONE" -> 8; "SCORE" -> 10; "RUNS" -> 5; "GEMS" -> 8; else -> 10 }
+    fun reward(type: String) = when (type) { "ZONE" -> 4; "SCORE" -> 4; "RUNS" -> 3; "GEMS" -> 3; else -> 4 }
     fun label(type: String, target: Int) = when (type) {
         "ZONE" -> "Reach zone $target in one run"
         "SCORE" -> "Score $target in one run"
@@ -53,7 +54,7 @@ object Contracts {
             if (sp.getInt("day", -1) == d) return
             val r = Random(d * 7919L + 17L)
             val types = TYPES.toMutableList().also { java.util.Collections.shuffle(it, r) }.take(COUNT)
-            val e = sp.edit().putInt("day", d).putInt("rerolled", 0).putBoolean("bonus", false)
+            val e = sp.edit().putInt("day", d).putInt("rerolled", 0).putBoolean("bonus", false).putInt("paid", 0)
             types.forEachIndexed { i, t -> e.putString("t$i", t).putInt("g$i", targetFor(t, r, bestZone, bestScore, bestCombo)).putInt("p$i", 0).putBoolean("c$i", false) }
             e.apply()
         } catch (_: Throwable) { }
@@ -98,6 +99,10 @@ object Contracts {
         val sp = prefs(ctx)
         sp.edit().putBoolean("c$i", true).apply()
         if (list.indices.all { j -> j == i || list[j].claimed } && !sp.getBoolean("bonus", false)) { pay += BONUS; sp.edit().putBoolean("bonus", true).apply() }
+        val paid = sp.getInt("paid", 0)
+        pay = pay.coerceAtMost((DAILY_CAP - paid).coerceAtLeast(0))
+        sp.edit().putInt("paid", paid + pay).apply()
+        if (pay <= 0) { version += 1; return 0 }
         dao.updateProfile { p -> p.copy(gems = p.gems + pay, totalGemsEarned = p.totalGemsEarned + pay) }
         version += 1
         return pay
