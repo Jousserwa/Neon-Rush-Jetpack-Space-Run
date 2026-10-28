@@ -34,8 +34,9 @@ object ProGreeting {
         return n
     }
 
+    /** The greeting line: morning says "GREAT RISING"; the rest of the day keeps its usual greeting. */
     fun phrase(): String = when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
-        in 5..11 -> "GOOD MORNING"
+        in 5..11 -> "GREAT RISING"
         in 12..16 -> "GOOD AFTERNOON"
         in 17..21 -> "GOOD EVENING"
         else -> "WELCOME BACK"
