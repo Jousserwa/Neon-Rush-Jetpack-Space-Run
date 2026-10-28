@@ -3831,11 +3831,6 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
         if (viewModel.selectedDifficulty == NeonRushViewModel.DifficultyTier.LEGENDARY && simState.isStarted && !simState.isCompleted) {
             LegendAura(zone = simState.currentZoneNumber, speedKmh = simState.speedKmh, pilotY = simState.userYPos, onSting = { viewModel.legendSting(it) }) // Pro-only Legendary look + sound
         }
-        RiskGateOverlay(distanceMeters = simState.distanceMeters, pilotY = simState.userYPos, active = simState.isStarted && !simState.isCompleted, isPro = isPro || TESTING_DISABLE_PRO_GATE) // Risk Gates
-        RivalEchoOverlay(distanceMeters = simState.distanceMeters, pilotY = simState.userYPos, active = simState.isStarted && !simState.isCompleted, tierKey = viewModel.selectedDifficulty.name) // Rival Echo: your best run flies beside you
-        ShootingOverlay(elements = simState.activeTrackElements, pilotY = simState.userYPos, bossActive = simState.bossActive, bossY = simState.bossY,
-            active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, isPro = isPro || TESTING_DISABLE_PRO_GATE,
-            onDestroy = { id -> viewModel.shootDown(id) }, onBossHit = { viewModel.damageBoss(Shooting.BOSS_DAMAGE) }) // Shooting: fire button + bolts
         if (simState.isStarted && !simState.isCompleted) SkyOverlay() // Living World: today's sky
         variant?.let { WorldWeatherOverlay(weather = it.weather, accent = it.accent) }
         run {
@@ -4778,6 +4773,16 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                         }
                     }
                 }
+                // Shooting sits INSIDE the gameplay area, above the touch layer, so the FIRE button really receives taps
+                // Risk Gates and the Rival Echo live in the gameplay box too, so their heights match the pilot's
+                RiskGateOverlay(distanceMeters = simState.distanceMeters, pilotY = simState.userYPos, active = simState.isStarted && !simState.isCompleted, isPro = isPro || TESTING_DISABLE_PRO_GATE) // Risk Gates
+                RivalEchoOverlay(distanceMeters = simState.distanceMeters, pilotY = simState.userYPos, active = simState.isStarted && !simState.isCompleted, tierKey = viewModel.selectedDifficulty.name) // Rival Echo: your best run flies beside you
+                GoldenGateOverlay(distanceMeters = simState.distanceMeters, pilotY = simState.userYPos, active = simState.isStarted && !simState.isCompleted,
+                    enabled = viewModel.selectedDifficulty == NeonRushViewModel.DifficultyTier.LEGENDARY, onPass = { n -> viewModel.addBonusScore(n) }) // Legendary golden gates
+                ShootingOverlay(elements = simState.activeTrackElements, pilotY = simState.userYPos, bossActive = simState.bossActive, bossY = simState.bossY,
+            active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, isPro = isPro || TESTING_DISABLE_PRO_GATE,
+            onDestroy = { id -> viewModel.shootDown(id) }, onBossHit = { viewModel.damageBoss(Shooting.BOSS_DAMAGE) }) // Shooting: fire button + bolts
+
                 // Invisible onboarding: non-blocking contextual prompts.
                 HintOverlay(hint = simState.hint, userYPos = simState.userYPos)
             }
@@ -6242,6 +6247,14 @@ fun currentSaverTier(isPro: Boolean): Int {
 /** Full-screen star space behind the app screens. tier 0 = brighter parallax stars; 1 / 2 = the Pro monthly / annual two-scene space. */
 @Composable
 fun ScreenStarField(modifier: Modifier = Modifier, tier: Int = 0) {
+    Box(modifier) {
+        ScreenStarFieldBase(Modifier.fillMaxSize(), tier)
+        BeaconSkyLayers(Modifier.fillMaxSize())   // Beacon Chain reward layers: star cluster, planet, nebula
+    }
+}
+
+@Composable
+private fun ScreenStarFieldBase(modifier: Modifier = Modifier, tier: Int = 0) {
     val t = rememberInfiniteTransition(label = "screenStars")
     val phase by t.animateFloat(
         initialValue = 0f, targetValue = 1f,
