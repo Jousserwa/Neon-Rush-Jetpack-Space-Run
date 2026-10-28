@@ -1,0 +1,172 @@
+package com.neonrush.game.ui
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.neonrush.game.Shooting
+import com.neonrush.game.VisualTrackElement
+import kotlin.math.abs
+
+private class Bolt(var x: Float, val y: Float, val power: Boolean)
+
+/**
+ * In-race shooting: a FIRE button with a heat ring (Legendary Pro) or a shot counter (Medium/Hard), the bolts themselves, and the hit tests.
+ * Bolts destroy shootable obstacles through [onDestroy]; on Legendary they also chip the boss through [onBossHit].
+ */
+@Composable
+fun ShootingOverlay(
+    elements: List<VisualTrackElement>, pilotY: Int, bossActive: Boolean, bossY: Int, active: Boolean,
+    tierName: String, isPro: Boolean, onDestroy: (String) -> Unit, onBossHit: () -> Unit, modifier: Modifier = Modifier
+) {
+    val ctx = LocalContext.current
+    val mode = Shooting.mode(tierName, isPro)
+    if (mode == 0) return
+    val elRef = rememberUpdatedState(elements)
+    val yRef = rememberUpdatedState(pilotY)
+    val bossRef = rememberUpdatedState(bossActive)
+    val bossYRef = rememberUpdatedState(bossY)
+    val destroyRef = rememberUpdatedState(onDestroy)
+    val hitRef = rememberUpdatedState(onBossHit)
+    val bolts = remember { ArrayList<Bolt>() }
+    var frame by remember { mutableStateOf(0) }
+    var held by remember { mutableStateOf(false) }
+    var cooldown by remember { mutableStateOf(0f) }
+    val pack = Shooting.selectedBolt(ctx)
+
+    fun fire() {
+        if (cooldown > 0f) return
+        if (!Shooting.consume(ctx, mode)) { cooldown = 0.25f; return }
+        cooldown = if (mode == 2) Shooting.FIRE_GAP_LEGEND else Shooting.FIRE_GAP_POWER
+        bolts.add(Bolt(0.25f, yRef.value.toFloat(), mode == 1))
+    }
+
+    LaunchedEffect(active) {
+        if (!active) { bolts.clear(); return@LaunchedEffect }
+        var last = 0L
+        while (true) {
+            val now = withFrameNanos { it }
+            val dt = if (last == 0L) 0.016f else ((now - last) / 1_000_000_000f).coerceAtMost(0.05f)
+            last = now
+            Shooting.cool(dt)
+            if (cooldown > 0f) cooldown -= dt
+            if (held && mode == 2 && cooldown <= 0f) fire()
+            val iter = bolts.iterator()
+            while (iter.hasNext()) {
+                val b = iter.next()
+                val from = b.x
+                b.x += dt * (if (b.power) 1.25f else 1.7f)
+                var used = false
+                for (e in elRef.value) {
+                    if (!Shooting.canShoot(e.type, e.subType)) continue
+                    if (e.xOffsetFraction >= from - 0.04f && e.xOffsetFraction <= b.x + 0.04f && abs(e.yMatchPos - b.y) <= 8f) { destroyRef.value(e.id); used = true; break }
+                }
+                if (!used && mode == 2 && bossRef.value && b.x > 0.72f && abs(bossYRef.value - b.y) <= 14f) { hitRef.value(); used = true }
+                if (used || b.x > 1.1f) iter.remove()
+            }
+            frame++
+        }
+    }
+
+    Box(modifier.fillMaxSize()) {
+        Canvas(Modifier.fillMaxSize()) {
+            @Suppress("UNUSED_VARIABLE") val f = frame
+            val c1 = Color(pack.argb); val c2 = Color(pack.argb2)
+            for (b in bolts) {
+                val x = b.x * size.width; val y = b.y / 100f * size.height
+                val len = if (b.power) 64f else 44f
+                drawLine(Brush.horizontalGradient(listOf(Color.Transparent, c1), startX = x - len, endX = x), Offset(x - len, y), Offset(x, y), strokeWidth = if (b.power) 11f else 7f, cap = StrokeCap.Round)
+                drawLine(c2, Offset(x - len * 0.4f, y), Offset(x, y), strokeWidth = if (b.power) 5f else 3f, cap = StrokeCap.Round)
+                drawCircle(c1.copy(alpha = 0.35f), if (b.power) 16f else 10f, Offset(x, y))
+            }
+        }
+        val hot = mode == 2 && Shooting.overheated
+        val ring = if (hot) Color(0xFFFF5252) else Color(pack.argb)
+        val left = if (mode == 2) null else Shooting.runShots + Shooting.ammo(ctx)
+        Box(
+            Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 110.dp).size(78.dp).clip(CircleShape)
+                .background(Color(0xCC080620)).border(2.dp, ring.copy(alpha = if (left == 0) 0.3f else 0.9f), CircleShape)
+                .pointerInput(mode) { detectTapGestures(onPress = { held = true; fire(); tryAwaitRelease(); held = false }) },
+            contentAlignment = Alignment.Center
+        ) {
+            if (mode == 2) Canvas(Modifier.fillMaxSize().padding(4.dp)) { drawArc(ring, -90f, 360f * Shooting.heat, false, style = Stroke(7f, cap = StrokeCap.Round)) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(if (hot) "🔥" else "⚡", fontSize = 22.sp)
+                Text(if (hot) "COOL" else if (left != null) "$left" else "FIRE", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+            }
+        }
+    }
+}
+
+/** Home: the Armory. Ammo packs (gems, never per bullet), bolt look packs, and what each difficulty allows. */
+@Composable
+fun ArmoryCard(isPro: Boolean, onBuyAmmo: (Int) -> Unit, onBolt: (String) -> Unit, modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+    @Suppress("UNUSED_VARIABLE") val v = Shooting.version
+    val ammo = Shooting.ammo(ctx)
+    val sel = Shooting.selectedBolt(ctx)
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier.fillMaxWidth().clip(shape).background(Brush.verticalGradient(listOf(Color(0xFF14102E), Color(0xFF0B0820))))
+            .border(2.dp, Color(sel.argb).copy(alpha = 0.6f), shape).padding(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("🔫", fontSize = 22.sp)
+            Spacer(Modifier.width(8.dp))
+            Text("ARMORY", color = Color(sel.argb), fontSize = 13.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
+            Text("$ammo power shots", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+        }
+        Text(
+            "Medium & Hard: ${if (isPro) Shooting.PRO_SHOTS else Shooting.FREE_SHOTS} free power shots every run, more from packs. " +
+                (if (isPro) "Legendary: unlimited bolts with a heat meter that also hit the boss." else "👑 Pro on Legendary: unlimited bolts that also hit the boss."),
+            color = Color.White.copy(alpha = 0.75f), fontSize = 10.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(vertical = 6.dp)
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Shooting.AMMO.forEachIndexed { i, p ->
+                Text("${p.shots} SHOTS\n${p.gems} 💎", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(Brush.horizontalGradient(listOf(Color(0xFF3DE8FF), Color(0xFF69F0AE)))).clickable { onBuyAmmo(i) }.padding(vertical = 8.dp))
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Shooting.BOLTS.forEach { b ->
+                val own = Shooting.ownsBolt(ctx, b.id); val on = sel.id == b.id
+                Column(
+                    Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = if (on) 0.14f else 0.06f))
+                        .border(if (on) 2.dp else 1.dp, Color(b.argb).copy(alpha = if (on) 0.9f else 0.35f), RoundedCornerShape(10.dp))
+                        .clickable { onBolt(b.id) }.padding(vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Canvas(Modifier.size(width = 36.dp, height = 10.dp)) {
+                        drawLine(Brush.horizontalGradient(listOf(Color.Transparent, Color(b.argb))), Offset(0f, size.height / 2), Offset(size.width, size.height / 2), strokeWidth = 7f, cap = StrokeCap.Round)
+                        drawLine(Color(b.argb2), Offset(size.width * 0.5f, size.height / 2), Offset(size.width, size.height / 2), strokeWidth = 3f, cap = StrokeCap.Round)
+                    }
+                    Text(b.name.substringBefore(' '), color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    Text(if (on) "ON" else if (own) "OWNED" else "${b.gems}💎", color = Color(b.argb), fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                }
+            }
+        }
+    }
+}
