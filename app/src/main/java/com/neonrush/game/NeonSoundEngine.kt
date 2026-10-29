@@ -444,6 +444,36 @@ class NeonSoundEngine {
         activeVoices.add(ZapVoice())
     }
 
+    // ---- Shooting & smashing (Stage 136). Throttled so a held fire button never turns into a buzz. ----
+    private var lastCombatNs = LongArray(12)
+    private fun combatOk(kind: Int, minMs: Int): Boolean {
+        val now = System.nanoTime()
+        if (now - lastCombatNs[kind] < minMs * 1_000_000L) return false
+        lastCombatNs[kind] = now
+        return true
+    }
+    /** Bolt leaves the pilot. [power] = the heavy power shot. */
+    fun playShot(power: Boolean) { if (combatOk(0, 45)) { activeVoices.add(CombatVoice(0, if (power) 1f else 0f)); triggerHaptic(if (power) 18L else 7L) } }
+    /** A bolt shatters an obstacle. */
+    fun playSmash() { if (combatOk(1, 70)) { activeVoices.add(CombatVoice(1)); triggerHaptic(28L) } }
+    /** A bolt lands on the boss. [streak] 0..1 raises the pitch as hits chain. */
+    fun playBossHit(streak: Float) { if (combatOk(2, 60)) { activeVoices.add(CombatVoice(2, streak.coerceIn(0f, 1f))); triggerHaptic(16L) } }
+    /** Boss shield bounces a bolt away. */
+    fun playDeflect() { if (combatOk(3, 60)) activeVoices.add(CombatVoice(3)) }
+    /** Weapon overheated or out of shots. */
+    fun playOverheat() { if (combatOk(4, 250)) { activeVoices.add(CombatVoice(4)); triggerHaptic(longArrayOf(0, 30, 30, 30)) } }
+    /** Boss is destroyed. */
+    fun playBossDown() { activeVoices.add(CombatVoice(5)); triggerHaptic(longArrayOf(0, 60, 40, 120, 40, 220)) }
+    /** Legendary moves. */
+    fun playDash() { if (combatOk(8, 200)) { activeVoices.add(CombatVoice(8)); triggerHaptic(25L) } }
+    fun playPulse() { if (combatOk(9, 200)) { activeVoices.add(CombatVoice(9)); triggerHaptic(longArrayOf(0, 20, 30, 40)) } }
+    fun playOverdrive() { activeVoices.add(CombatVoice(10)); triggerHaptic(longArrayOf(0, 30, 30, 60, 30, 90)) }
+    fun playPhase2() { activeVoices.add(CombatVoice(11)); triggerHaptic(longArrayOf(0, 80, 40, 160)) }
+    /** Boss raises its shield. */
+    fun playShieldUp() { if (combatOk(6, 400)) activeVoices.add(CombatVoice(6)) }
+    /** Boss goes into a rage. */
+    fun playEnrage() { if (combatOk(7, 1500)) { activeVoices.add(CombatVoice(7)); triggerHaptic(longArrayOf(0, 40, 30, 80)) } }
+
     // Interactive updates to track game adaptive metrics
     fun updateGameTelemetries(speed: Float, score: Int) {
         currentSpeed = speed
@@ -1080,6 +1110,112 @@ class NeonSoundEngine {
                 bufferLeft[i] += v
                 bufferRight[i] += v
                 sampleIdx++
+            }
+        }
+    }
+
+    /** One synthesized combat sound. kind: 0 shot, 1 smash, 2 boss hit, 3 deflect, 4 overheat, 5 boss down, 6 shield up, 7 enrage. */
+    class CombatVoice(val kind: Int, val p: Float = 0f) : AudioVoice {
+        private var idx = 0
+        private val total = (when (kind) { 0 -> if (p > 0.5f) 240 else 150; 1 -> 320; 2 -> 240; 3 -> 200; 4 -> 420; 5 -> 1000; 6 -> 280; 7 -> 450; 8 -> 450; 9 -> 520; 10 -> 850; 11 -> 1100; else -> 150 } * SAMPLE_RATE / 1000f).toInt()
+        private var ph = 0.0
+        private var lp = 0f
+        private val pan = Random.nextFloat() * 0.5f - 0.25f
+        private val gl = 1f - maxOf(0f, pan)
+        private val gr = 1f + minOf(0f, pan)
+        override fun isActive() = idx < total
+        override fun render(bufferLeft: FloatArray, bufferRight: FloatArray, sampleCount: Int) {
+            val tau = 2.0 * Math.PI
+            for (i in 0 until sampleCount) {
+                if (idx >= total) break
+                val t = idx.toFloat() / SAMPLE_RATE
+                val n = Random.nextFloat() * 2f - 1f
+                val e = { d: Float -> kotlin.math.exp(-t * d) }
+                var v = 0f
+                when (kind) {
+                    0 -> {
+                        val power = p > 0.5f
+                        val f = if (power) 900f * e(9f) + 140f else 1900f * e(16f) + 480f
+                        ph += tau * f / SAMPLE_RATE
+                        v = (sin(ph).toFloat() * 0.7f + sin(ph * 2).toFloat() * 0.2f) * e(if (power) 12f else 22f)
+                        v += n * e(400f) * 0.35f
+                        if (power) v += sin(tau * 70.0 * t).toFloat() * e(14f) * 0.5f
+                        v *= 0.5f
+                    }
+                    1 -> {
+                        lp += (0.55f * e(9f) + 0.04f) * (n - lp)
+                        v = lp * e(11f) * 1.6f + n * e(300f) * 0.3f
+                        ph += tau * (45.0 + 110.0 * e(20f)) / SAMPLE_RATE
+                        v += sin(ph).toFloat() * e(16f) * 0.6f
+                        val pings = floatArrayOf(2300f, 3100f, 4200f); val starts = floatArrayOf(0.015f, 0.04f, 0.07f)
+                        for (k in 0..2) if (t > starts[k]) { val tt = t - starts[k]; v += sin(tau * pings[k] * tt).toFloat() * kotlin.math.exp(-tt * 38f) * 0.16f }
+                        v *= 0.55f
+                    }
+                    2 -> {
+                        val base = 410f * (1f + 0.18f * p)
+                        val ratio = floatArrayOf(1f, 2.49f, 4.21f, 6.07f); val dec = floatArrayOf(14f, 20f, 28f, 40f); val amp = floatArrayOf(0.5f, 0.3f, 0.2f, 0.12f)
+                        for (k in 0..3) v += sin(tau * base * ratio[k] * t).toFloat() * e(dec[k]) * amp[k]
+                        v += sin(tau * 95.0 * t).toFloat() * e(28f) * 0.5f + n * e(500f) * 0.3f
+                        v *= 0.6f
+                    }
+                    3 -> {
+                        ph += tau * (3400f * e(9f) + 1100f) / SAMPLE_RATE
+                        v = sin(ph).toFloat() * e(22f) * 0.5f + sin(tau * 5200.0 * t).toFloat() * e(45f) * 0.25f + sin(tau * 7300.0 * t).toFloat() * e(60f) * 0.12f
+                    }
+                    4 -> {
+                        ph += tau * (240f * e(3.5f) + 50f) / SAMPLE_RATE
+                        val saw = 2f * (((ph / tau) % 1.0).toFloat()) - 1f
+                        val trem = 0.6f + 0.4f * sin(tau * 26.0 * t).toFloat()
+                        lp += 0.3f * (n - lp)
+                        v = saw * trem * e(4f) * 0.35f + lp * e(6f) * 0.25f
+                    }
+                    5 -> {
+                        lp += (0.5f * e(3f) + 0.02f) * (n - lp)
+                        v = lp * e(3.2f) * 2.4f
+                        ph += tau * (30.0 + 130.0 * e(5f)) / SAMPLE_RATE
+                        v += sin(ph).toFloat() * e(3f) * 0.7f
+                        if (t > 0.12f) { val tt = t - 0.12f; v += sin(tau * (500.0 + 2000.0 * minOf(1f, tt / 0.5f)) * tt).toFloat() * kotlin.math.exp(-tt * 5f) * 0.12f }
+                        v *= 0.6f
+                    }
+                    6 -> {
+                        ph += tau * (260f + 1200f * minOf(1f, t / 0.2f)) / SAMPLE_RATE
+                        val env = sin(Math.PI * t / 0.28).toFloat().coerceAtLeast(0f)
+                        v = (sin(ph).toFloat() * 0.4f + sin(ph * 1.5).toFloat() * 0.15f) * env
+                    }
+                    7 -> {
+                        ph += tau * (85f * e(1.2f) + 45f) / SAMPLE_RATE
+                        val saw = 2f * (((ph / tau) % 1.0).toFloat()) - 1f
+                        v = (saw * 1.8f).coerceIn(-1f, 1f) * e(3f) * 0.35f * (0.7f + 0.3f * sin(tau * 18.0 * t).toFloat())
+                    }
+                    8 -> {
+                        val env = sin(Math.PI * t / 0.45).toFloat().coerceAtLeast(0f)
+                        lp += (0.05f + 0.5f * minOf(1f, t / 0.2f)) * (n - lp)
+                        ph += tau * (180f + 900f * minOf(1f, t / 0.25f)) / SAMPLE_RATE
+                        v = (lp * 1.8f + sin(ph).toFloat() * 0.25f) * env
+                    }
+                    9 -> {
+                        ph += tau * (220f + 1600f * minOf(1f, t / 0.35f)) / SAMPLE_RATE
+                        v = sin(ph).toFloat() * e(5f) * 0.4f + sin(ph * 2).toFloat() * e(8f) * 0.2f
+                    }
+                    10 -> {
+                        val notes = floatArrayOf(392f, 523f, 659f, 784f, 1046f)
+                        for (k in 0..4) { val st = k * 0.1f; if (t > st) { val tt = t - st; v += sin(tau * notes[k] * tt).toFloat() * kotlin.math.exp(-tt * 9f) * 0.22f } }
+                        ph += tau * (80f + 80f * minOf(1f, t / 0.6f)) / SAMPLE_RATE
+                        v += sin(ph).toFloat() * e(3f) * 0.25f
+                    }
+                    11 -> {
+                        ph += tau * (30f + 90f * e(4f)) / SAMPLE_RATE
+                        lp += (0.4f * e(5f) + 0.02f) * (n - lp)
+                        v = sin(ph).toFloat() * e(2.5f) * 0.8f + lp * e(4f) * 1.6f
+                        val f = if (((t / 0.15f).toInt() % 2) == 0) 440.0 else 330.0
+                        val saw = 2f * (((f * t) % 1.0).toFloat()) - 1f
+                        v += saw * e(1.5f) * 0.12f
+                        v *= 0.6f
+                    }
+                }
+                bufferLeft[i] += v * gl
+                bufferRight[i] += v * gr
+                idx++
             }
         }
     }
