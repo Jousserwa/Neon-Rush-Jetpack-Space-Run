@@ -195,7 +195,7 @@ fun SkyOverlay(modifier: Modifier = Modifier) {
         fun r(i: Int): Float { val x = sin(i * 12.9898f) * 43758.547f; return x - kotlin.math.floor(x) }
         when (sky) {
             Sky.SANDSTORM -> {
-                drawRect(Color(0x33C98A3A))
+                drawRect(Color(0x1FC98A3A))
                 for (i in 0 until 40) {
                     val y = r(i) * h; val x = ((r(i + 50) + t * (1.2f + r(i + 9))) % 1f) * (w + 200f) - 100f
                     drawLine(Color(0x66FFD28A), Offset(x, y), Offset(x - 90f - 60f * r(i + 3), y + 6f), strokeWidth = 2f, cap = StrokeCap.Round)
@@ -204,9 +204,9 @@ fun SkyOverlay(modifier: Modifier = Modifier) {
             Sky.FOG -> {
                 for (k in 0 until 3) {
                     val sh = ((t + k / 3f) % 1f)
-                    drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color(0x30CFD8DC), Color.Transparent), startX = sh * w * 1.6f - w * 0.6f, endX = sh * w * 1.6f + w * 0.2f))
+                    drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color(0x16CFD8DC), Color.Transparent), startX = sh * w * 1.6f - w * 0.6f, endX = sh * w * 1.6f + w * 0.2f))
                 }
-                drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color(0x40B0BEC5)), startX = w * 0.45f, endX = w))
+                drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color(0x1CB0BEC5)), startX = w * 0.45f, endX = w))
             }
             Sky.AURORA -> {
                 for (k in 0 until 3) {
