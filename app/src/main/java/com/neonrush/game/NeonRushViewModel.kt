@@ -1636,12 +1636,27 @@ fun shootDown(id: String) {
     val st = _simState.value
     val e = st.activeTrackElements.firstOrNull { it.id == id } ?: return
     ReactFx.obstacle(e.subType, "BOOM", e.xOffsetFraction, e.yMatchPos)
+    LegendMoves.charge(0.08f)
     _simState.value = st.copy(activeTrackElements = st.activeTrackElements.filter { it.id != id }, score = st.score + 3)
+}
+/** Legendary moves (buttons in LegendMovesUi). Each returns true when it actually fired. */
+fun legendDash(): Boolean = selectedDifficulty == DifficultyTier.LEGENDARY && LegendMoves.dash()
+fun legendOverdrive(): Boolean = selectedDifficulty == DifficultyTier.LEGENDARY && LegendMoves.overdrive()
+/** Magnet pulse: every gem and fuel cell on screen jumps onto the pilot and is collected on the next tick. */
+fun legendPulse(): Boolean {
+    if (selectedDifficulty != DifficultyTier.LEGENDARY || !LegendMoves.pulse()) return false
+    val st = _simState.value
+    val uy = st.userYPos
+    _simState.value = st.copy(activeTrackElements = st.activeTrackElements.map { if (it.type == "gem" || it.type == "fuel") it.copy(xOffsetFraction = 0.22f, yMatchPos = uy) else it })
+    return true
 }
 fun damageBoss(amount: Float) {
     val st = _simState.value
     if (!st.bossActive) return
-    _simState.value = st.copy(bossHealth = (st.bossHealth - amount).coerceAtLeast(0.001f))
+    val dmg = BossGuard.hit(amount) // shield bounce / armor / rage (BossGuard.kt)
+    if (dmg <= 0f) return
+    LegendMoves.charge(0.04f)
+    _simState.value = st.copy(bossHealth = (st.bossHealth - dmg).coerceAtLeast(0.001f))
 }
 fun buyAmmo(i: Int, onDone: (Boolean) -> Unit = {}) { viewModelScope.launch { onDone(Shooting.buyAmmo(appCtx, gameDao, i)) } }
 fun buyBolt(id: String, onDone: (Boolean) -> Unit = {}) { viewModelScope.launch { onDone(Shooting.buyBolt(appCtx, gameDao, id)) } }
@@ -1710,7 +1725,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             nearMiss.reset()
             fuelGate.touchAsync(RevenueCatManager.isPro.value)
             assistGemsGiven = 0
-            RiskGates.reset()
+            RiskGates.reset(); BossGuard.reset(); BossGuard.configure(selectedDifficulty != DifficultyTier.EASY, selectedDifficulty == DifficultyTier.LEGENDARY); LegendMoves.reset()
             Shooting.newRun(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE)
             gameDao.updateProfile { p -> p.copy(currentRunGemsCredited = 0, currentRunBossZonesRewarded = "", currentRunMilestonesRewarded = "") }
             var tick = 0
@@ -1957,7 +1972,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         HullFx.bossTick = tick
                         bossHealthState = 1.0f
                     }
-                    val bossIvTicks = (Upgrades.bossBulletInterval(activeUpgradesCsv, 9) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4)
+                    val bossIvTicks = (Upgrades.bossBulletInterval(activeUpgradesCsv, 9) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4).let { BossGuard.iv(it, state.bossHealth) }
                     val eliteNow = EliteBosses.forZone(nextZoneNumber) ?: (if (RealmRules.isRivalZone(nextZoneNumber)) null else EliteBosses.forWorld(worldFamilyFor(state, nextZoneNumber), nextZoneNumber))
                     if (eliteNow == null && !RealmRules.isRivalZone(nextZoneNumber)) {
                         val trackingYBias = userY - bossYState
@@ -1970,8 +1985,12 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         bossYState = EliteBosses.moveY(eliteNow, tick, bossYState, userY)
                         EliteBosses.fire(eliteNow, tick, bossIvTicks, bossYState, userY, random, updatedElements)
                     }
-                    bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
+                                        bossYState = BossGuard.step(tick, bossHealthState, bossYState)
+                    BossGuard.counter(tick, userY, updatedElements)
+                    bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv) * BossGuard.drain()
                     if (bossHealthState <= 0f) {
+                        soundEngine.playBossDown(); BossGuard.reset()
+                        if (BossGuard.hard) viewModelScope.launch { WorldEchoBoss.onDefeat(appCtx, gameDao, RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE) }
                         var wasNewlyRewarded = false
                         var bossReward = 0
                         gameDao.updateProfile { current ->
@@ -2039,7 +2058,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         nextDurationsMap[key] = remaining - 1
                     }
                 }
-                val hasInvincibility = nextDurationsMap.containsKey("PU7") || nextDurationsMap.containsKey("PU12")
+                val hasInvincibility = nextDurationsMap.containsKey("PU7") || nextDurationsMap.containsKey("PU12") || LegendMoves.dashing()
                 val hasGhostMode = nextDurationsMap.containsKey("PU4") || activeDna.mechanicIds.contains(3)
                 var hasShield = nextDurationsMap.containsKey("PU1")
                 var hitThisTick = false
@@ -2899,7 +2918,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         HullFx.bossTick = tick
                         bossHealthState = 1.0f
                     }
-                    val bossIvTicks = (Upgrades.bossBulletInterval(activeUpgradesCsv, 6) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4)
+                    val bossIvTicks = (Upgrades.bossBulletInterval(activeUpgradesCsv, 6) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4).let { BossGuard.iv(it, state.bossHealth) }
                     val eliteNow = EliteBosses.forZone(nextZoneNumber) ?: (if (RealmRules.isRivalZone(nextZoneNumber)) null else EliteBosses.forWorld(worldFamilyFor(state, nextZoneNumber), nextZoneNumber))
                     if (eliteNow == null && !RealmRules.isRivalZone(nextZoneNumber)) {
                         val trackingYBias = userY - bossYState
@@ -2912,8 +2931,12 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         bossYState = EliteBosses.moveY(eliteNow, tick, bossYState, userY)
                         EliteBosses.fire(eliteNow, tick, bossIvTicks, bossYState, userY, random, updatedElements)
                     }
-                    bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv)
+                                        bossYState = BossGuard.step(tick, bossHealthState, bossYState)
+                    BossGuard.counter(tick, userY, updatedElements)
+                    bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv) * BossGuard.drain()
                     if (bossHealthState <= 0f) {
+                        soundEngine.playBossDown(); BossGuard.reset()
+                        if (BossGuard.hard) viewModelScope.launch { WorldEchoBoss.onDefeat(appCtx, gameDao, RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE) }
                         soundEngine.playTone(990f, 400, "sine")
                         updatedMsg = "BOSS DEFEATED!"; seasonPass.onToken(SeasonPass.TOKENS_BOSS); onBossDefeatedForDrops()
                         // Same completion tracking as the main loop: this is
@@ -2961,7 +2984,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         nextDurationsMap[key] = remaining - 1
                     }
                 }
-                val hasInvincibility = nextDurationsMap.containsKey("PU7") || nextDurationsMap.containsKey("PU12")
+                val hasInvincibility = nextDurationsMap.containsKey("PU7") || nextDurationsMap.containsKey("PU12") || LegendMoves.dashing()
                 val hasGhostMode = nextDurationsMap.containsKey("PU4") || activeDna.mechanicIds.contains(3)
                 var hasShield = nextDurationsMap.containsKey("PU1")
                 var hitThisTick = false
