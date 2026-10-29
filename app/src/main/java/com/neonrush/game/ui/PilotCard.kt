@@ -37,7 +37,9 @@ data class PilotStats(
     val masteryLevel: Int = 0, val hullsOwned: Int = 0, val proMonths: Int = 0,
     val isLegend: Boolean = false, val rank: AuraRank = AuraRank.NONE,
     /** Cosmetics earned on the Season Pass (title names, badge ids, backdrop ids). */
-    val passCosmetics: Set<String> = emptySet()
+    val passCosmetics: Set<String> = emptySet(),
+    /** Air Support sorties flown (ribbon + badge). */
+    val airSorties: Int = 0
 )
 
 data class PilotTitle(val id: String, val text: String, val hint: String, val unlocked: (PilotStats) -> Boolean)
@@ -65,7 +67,12 @@ object PilotIdentity {
         listOf(1, 3, 7, 9, 11, 13, 17, 19).mapIndexed { i, t ->
             PilotBadge("season_badge_$t", SEASON_EMOJI[i % SEASON_EMOJI.size], "Season badge $t") { "season_badge_$t" in it.passCosmetics }
         }
-    val BADGES = SEASON_BADGES + listOf(
+    private val AIR_BADGES = listOf(
+        PilotBadge("air1", "🚁", "Air Support Wingman") { com.neonrush.game.AirSupport.level(it.airSorties) == 1 },
+        PilotBadge("air2", "✈️", "Air Support Strike Leader") { com.neonrush.game.AirSupport.level(it.airSorties) == 2 },
+        PilotBadge("air3", "🦅", "Air Support Ace") { com.neonrush.game.AirSupport.level(it.airSorties) == 3 }
+    )
+    val BADGES = AIR_BADGES + SEASON_BADGES + listOf(
         PilotBadge("flame", "🔥", "7-day streak") { it.streak >= 7 },
         PilotBadge("zone", "🌀", "Zone 10+") { it.bestZone >= 10 },
         PilotBadge("star", "⭐", "Mastery 5") { it.masteryLevel >= 5 },
@@ -144,6 +151,7 @@ fun PilotCardDialog(d: PilotCardData, onDismiss: () -> Unit) {
             }
             Text(PilotIdentity.title(d.titleId).text, color = Color(0xFFC9B8FF), fontSize = 12.sp,
                 fontFamily = FontFamily.Monospace, modifier = Modifier.padding(top = 2.dp))
+            AirRibbon(airLevelOf(d.badgeIds), Modifier.padding(top = 6.dp))   // AIR SUPPORT ribbon (earned by flying sorties)
             Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 repeat(PilotIdentity.MAX_BADGES) { i ->
                     val b = d.badgeIds.getOrNull(i)?.let { id -> PilotIdentity.BADGES.firstOrNull { it.id == id } }
@@ -174,4 +182,4 @@ fun PilotIdentity.autoTitleId(s: PilotStats): String =
     if (s.isLegend) "legend" else TITLES.lastOrNull { it.unlocked(s) }?.id ?: "rookie"
 
 fun PilotIdentity.autoBadgeIds(s: PilotStats): List<String> =
-    BADGES.filter { it.unlocked(s) }.take(MAX_BADGES).map { it.id }
+    BADGES.filter { it.unlocked(s) }.take(MAX_BADGES).map { it.id }   // the Air Support badge (if earned) is first in BADGES, so it always makes the cut
