@@ -1639,6 +1639,16 @@ fun shootDown(id: String) {
     LegendMoves.charge(0.08f)
     _simState.value = st.copy(activeTrackElements = st.activeTrackElements.filter { it.id != id }, score = st.score + 3)
 }
+/** Special-world hazards (WorldMechanicsUi): a hit costs a shield layer first (unless [soft]), then fuel. */
+fun worldHit(fuelLoss: Int, soft: Boolean) {
+    val st = _simState.value
+    if (!soft && st.shieldLayers > 0) { PilotShieldFx.onHit(); soundEngine.playShieldBreak(); _simState.value = st.copy(shieldLayers = st.shieldLayers - 1); return }
+    soundEngine.playCollision()
+    if (TESTING_DISABLE_PRO_GATE) return
+    _simState.value = st.copy(fuelLevelPercent = (st.fuelLevelPercent - fuelLoss).coerceAtLeast(0))
+}
+/** Raw height nudge for gravity pockets and wind gusts (ignores inverted-control worlds on purpose). */
+fun worldNudgeY(d: Int) { val st = _simState.value; _simState.value = st.copy(userYPos = (st.userYPos + d).coerceIn(10, 90)) }
 /** Legendary moves (buttons in LegendMovesUi). Each returns true when it actually fired. */
 fun legendDash(): Boolean = selectedDifficulty == DifficultyTier.LEGENDARY && LegendMoves.dash()
 fun legendOverdrive(): Boolean = selectedDifficulty == DifficultyTier.LEGENDARY && LegendMoves.overdrive()
@@ -1725,8 +1735,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             nearMiss.reset()
             fuelGate.touchAsync(RevenueCatManager.isPro.value)
             assistGemsGiven = 0
-            RiskGates.reset(); BossGuard.reset(); BossGuard.configure(selectedDifficulty != DifficultyTier.EASY, selectedDifficulty == DifficultyTier.LEGENDARY); LegendMoves.reset()
-            Shooting.newRun(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE)
+            RiskGates.reset(); BossGuard.reset(); BossGuard.configure(selectedDifficulty != DifficultyTier.EASY, selectedDifficulty == DifficultyTier.LEGENDARY); LegendMoves.reset(); PilotDrift.reset()
+            Shooting.newRun(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE, selectedDifficulty == DifficultyTier.LEGENDARY)
             gameDao.updateProfile { p -> p.copy(currentRunGemsCredited = 0, currentRunBossZonesRewarded = "", currentRunMilestonesRewarded = "") }
             var tick = 0
             mirrorSideVar = 0; mirrorFlipTickVar = -100
@@ -2069,7 +2079,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     val prevX = elem.xOffsetFraction + (speedInPx * 0.018f)
                     val isPickup = elem.type == "gem" || elem.type == "fuel" || elem.type == "powerup"
                     // pickups use a wider, swept window: at high speed an item may spend only one tick near the pilot
-                    val isAligned = if (isPickup) (prevX >= 0.12f && elem.xOffsetFraction <= 0.30f) else (prevX >= 0.16f && elem.xOffsetFraction <= 0.26f)
+                    val isAligned = if (isPickup) (prevX >= 0.12f + PilotDrift.dx && elem.xOffsetFraction <= 0.30f + PilotDrift.dx) else (prevX >= 0.16f + PilotDrift.dx && elem.xOffsetFraction <= 0.26f + PilotDrift.dx)
                     if (isAligned) {
                         val verticalDist = Math.abs(userY - elem.yMatchPos)
                         val collisionRadius = (if (state.activePowerupDurations.containsKey("PU9")) 8 else if (kidMode) 11 else 15 - (4 * assist).toInt()).let { if (isPickup) maxOf(it, 22) else it }
@@ -2995,7 +3005,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     val prevX = elem.xOffsetFraction + (speedInPx * 0.018f)
                     val isPickup = elem.type == "gem" || elem.type == "fuel" || elem.type == "powerup"
                     // pickups use a wider, swept window: at high speed an item may spend only one tick near the pilot
-                    val isAligned = if (isPickup) (prevX >= 0.12f && elem.xOffsetFraction <= 0.30f) else (prevX >= 0.16f && elem.xOffsetFraction <= 0.26f)
+                    val isAligned = if (isPickup) (prevX >= 0.12f + PilotDrift.dx && elem.xOffsetFraction <= 0.30f + PilotDrift.dx) else (prevX >= 0.16f + PilotDrift.dx && elem.xOffsetFraction <= 0.26f + PilotDrift.dx)
                     if (isAligned) {
                         val verticalDist = Math.abs(userY - elem.yMatchPos)
                         val collisionRadius = (if (state.activePowerupDurations.containsKey("PU9")) 8 else if (kidMode) 11 else 15 - (4 * assist).toInt()).let { if (isPickup) maxOf(it, 22) else it }
