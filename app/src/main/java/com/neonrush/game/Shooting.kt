@@ -17,7 +17,8 @@ import com.neonrush.game.db.GameDao
  */
 object Shooting {
     class AmmoPack(val shots: Int, val gems: Int, val label: String)
-    val AMMO = listOf(AmmoPack(10, 30, "10 ARMOR ROUNDS"), AmmoPack(30, 75, "30 ARMOR ROUNDS"))
+    val AMMO = listOf(AmmoPack(20, 35, "1 ARMOR"), AmmoPack(100, 150, "5 ARMORS"))   // gem refills; capped by free room and by GEM_ARMOR_PER_DAY
+    const val GEM_ARMOR_PER_DAY = 10
     class BoltPack(val id: String, val name: String, val gems: Int, val argb: Long, val argb2: Long, val art: String)
     val BOLTS = listOf(
         BoltPack("cyan", "NEON CYAN", 0, 0xFF3DE8FF, 0xFFFFFFFF, "cyan"),
@@ -28,15 +29,14 @@ object Shooting {
     const val FREE_SHOTS = 3
     const val PRO_SHOTS = 5
     const val BOSS_DAMAGE = 0.012f
-    const val ARMOR_LEGEND = 70
-    const val ARMOR_MED = 3
-    const val ARMOR_MED_PRO = 5
-    const val POOL_CAP = 140
     const val LEGEND_BASIC = 12
     /** Rounds one armor magazine holds in this mode. */
-    fun armorFor(tierName: String, isPro: Boolean): Int = if (tierName == "LEGENDARY") ARMOR_LEGEND else if (isPro) ARMOR_MED_PRO else ARMOR_MED
+    @Suppress("UNUSED_PARAMETER") fun armorFor(tierName: String, isPro: Boolean): Int = MagazineBay.PER_ARMOR
     /** True when the last bolt that reached the boss was an armor round (BossGuard reads it for the x1.5). */
     @Volatile var lastArmor = false
+    /** Set when the gun swaps to its next magazine (the shooting overlay shows MAGAZINE SWAP). */
+    @Volatile var reloadMs = 0L
+    fun setAmmo(ctx: Context, n: Int) { try { prefs(ctx).edit().putInt("ammo", n).apply() } catch (_: Throwable) { }; version += 1 }
     const val HEAT_PER_SHOT = 0.14f
     const val COOL_PER_SEC = 0.32f
     const val RESUME_AT = 0.35f
@@ -72,7 +72,7 @@ object Shooting {
     /** Loads armor rounds into the gun (kept until fired, capped). Returns how many were really added. */
     fun addArmor(ctx: Context, n: Int): Int {
         return try {
-            val sp = prefs(ctx); val a = sp.getInt("ammo", 0); val b = (a + n).coerceAtMost(POOL_CAP)
+            val sp = prefs(ctx); val a = sp.getInt("ammo", 0); val b = maxOf(a, (a + n).coerceAtMost(MagazineBay.capacity(ctx)))
             sp.edit().putInt("ammo", b).apply(); version += 1; b - a
         } catch (_: Throwable) { 0 }
     }
@@ -82,17 +82,34 @@ object Shooting {
         if (mode == 0) return 0
         if (mode == 2 && LegendMoves.overdriveOn()) return 2
         val a = try { prefs(ctx).getInt("ammo", 0) } catch (_: Throwable) { 0 }
-        if (a > 0) { try { prefs(ctx).edit().putInt("ammo", a - 1).apply() } catch (_: Throwable) { }; version += 1; return 2 }
+        if (a > 0) {
+            val left = a - 1
+            try { prefs(ctx).edit().putInt("ammo", left).apply() } catch (_: Throwable) { }
+            if (left > 0 && left % MagazineBay.MAG_SIZE == 0) reloadMs = System.currentTimeMillis()   // one magazine emptied: the next clicks in
+            version += 1; return 2
+        }
         if (runShots > 0) { runShots -= 1; version += 1; return 1 }
         return 0
     }
 
+    private fun gemDay(): Long = ServerClock.bestNowMs() / 86_400_000L
+    /** Armors (20 shots each) already bought with gems today. */
+    fun gemArmorToday(ctx: Context): Int { @Suppress("UNUSED_VARIABLE") val v = version; return try { val sp = prefs(ctx); if (sp.getLong("gday", -1L) == gemDay()) sp.getInt("gcount", 0) else 0 } catch (_: Throwable) { 0 } }
+
+    /** Gem armor refill. Capped by free room (price is proportional when the room is smaller than the pack) and by GEM_ARMOR_PER_DAY. */
     suspend fun buyAmmo(ctx: Context, dao: GameDao, i: Int): Boolean {
         val p = AMMO.getOrNull(i) ?: return false
+        val have = try { prefs(ctx).getInt("ammo", 0) } catch (_: Throwable) { 0 }
+        val room = MagazineBay.capacity(ctx) - have
+        val armorsRoom = room / MagazineBay.PER_ARMOR
+        val dayLeft = GEM_ARMOR_PER_DAY - gemArmorToday(ctx)
+        val armors = minOf(p.shots / MagazineBay.PER_ARMOR, armorsRoom, dayLeft)
+        if (armors <= 0) return false
+        val cost = (p.gems.toLong() * armors / (p.shots / MagazineBay.PER_ARMOR)).toInt().coerceAtLeast(1)
         val prof = dao.getProfileDirect() ?: return false
-        if (prof.gems < p.gems) return false
-        dao.updateProfile { it.copy(gems = it.gems - p.gems) }
-        try { val sp = prefs(ctx); sp.edit().putInt("ammo", sp.getInt("ammo", 0) + p.shots).apply() } catch (_: Throwable) { }
+        if (prof.gems < cost) return false
+        dao.updateProfile { it.copy(gems = it.gems - cost) }
+        try { prefs(ctx).edit().putInt("ammo", have + armors * MagazineBay.PER_ARMOR).putLong("gday", gemDay()).putInt("gcount", gemArmorToday(ctx) + armors).apply() } catch (_: Throwable) { }
         version += 1
         return true
     }
