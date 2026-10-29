@@ -26,7 +26,7 @@ object Shooting {
     )
     const val FREE_SHOTS = 3
     const val PRO_SHOTS = 5
-    const val BOSS_DAMAGE = 0.01f
+    const val BOSS_DAMAGE = 0.012f
     const val HEAT_PER_SHOT = 0.14f
     const val COOL_PER_SEC = 0.32f
     const val RESUME_AT = 0.35f
@@ -62,7 +62,7 @@ object Shooting {
     /** Spends what one shot costs. Returns false when the pilot cannot shoot right now. */
     fun consume(ctx: Context, mode: Int): Boolean {
         when (mode) {
-            2 -> { if (overheated) return false; heat += HEAT_PER_SHOT; if (heat >= 1f) { heat = 1f; overheated = true }; return true }
+            2 -> { if (LegendMoves.overdriveOn()) return true; if (overheated) return false; heat += HEAT_PER_SHOT; if (heat >= 1f) { heat = 1f; overheated = true }; return true }
             1 -> {
                 if (runShots > 0) { runShots -= 1; return true }
                 val a = try { prefs(ctx).getInt("ammo", 0) } catch (_: Throwable) { 0 }
