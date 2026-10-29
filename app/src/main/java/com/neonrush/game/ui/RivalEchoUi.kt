@@ -63,6 +63,7 @@ fun RivalEchoOverlay(distanceMeters: Float, pilotY: Int, active: Boolean, tierKe
         }
     }
 
+    val ghostArt = rememberArt("rival_ghost")
     if (!shown) return
     BoxWithConstraints(modifier.fillMaxSize()) {
         val wPx = with(LocalDensity.current) { maxWidth.toPx() }
@@ -72,7 +73,9 @@ fun RivalEchoOverlay(distanceMeters: Float, pilotY: Int, active: Boolean, tierKe
             val gap = echoD - distanceMeters
             val x = (wPx * 0.2f + gap * wPx * 0.0035f).coerceIn(-sizePx * 0.5f, wPx - sizePx * 0.6f)
             val y = hPx * (echoY / 100f)
-            PilotPose(Pose.BOOST, 46.dp, animated = false,
+            if (ghostArt != null) androidx.compose.foundation.Image(androidx.compose.ui.graphics.painter.BitmapPainter(ghostArt), contentDescription = null,
+                modifier = Modifier.offset { IntOffset((x - sizePx * 0.4f).roundToInt(), (y - sizePx * 0.55f).roundToInt()) }.height(56.dp).graphicsLayer { alpha = 0.6f })
+            else PilotPose(Pose.BOOST, 46.dp, animated = false,
                 modifier = Modifier.offset { IntOffset((x - sizePx * 0.4f).roundToInt(), (y - sizePx * 0.5f).roundToInt()) }.graphicsLayer { alpha = 0.42f })
             Text(
                 (if (gap >= 0) "ECHO +" else "ECHO ") + "${gap.roundToInt()}m", color = Color(0xFF7DF9FF), fontSize = 10.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace,
