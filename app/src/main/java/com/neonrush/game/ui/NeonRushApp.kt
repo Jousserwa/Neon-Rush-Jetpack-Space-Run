@@ -4024,6 +4024,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                                 change.consume()
                                 val deltaPercent = (dragAmount.y / size.height) * 100f
                                 viewModel.adjustUserY(deltaPercent.toInt())
+                                com.neonrush.game.PilotDrift.nudge(dragAmount.x / size.width) // forward / back drift
                             }
                         }
                         .pointerInput(Unit) {
@@ -4520,7 +4521,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                         }
 
                         val ticksCount = simState.ghostYPath.size
-                        val userX = cw * 0.2f
+                        val userX = cw * com.neonrush.game.PilotDrift.x
                         
                         if (ticksCount > 0) {
                             val ghostY = ch * (simState.ghostYPos / 100f)
@@ -4552,7 +4553,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                         if (simState.bossActive) {
                             val eliteB = EliteBosses.forZone(simState.currentZoneNumber)
                             val bossImg = bossImagesByWorld[eliteB?.base ?: (variant?.baseFamily ?: currentWorld.worldFamily)] ?: bossImagesByWorld[1]!!
-                            val bossX = cw * 0.88f
+                            val bossX = cw * (0.88f + com.neonrush.game.BossLunge.shift)   // the boss lunges toward the pilot now and then
                             val bossYPx = ch * (simState.bossY / 100f)
                             val bossDisplayHeight = ch * 0.38f
                             val bossDisplayWidth = bossDisplayHeight * (bossImg.width.toFloat() / bossImg.height.toFloat())
@@ -4790,9 +4791,22 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                 RivalEchoOverlay(distanceMeters = simState.distanceMeters, pilotY = simState.userYPos, active = simState.isStarted && !simState.isCompleted, tierKey = viewModel.selectedDifficulty.name) // Rival Echo: your best run flies beside you
                 GoldenGateOverlay(distanceMeters = simState.distanceMeters, pilotY = simState.userYPos, active = simState.isStarted && !simState.isCompleted,
                     enabled = viewModel.selectedDifficulty == NeonRushViewModel.DifficultyTier.LEGENDARY, onPass = { n -> viewModel.addBonusScore(n) }) // Legendary golden gates
+                WorldMechanicsOverlay(
+                    mech = run {
+                        val rl = com.neonrush.game.RealmRules.realmFor(simState.currentZoneNumber)
+                        if (rl == com.neonrush.game.Realm.DUNES) 6 else if (rl != com.neonrush.game.Realm.NONE || simState.specialWorldId != null) 0 else currentWorld.worldFamily.takeIf { it in 1..5 } ?: 0
+                    },
+                    active = simState.isStarted && !simState.isCompleted, bossActive = simState.bossActive, pilotY = simState.userYPos, distanceMeters = simState.distanceMeters,
+                    intensity = when (viewModel.selectedDifficulty) { NeonRushViewModel.DifficultyTier.EASY -> 0.6f; NeonRushViewModel.DifficultyTier.LEGENDARY -> 1.25f; else -> 1f },
+                    onNudgeY = { d -> viewModel.worldNudgeY(d) }, onHit = { l, soft -> viewModel.worldHit(l, soft) }, onScore = { n -> viewModel.addBonusScore(n) }) // special-world mechanics + drift bonus
                 LegendMovesOverlay(active = simState.isStarted && !simState.isCompleted, legend = viewModel.selectedDifficulty == NeonRushViewModel.DifficultyTier.LEGENDARY,
                     pilotY = simState.userYPos, bossActive = simState.bossActive, onDash = { viewModel.legendDash() }, onPulse = { viewModel.legendPulse() },
                     onOverdrive = { viewModel.legendOverdrive() }, onBonus = { n -> viewModel.addBonusScore(n) }) // dash / magnet pulse / overdrive + boss banners
+                ArmorOverlay(active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, isPro = isPro || TESTING_DISABLE_PRO_GATE,
+                    bossActive = simState.bossActive, bossHealth = simState.bossHealth, pilotY = simState.userYPos, onScore = { n -> viewModel.addBonusScore(n) }) // armor magazines
+                BossEventsOverlay(active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, bossActive = simState.bossActive,
+                    bossHealth = simState.bossHealth, bossY = simState.bossY, pilotY = simState.userYPos, accent = hexToColor(simState.zoneDNA.environmentColor),
+                    onHit = { l, soft -> viewModel.worldHit(l, soft) }, onScore = { n -> viewModel.addBonusScore(n) }) // boss lunge + brood
                 ShootingOverlay(elements = simState.activeTrackElements, pilotY = simState.userYPos, bossActive = simState.bossActive, bossY = simState.bossY,
             active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, isPro = isPro || TESTING_DISABLE_PRO_GATE,
             onDestroy = { id -> viewModel.shootDown(id) }, onBossHit = { viewModel.damageBoss(Shooting.BOSS_DAMAGE) }) // Shooting: fire button + bolts
