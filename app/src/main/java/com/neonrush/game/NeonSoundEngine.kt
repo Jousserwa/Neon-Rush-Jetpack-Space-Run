@@ -445,7 +445,7 @@ class NeonSoundEngine {
     }
 
     // ---- Shooting & smashing (Stage 136). Throttled so a held fire button never turns into a buzz. ----
-    private var lastCombatNs = LongArray(12)
+    private var lastCombatNs = LongArray(16)
     private fun combatOk(kind: Int, minMs: Int): Boolean {
         val now = System.nanoTime()
         if (now - lastCombatNs[kind] < minMs * 1_000_000L) return false
@@ -469,6 +469,10 @@ class NeonSoundEngine {
     fun playPulse() { if (combatOk(9, 200)) { activeVoices.add(CombatVoice(9)); triggerHaptic(longArrayOf(0, 20, 30, 40)) } }
     fun playOverdrive() { activeVoices.add(CombatVoice(10)); triggerHaptic(longArrayOf(0, 30, 30, 60, 30, 90)) }
     fun playPhase2() { activeVoices.add(CombatVoice(11)); triggerHaptic(longArrayOf(0, 80, 40, 160)) }
+    /** Armor magazine collected / baby born / chain blast. */
+    fun playArmorPickup() { activeVoices.add(CombatVoice(12)); triggerHaptic(longArrayOf(0, 20, 30, 20, 30, 50)) }
+    fun playBirth() { if (combatOk(13, 120)) activeVoices.add(CombatVoice(13)) }
+    fun playNova() { activeVoices.add(CombatVoice(14)); triggerHaptic(longArrayOf(0, 40, 20, 90)) }
     /** Boss raises its shield. */
     fun playShieldUp() { if (combatOk(6, 400)) activeVoices.add(CombatVoice(6)) }
     /** Boss goes into a rage. */
@@ -1117,7 +1121,7 @@ class NeonSoundEngine {
     /** One synthesized combat sound. kind: 0 shot, 1 smash, 2 boss hit, 3 deflect, 4 overheat, 5 boss down, 6 shield up, 7 enrage. */
     class CombatVoice(val kind: Int, val p: Float = 0f) : AudioVoice {
         private var idx = 0
-        private val total = (when (kind) { 0 -> if (p > 0.5f) 240 else 150; 1 -> 320; 2 -> 240; 3 -> 200; 4 -> 420; 5 -> 1000; 6 -> 280; 7 -> 450; 8 -> 450; 9 -> 520; 10 -> 850; 11 -> 1100; else -> 150 } * SAMPLE_RATE / 1000f).toInt()
+        private val total = (when (kind) { 0 -> if (p > 0.5f) 240 else 150; 1 -> 320; 2 -> 240; 3 -> 200; 4 -> 420; 5 -> 1000; 6 -> 280; 7 -> 450; 8 -> 450; 9 -> 520; 10 -> 850; 11 -> 1100; 12 -> 700; 13 -> 260; 14 -> 650; else -> 150 } * SAMPLE_RATE / 1000f).toInt()
         private var ph = 0.0
         private var lp = 0f
         private val pan = Random.nextFloat() * 0.5f - 0.25f
@@ -1211,6 +1215,23 @@ class NeonSoundEngine {
                         val saw = 2f * (((f * t) % 1.0).toFloat()) - 1f
                         v += saw * e(1.5f) * 0.12f
                         v *= 0.6f
+                    }
+                    12 -> {
+                        // two metal clacks (magazine seating) + a rising charge chime
+                        for (k in 0..1) { val st = k * 0.09f; if (t > st) { val tt = t - st; v += (n * kotlin.math.exp(-tt * 260f) * 0.4f) + sin(tau * (900.0 + 300.0 * k) * tt).toFloat() * kotlin.math.exp(-tt * 55f) * 0.3f } }
+                        if (t > 0.22f) { val tt = t - 0.22f; val notes = floatArrayOf(523f, 659f, 784f, 1046f); for (q in 0..3) { val s2 = q * 0.07f; if (tt > s2) { val t3 = tt - s2; v += sin(tau * notes[q] * t3).toFloat() * kotlin.math.exp(-t3 * 8f) * 0.2f } } }
+                    }
+                    13 -> {
+                        ph += tau * (140f + 420f * minOf(1f, t / 0.12f) - 200f * maxOf(0f, (t - 0.12f) / 0.14f)) / SAMPLE_RATE
+                        lp += 0.2f * (n - lp)
+                        v = (sin(ph).toFloat() * 0.5f + lp * 0.5f) * e(9f) * 0.8f
+                    }
+                    14 -> {
+                        lp += (0.45f * e(7f) + 0.03f) * (n - lp)
+                        ph += tau * (60.0 + 500.0 * e(9f)) / SAMPLE_RATE
+                        v = lp * e(6f) * 1.4f + sin(ph).toFloat() * e(5f) * 0.6f
+                        for (q in 0..3) { val s2 = q * 0.05f; if (t > s2) { val t3 = t - s2; v += sin(tau * (1200.0 + 400.0 * q) * t3).toFloat() * kotlin.math.exp(-t3 * 14f) * 0.15f } }
+                        v *= 0.7f
                     }
                 }
                 bufferLeft[i] += v * gl
