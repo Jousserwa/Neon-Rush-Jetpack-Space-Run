@@ -233,7 +233,7 @@ private fun hexToColor(hex: String): Color {
 // How strongly to dim the whole parallax stack so gameplay elements (pickups,
 // obstacles, the pilot) stay readable against busier background art. 0f =
 // no dimming, 1f = fully black. Tune to taste.
-private const val BACKGROUND_SCRIM_ALPHA = 0.32f
+private const val BACKGROUND_SCRIM_ALPHA = 0.24f
 
 // Shield barrier look evolves with the Shield Core upgrade level (0-5).
 private fun DrawScope.drawShieldAura(level: Int, x: Float, y: Float, r: Float, tick: Int) {
@@ -357,6 +357,13 @@ private fun ParallaxWorldBackground(
     val cf = remember(variant?.key) {
         variant?.let { ColorFilter.colorMatrix(it.colorMatrix()) }
     }
+    // Sharper, punchier backdrop: more contrast + colour, applied to the plain art (remixed rift looks keep their own grade).
+    val gradeCf = remember {
+        val m = androidx.compose.ui.graphics.ColorMatrix(); m.setToSaturation(1.2f)
+        val c = 1.22f; val t = 255f * 0.5f * (1f - c) - 6f
+        m *= androidx.compose.ui.graphics.ColorMatrix(floatArrayOf(c, 0f, 0f, 0f, t, 0f, c, 0f, 0f, t, 0f, 0f, c, 0f, t, 0f, 0f, 0f, 1f, 0f))
+        ColorFilter.colorMatrix(m)
+    }
     val vGeo = remember(variant?.key, variant?.suffix) { variant?.let { variantGeo(it) } }
     val distanceMeters = distanceMeters * (vGeo?.speed ?: 1f)
     if (layers == null) {
@@ -411,7 +418,7 @@ private fun ParallaxWorldBackground(
                         colorFilter = filter,
                         dstOffset = IntOffset(((cw - displayWidth) / 2f).roundToInt(), 0),
                         dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt()),
-                        alpha = a, blendMode = blend
+                        alpha = a, blendMode = blend, filterQuality = androidx.compose.ui.graphics.FilterQuality.High
                     )
                 } else if (layer.seamless) {
                     // Seamless tiling strip art (e.g. World 1): content spans edge-to-edge, so repeating copies loops cleanly.
@@ -423,7 +430,7 @@ private fun ParallaxWorldBackground(
                             colorFilter = filter,
                             dstOffset = IntOffset(x.roundToInt(), 0),
                             dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt()),
-                            alpha = a, blendMode = blend
+                            alpha = a, blendMode = blend, filterQuality = androidx.compose.ui.graphics.FilterQuality.High
                         )
                         x += displayWidth
                     }
@@ -437,7 +444,7 @@ private fun ParallaxWorldBackground(
                             colorFilter = filter,
                             dstOffset = IntOffset(((cw - displayWidth) / 2f).roundToInt(), 0),
                             dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt()),
-                            alpha = a, blendMode = blend
+                            alpha = a, blendMode = blend, filterQuality = androidx.compose.ui.graphics.FilterQuality.High
                         )
                     } else {
                         val wrapWindow = (panRange * 0.15f).coerceIn(40f, 220f)
@@ -449,7 +456,7 @@ private fun ParallaxWorldBackground(
                                 colorFilter = filter,
                                 dstOffset = IntOffset((-cyclePos).roundToInt(), 0),
                                 dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt()),
-                                alpha = a, blendMode = blend
+                                alpha = a, blendMode = blend, filterQuality = androidx.compose.ui.graphics.FilterQuality.High
                             )
                         } else {
                             val progress = (cyclePos - panRange) / wrapWindow
@@ -458,14 +465,14 @@ private fun ParallaxWorldBackground(
                                 colorFilter = filter,
                                 dstOffset = IntOffset((-panRange).roundToInt(), 0),
                                 dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt()),
-                                alpha = a * (1f - progress), blendMode = blend
+                                alpha = a * (1f - progress), blendMode = blend, filterQuality = androidx.compose.ui.graphics.FilterQuality.High
                             )
                             drawImage(
                                 image = bmp,
                                 colorFilter = filter,
                                 dstOffset = IntOffset(0, 0),
                                 dstSize = IntSize(displayWidth.roundToInt(), ch.roundToInt()),
-                                alpha = a * progress, blendMode = blend
+                                alpha = a * progress, blendMode = blend, filterQuality = androidx.compose.ui.graphics.FilterQuality.High
                             )
                         }
                     }
@@ -474,9 +481,9 @@ private fun ParallaxWorldBackground(
 
             val swayDeg = BgFx.sway(worldId, idx, t)
             if (swayDeg != 0f) {
-                withTransform({ rotate(swayDeg, Offset(cw / 2f, ch)) }) { paint(cf, BlendMode.SrcOver, 1f) }
+                withTransform({ rotate(swayDeg, Offset(cw / 2f, ch)) }) { paint(cf ?: gradeCf, BlendMode.SrcOver, 1f) }
             } else {
-                paint(cf, BlendMode.SrcOver, 1f)
+                paint(cf ?: gradeCf, BlendMode.SrcOver, 1f)
             }
             // the world's own lights come alive (only on the plain art; re-coloured rift variants keep their colour grade)
             if (cf == null) { try { BgFx.passes(this, worldId, idx, t, cw, ch) { f, b, a -> paint(f, b, a) } } catch (_: Throwable) { } }
@@ -485,6 +492,8 @@ private fun ParallaxWorldBackground(
 
         // Dim the whole stack uniformly so gameplay elements read clearly on top.
         drawRect(color = Color.Black.copy(alpha = BACKGROUND_SCRIM_ALPHA))
+        // soft vignette: darker corners pull the eye to the lane and make everything feel crisper
+        drawRect(Brush.radialGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.38f)), Offset(cw / 2f, ch * 0.55f), ch * 0.78f))
     }
 }
 // ---------------------------------------------------------------------------
@@ -1715,6 +1724,8 @@ fun ArcadeHomeView(
         // Armory: ammo packs and bolt looks
         ArmoryCard(isPro = isPro, onBuyAmmo = { i -> viewModel.buyAmmo(i) { ok -> android.widget.Toast.makeText(proCtx, if (ok) "Ammo pack added!" else "Not enough gems", android.widget.Toast.LENGTH_SHORT).show() } },
             onBolt = { id -> viewModel.buyBolt(id) { ok -> if (!ok) android.widget.Toast.makeText(proCtx, "Not enough gems", android.widget.Toast.LENGTH_SHORT).show() } }, modifier = Modifier.padding(vertical = 4.dp))
+        // World Echo Boss: this week's returning boss + twist
+        WorldEchoCard(isPro = isPro, modifier = Modifier.padding(vertical = 4.dp))
         // Mystery Realm Doors: one pick a day after a run
         MysteryDoorsCard(isPro = isPro, onOpenDoor = { i, cb -> viewModel.openDoor(i, cb) }, modifier = Modifier.padding(vertical = 4.dp))
         // Legendary Rewards Track
@@ -4779,6 +4790,9 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                 RivalEchoOverlay(distanceMeters = simState.distanceMeters, pilotY = simState.userYPos, active = simState.isStarted && !simState.isCompleted, tierKey = viewModel.selectedDifficulty.name) // Rival Echo: your best run flies beside you
                 GoldenGateOverlay(distanceMeters = simState.distanceMeters, pilotY = simState.userYPos, active = simState.isStarted && !simState.isCompleted,
                     enabled = viewModel.selectedDifficulty == NeonRushViewModel.DifficultyTier.LEGENDARY, onPass = { n -> viewModel.addBonusScore(n) }) // Legendary golden gates
+                LegendMovesOverlay(active = simState.isStarted && !simState.isCompleted, legend = viewModel.selectedDifficulty == NeonRushViewModel.DifficultyTier.LEGENDARY,
+                    pilotY = simState.userYPos, bossActive = simState.bossActive, onDash = { viewModel.legendDash() }, onPulse = { viewModel.legendPulse() },
+                    onOverdrive = { viewModel.legendOverdrive() }, onBonus = { n -> viewModel.addBonusScore(n) }) // dash / magnet pulse / overdrive + boss banners
                 ShootingOverlay(elements = simState.activeTrackElements, pilotY = simState.userYPos, bossActive = simState.bossActive, bossY = simState.bossY,
             active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, isPro = isPro || TESTING_DISABLE_PRO_GATE,
             onDestroy = { id -> viewModel.shootDown(id) }, onBossHit = { viewModel.damageBoss(Shooting.BOSS_DAMAGE) }) // Shooting: fire button + bolts
