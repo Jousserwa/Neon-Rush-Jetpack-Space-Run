@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import com.neonrush.game.BossBrood
 import com.neonrush.game.BossGuard
 import com.neonrush.game.BossLunge
+import com.neonrush.game.MagazineBay
 import com.neonrush.game.NeonSoundEngine
 import com.neonrush.game.Shooting
 import com.neonrush.game.VisualTrackElement
@@ -74,6 +75,7 @@ fun ShootingOverlay(
     val rings = remember { ArrayList<Ring>() }
     var bossFlash by remember { mutableStateOf(0f) }
     var banner by remember { mutableStateOf("") }
+    var reloadFx by remember { mutableStateOf(0f) }
     val sfx = remember { NeonSoundEngine() }
     val packRef = rememberUpdatedState(pack)
     var muzzle by remember { mutableStateOf(0f) }
@@ -111,6 +113,7 @@ fun ShootingOverlay(
     LaunchedEffect(active) {
         if (!active) { bolts.clear(); sparks.clear(); rings.clear(); BossGuard.incomingY = -1f; return@LaunchedEffect }
         var last = 0L
+        var seenReload = Shooting.reloadMs
         var prevShield = false; var prevEn = 0
         while (true) {
             val now = withFrameNanos { it }
@@ -119,6 +122,8 @@ fun ShootingOverlay(
             if (cooldown > 0f) cooldown -= dt
             if (muzzle > 0f) muzzle -= dt
             if (bossFlash > 0f) bossFlash -= dt
+            if (reloadFx > 0f) reloadFx -= dt
+            if (Shooting.reloadMs != seenReload) { seenReload = Shooting.reloadMs; reloadFx = 1.4f; sfx.playArmorPickup() }
             run {
                 val bi = booms.iterator(); while (bi.hasNext()) { val bm = bi.next(); bm.age += dt; if (bm.age > 0.36f) bi.remove() }
                 val si = sparks.iterator()
@@ -262,6 +267,11 @@ fun ShootingOverlay(
                 fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace,
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 40.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xCC080620)).padding(horizontal = 10.dp, vertical = 4.dp))
         }
+        if (reloadFx > 0f) {
+            val a = (reloadFx / 1.4f).coerceIn(0f, 1f)
+            Text("🔄 MAGAZINE SWAP  (${Shooting.ammo(ctx) / MagazineBay.MAG_SIZE + 1} mags left)", color = Color(0xFFFFE082).copy(alpha = a), fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 100.dp, bottom = 40.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xCC080620)).padding(horizontal = 8.dp, vertical = 4.dp))
+        }
         val armorN = Shooting.ammo(ctx)
         val total = armorN + Shooting.runShots
         val ring = if (armorN > 0) gold else Color(pack.argb)
@@ -271,8 +281,8 @@ fun ShootingOverlay(
                 .pointerInput(mode) { detectTapGestures(onPress = { held = true; fire(); tryAwaitRelease(); held = false }) },
             contentAlignment = Alignment.Center
         ) {
-            val cap = if (mode == 2) 70f else 6f
-            Canvas(Modifier.fillMaxSize().padding(4.dp)) { drawArc(ring, -90f, 360f * (armorN / cap).coerceIn(0f, 1f), false, style = Stroke(7f, cap = StrokeCap.Round)) }
+            val magFill = if (armorN <= 0) 0f else ((armorN - 1) % MagazineBay.MAG_SIZE + 1) / MagazineBay.MAG_SIZE.toFloat()   // the magazine being fired
+            Canvas(Modifier.fillMaxSize().padding(4.dp)) { drawArc(ring, -90f, 360f * magFill.coerceIn(0f, 1f), false, style = Stroke(7f, cap = StrokeCap.Round)) }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(if (armorN > 0) "🛡" else "⚡", fontSize = 22.sp)
                 Text(if (total == 0) "EMPTY" else if (armorN > 0) "$armorN" else "${Shooting.runShots}", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
@@ -283,7 +293,7 @@ fun ShootingOverlay(
 
 /** Home: the Armory. Ammo packs (gems, never per bullet), bolt look packs, and what each difficulty allows. */
 @Composable
-fun ArmoryCard(isPro: Boolean, onBuyAmmo: (Int) -> Unit, onBolt: (String) -> Unit, modifier: Modifier = Modifier) {
+fun ArmoryCard(isPro: Boolean, onBuyAmmo: (Int) -> Unit, onBolt: (String) -> Unit, onOpenBay: () -> Unit = {}, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
     @Suppress("UNUSED_VARIABLE") val v = Shooting.version
     val ammo = Shooting.ammo(ctx)
@@ -298,15 +308,24 @@ fun ArmoryCard(isPro: Boolean, onBuyAmmo: (Int) -> Unit, onBolt: (String) -> Uni
             if (crate != null) androidx.compose.foundation.Image(androidx.compose.ui.graphics.painter.BitmapPainter(crate), contentDescription = null, modifier = Modifier.size(34.dp)) else Text("🔫", fontSize = 22.sp)
             Spacer(Modifier.width(8.dp))
             Text("ARMORY", color = Color(sel.argb), fontSize = 13.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
-            Text("$ammo armor rounds", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+            Text("$ammo / ${MagazineBay.capacity(ctx, isPro)} shots", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
         }
         Text(
-            "Collect ARMOR magazines in the race: they load rounds that stay in your gun until fired. Medium & Hard ${if (isPro) Shooting.ARMOR_MED_PRO else Shooting.ARMOR_MED} per magazine, Legendary ${Shooting.ARMOR_LEGEND}. Armor rounds hit harder and one blast wipes out a whole boss brood. Packs below add rounds too.",
+            "Collect ARMOR magazines in the race: each armor gives ${MagazineBay.PER_ARMOR} shots (5 armors = 1 magazine of ${MagazineBay.MAG_SIZE}) that stay in your gun until fired. Armor shots hit harder and one blast wipes out a whole boss brood. The gun fires one magazine at a time and swaps to the next by itself. Buy more storage in the Magazine Bay. Gem refills: up to ${Shooting.GEM_ARMOR_PER_DAY} armors a day (${Shooting.gemArmorToday(ctx)} used).",
             color = Color.White.copy(alpha = 0.75f), fontSize = 10.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(vertical = 6.dp)
         )
+        Row(
+            Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(12.dp)).background(Brush.horizontalGradient(listOf(Color(0xFFFFC21A), Color(0xFFFF8F00)))).clickable { onOpenBay() }.padding(vertical = 10.dp, horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("🔫", fontSize = 18.sp)
+            Spacer(Modifier.width(8.dp))
+            Text("MAGAZINE BAY", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
+            Text("${MagazineBay.magazines(ctx, isPro)} mags ▸", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Shooting.AMMO.forEachIndexed { i, p ->
-                Text("${p.shots} ROUNDS\n${p.gems} 💎", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, fontFamily = FontFamily.Monospace,
+                Text("${p.label}\n${p.gems} 💎", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, fontFamily = FontFamily.Monospace,
                     modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(Brush.horizontalGradient(listOf(Color(0xFF3DE8FF), Color(0xFF69F0AE)))).clickable { onBuyAmmo(i) }.padding(vertical = 8.dp))
             }
         }
