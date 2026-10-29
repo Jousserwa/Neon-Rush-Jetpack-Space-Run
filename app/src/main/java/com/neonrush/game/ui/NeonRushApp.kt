@@ -4806,7 +4806,8 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                     bossActive = simState.bossActive, bossHealth = simState.bossHealth, pilotY = simState.userYPos, onScore = { n -> viewModel.addBonusScore(n) }) // armor magazines
                 BossEventsOverlay(active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, bossActive = simState.bossActive,
                     bossHealth = simState.bossHealth, bossY = simState.bossY, pilotY = simState.userYPos, accent = hexToColor(simState.zoneDNA.environmentColor),
-                    onHit = { l, soft -> viewModel.worldHit(l, soft) }, onScore = { n -> viewModel.addBonusScore(n) }) // boss lunge + brood
+                    onHit = { l, soft -> viewModel.worldHit(l, soft) }, onScore = { n -> viewModel.addBonusScore(n) },
+                    onBossDamage = { viewModel.damageBoss(Shooting.BOSS_DAMAGE) }) // boss lunge + brood + brood bomb
                 ShootingOverlay(elements = simState.activeTrackElements, pilotY = simState.userYPos, bossActive = simState.bossActive, bossY = simState.bossY,
             active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, isPro = isPro || TESTING_DISABLE_PRO_GATE,
             onDestroy = { id -> viewModel.shootDown(id) }, onBossHit = { viewModel.damageBoss(Shooting.BOSS_DAMAGE) }) // Shooting: fire button + bolts
