@@ -1660,6 +1660,22 @@ fun legendPulse(): Boolean {
     _simState.value = st.copy(activeTrackElements = st.activeTrackElements.map { if (it.type == "gem" || it.type == "fuel") it.copy(xOffsetFraction = 0.22f, yMatchPos = uy) else it })
     return true
 }
+/** Air Support (AirSupportUi): a missile hits the boss. Breaks its shield, ignores the shield bounce, can finish it. */
+fun airBossStrike(dmg: Float) {
+    val st = _simState.value
+    if (!st.bossActive) return
+    BossGuard.shieldUp = false
+    _simState.value = st.copy(bossHealth = (st.bossHealth - dmg).coerceAtLeast(0f), score = st.score + 25)
+}
+/** Air Support guns: removes obstacles and enemy bullets up to [maxX] (fraction of the width). Returns how many went. */
+fun airSweep(maxX: Float): Int {
+    val st = _simState.value
+    val (gone, keep) = st.activeTrackElements.partition { (it.type == "obstacle" || it.type == "bullet") && it.xOffsetFraction <= maxX }
+    if (gone.isEmpty()) return 0
+    gone.take(5).forEach { ReactFx.obstacle(it.subType, "BOOM", it.xOffsetFraction, it.yMatchPos) }
+    _simState.value = st.copy(activeTrackElements = keep, score = st.score + 4 * gone.size)
+    return gone.size
+}
 fun damageBoss(amount: Float) {
     val st = _simState.value
     if (!st.bossActive) return
@@ -1667,6 +1683,10 @@ fun damageBoss(amount: Float) {
     if (dmg <= 0f) return
     LegendMoves.charge(0.04f)
     _simState.value = st.copy(bossHealth = (st.bossHealth - dmg).coerceAtLeast(0.001f))
+}
+/** Magazine Bay: Bomb Rack upgrade (gems). onDone gets null on success or the reason. */
+fun upgradeBombRack(onDone: (String?) -> Unit = {}) {
+    viewModelScope.launch { onDone(BroodBomb.upgradeRack(appCtx, gameDao)) }
 }
 fun buyAmmo(i: Int, onDone: (Boolean) -> Unit = {}) { viewModelScope.launch { onDone(Shooting.buyAmmo(appCtx, gameDao, i)) } }
 fun buyBolt(id: String, onDone: (Boolean) -> Unit = {}) { viewModelScope.launch { onDone(Shooting.buyBolt(appCtx, gameDao, id)) } }
@@ -1736,7 +1756,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             fuelGate.touchAsync(RevenueCatManager.isPro.value)
             assistGemsGiven = 0
             RiskGates.reset(); BossGuard.reset(); BossGuard.configure(selectedDifficulty != DifficultyTier.EASY, selectedDifficulty == DifficultyTier.LEGENDARY); LegendMoves.reset(); PilotDrift.reset()
-            Shooting.newRun(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE, selectedDifficulty == DifficultyTier.LEGENDARY)
+            Shooting.newRun(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE, selectedDifficulty == DifficultyTier.LEGENDARY); MagazineBay.onRunStart(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE)
             gameDao.updateProfile { p -> p.copy(currentRunGemsCredited = 0, currentRunBossZonesRewarded = "", currentRunMilestonesRewarded = "") }
             var tick = 0
             mirrorSideVar = 0; mirrorFlipTickVar = -100
@@ -2068,7 +2088,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         nextDurationsMap[key] = remaining - 1
                     }
                 }
-                val hasInvincibility = nextDurationsMap.containsKey("PU7") || nextDurationsMap.containsKey("PU12") || LegendMoves.dashing()
+                val hasInvincibility = nextDurationsMap.containsKey("PU7") || nextDurationsMap.containsKey("PU12") || LegendMoves.dashing() || AirSupport.covering()
                 val hasGhostMode = nextDurationsMap.containsKey("PU4") || activeDna.mechanicIds.contains(3)
                 var hasShield = nextDurationsMap.containsKey("PU1")
                 var hitThisTick = false
@@ -2673,7 +2693,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     hangarStore.putLong(key, finalState.score.toLong())
                     val ps = proPerks.snapshot.value
                     FirebaseLeaderboardManager.submitScore(usernameForLeaderboard, finalState.score, activeSkinForLeaderboard,
-                        ps.rank.name, ps.isLegend, tierKey = tier.boardKey)
+                        ps.rank.name, ps.isLegend, badges = AirSupport.badgeCsv(appCtx), tierKey = tier.boardKey)
                     Social.publishScore(usernameForLeaderboard, tier.boardKey, finalState.score)
                 }
             }
@@ -2994,7 +3014,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         nextDurationsMap[key] = remaining - 1
                     }
                 }
-                val hasInvincibility = nextDurationsMap.containsKey("PU7") || nextDurationsMap.containsKey("PU12") || LegendMoves.dashing()
+                val hasInvincibility = nextDurationsMap.containsKey("PU7") || nextDurationsMap.containsKey("PU12") || LegendMoves.dashing() || AirSupport.covering()
                 val hasGhostMode = nextDurationsMap.containsKey("PU4") || activeDna.mechanicIds.contains(3)
                 var hasShield = nextDurationsMap.containsKey("PU1")
                 var hitThisTick = false
