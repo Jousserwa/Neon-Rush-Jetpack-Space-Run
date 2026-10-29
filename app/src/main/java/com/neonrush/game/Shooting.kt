@@ -7,16 +7,17 @@ import androidx.compose.runtime.setValue
 import com.neonrush.game.db.GameDao
 
 /**
- * SHOOTING.
- *  - LEGENDARY (Pro): unlimited bolts, limited only by a heat meter. Bolts destroy obstacles and chip the boss.
- *  - MEDIUM / HARD: a few free POWER SHOTS each run, plus shots from Ammo Packs (bought with gems, never charged per bullet).
- *    Power shots destroy obstacles but do no boss damage.
- *  - EASY: no shooting.
+ * SHOOTING (armor system, Stage 140).
+ *  - ARMOR MAGAZINES drop on the track while you race. Collecting one loads ARMOR ROUNDS into the gun, and they stay there until fired (saved between runs):
+ *      MEDIUM / HARD: 3 rounds per magazine (Pro: 5).   LEGENDARY: 70 rounds per magazine.   Ammo Packs from the Armory add rounds too.
+ *  - Armor rounds are fired first. They hit harder (x1.5 on a boss) and one that touches a boss-brood baby chain-destroys ALL the babies at once.
+ *  - Without armor you still have a few basic bolts each run (Medium/Hard 3, Pro 5, Legendary 12). Basic bolts kill one target at a time.
+ *  - Legendary bolts chip the boss; Medium/Hard bolts clear obstacles and babies but do no boss damage. EASY: no shooting.
  * Walls, tunnels and pillars can never be shot (see canShoot). Bolt looks come from cosmetic Bolt Packs.
  */
 object Shooting {
     class AmmoPack(val shots: Int, val gems: Int, val label: String)
-    val AMMO = listOf(AmmoPack(10, 30, "10 POWER SHOTS"), AmmoPack(30, 75, "30 POWER SHOTS"))
+    val AMMO = listOf(AmmoPack(10, 30, "10 ARMOR ROUNDS"), AmmoPack(30, 75, "30 ARMOR ROUNDS"))
     class BoltPack(val id: String, val name: String, val gems: Int, val argb: Long, val argb2: Long, val art: String)
     val BOLTS = listOf(
         BoltPack("cyan", "NEON CYAN", 0, 0xFF3DE8FF, 0xFFFFFFFF, "cyan"),
@@ -27,6 +28,15 @@ object Shooting {
     const val FREE_SHOTS = 3
     const val PRO_SHOTS = 5
     const val BOSS_DAMAGE = 0.012f
+    const val ARMOR_LEGEND = 70
+    const val ARMOR_MED = 3
+    const val ARMOR_MED_PRO = 5
+    const val POOL_CAP = 140
+    const val LEGEND_BASIC = 12
+    /** Rounds one armor magazine holds in this mode. */
+    fun armorFor(tierName: String, isPro: Boolean): Int = if (tierName == "LEGENDARY") ARMOR_LEGEND else if (isPro) ARMOR_MED_PRO else ARMOR_MED
+    /** True when the last bolt that reached the boss was an armor round (BossGuard reads it for the x1.5). */
+    @Volatile var lastArmor = false
     const val HEAT_PER_SHOT = 0.14f
     const val COOL_PER_SEC = 0.32f
     const val RESUME_AT = 0.35f
@@ -49,9 +59,9 @@ object Shooting {
     fun selectBolt(ctx: Context, id: String) { if (ownsBolt(ctx, id)) { try { prefs(ctx).edit().putString("bolt", id).apply() } catch (_: Throwable) { }; version += 1 } }
 
     /** Mode for a difficulty: 0 none, 1 power shots, 2 legendary unlimited + heat. */
-    fun mode(tierName: String, isPro: Boolean): Int = when (tierName) { "LEGENDARY" -> if (isPro) 2 else 1; "MEDIUM", "HARD" -> 1; else -> 0 }
+    fun mode(tierName: String, isPro: Boolean): Int = when (tierName) { "LEGENDARY" -> 2; "MEDIUM", "HARD" -> 1; else -> 0 }
 
-    fun newRun(isPro: Boolean) { heat = 0f; overheated = false; runShots = if (isPro) PRO_SHOTS else FREE_SHOTS; version += 1 }
+    fun newRun(isPro: Boolean, legend: Boolean = false) { heat = 0f; overheated = false; lastArmor = false; runShots = if (legend) LEGEND_BASIC else if (isPro) PRO_SHOTS else FREE_SHOTS; version += 1 }
 
     /** Cooling, called every frame by the overlay. */
     fun cool(dt: Float) {
@@ -59,20 +69,22 @@ object Shooting {
         if (overheated && heat <= RESUME_AT) overheated = false
     }
 
-    /** Spends what one shot costs. Returns false when the pilot cannot shoot right now. */
-    fun consume(ctx: Context, mode: Int): Boolean {
-        when (mode) {
-            2 -> { if (LegendMoves.overdriveOn()) return true; if (overheated) return false; heat += HEAT_PER_SHOT; if (heat >= 1f) { heat = 1f; overheated = true }; return true }
-            1 -> {
-                if (runShots > 0) { runShots -= 1; return true }
-                val a = try { prefs(ctx).getInt("ammo", 0) } catch (_: Throwable) { 0 }
-                if (a <= 0) return false
-                try { prefs(ctx).edit().putInt("ammo", a - 1).apply() } catch (_: Throwable) { }
-                version += 1
-                return true
-            }
-        }
-        return false
+    /** Loads armor rounds into the gun (kept until fired, capped). Returns how many were really added. */
+    fun addArmor(ctx: Context, n: Int): Int {
+        return try {
+            val sp = prefs(ctx); val a = sp.getInt("ammo", 0); val b = (a + n).coerceAtMost(POOL_CAP)
+            sp.edit().putInt("ammo", b).apply(); version += 1; b - a
+        } catch (_: Throwable) { 0 }
+    }
+
+    /** Spends one shot. Returns 0 = nothing to fire, 1 = basic bolt, 2 = armor round (armor is used first; Overdrive fires free armor rounds). */
+    fun consume(ctx: Context, mode: Int): Int {
+        if (mode == 0) return 0
+        if (mode == 2 && LegendMoves.overdriveOn()) return 2
+        val a = try { prefs(ctx).getInt("ammo", 0) } catch (_: Throwable) { 0 }
+        if (a > 0) { try { prefs(ctx).edit().putInt("ammo", a - 1).apply() } catch (_: Throwable) { }; version += 1; return 2 }
+        if (runShots > 0) { runShots -= 1; version += 1; return 1 }
+        return 0
     }
 
     suspend fun buyAmmo(ctx: Context, dao: GameDao, i: Int): Boolean {
