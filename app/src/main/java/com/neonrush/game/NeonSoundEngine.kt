@@ -475,6 +475,13 @@ class NeonSoundEngine {
     fun playNova() { activeVoices.add(CombatVoice(14)); triggerHaptic(longArrayOf(0, 40, 20, 90)) }
     /** Boss raises its shield. */
     fun playShieldUp() { if (combatOk(6, 400)) activeVoices.add(CombatVoice(6)) }
+    /** Air Support (see AirVoice). */
+    fun playAirRadio(open: Boolean) { activeVoices.add(AirVoice(if (open) 0 else 1)); triggerHaptic(15L) }
+    fun playAirFlyby(jet: Boolean, seconds: Float) { activeVoices.add(AirVoice(if (jet) 3 else 2, seconds)) }
+    fun playAirGun(seconds: Float) { activeVoices.add(AirVoice(4, seconds)); triggerHaptic(longArrayOf(0, 25, 15, 25, 15, 25, 15, 25, 15, 25, 15, 25)) }
+    fun playAirMissile() { activeVoices.add(AirVoice(5)); triggerHaptic(longArrayOf(0, 40, 20, 40)) }
+    fun playAirBoom() { activeVoices.add(AirVoice(6)); triggerHaptic(longArrayOf(0, 60, 30, 120, 40, 200)) }
+    fun playAirLock() { activeVoices.add(AirVoice(7)) }
     /** Boss goes into a rage. */
     fun playEnrage() { if (combatOk(7, 1500)) { activeVoices.add(CombatVoice(7)); triggerHaptic(longArrayOf(0, 40, 30, 80)) } }
 
@@ -1232,6 +1239,76 @@ class NeonSoundEngine {
                         v = lp * e(6f) * 1.4f + sin(ph).toFloat() * e(5f) * 0.6f
                         for (q in 0..3) { val s2 = q * 0.05f; if (t > s2) { val t3 = t - s2; v += sin(tau * (1200.0 + 400.0 * q) * t3).toFloat() * kotlin.math.exp(-t3 * 14f) * 0.15f } }
                         v *= 0.7f
+                    }
+                }
+                bufferLeft[i] += v * gl
+                bufferRight[i] += v * gr
+                idx++
+            }
+        }
+    }
+
+    /** AIR SUPPORT sounds (Stage 145). kind: 0 radio open (squelch + static), 1 radio close, 2 helicopter fly-by (far, close, far), 3 jet fly-by, 4 minigun burst, 5 missile launch, 6 big explosion, 7 lock-on beeps. p = length in seconds for 2, 3 and 4. */
+    class AirVoice(val kind: Int, val p: Float = 3f) : AudioVoice {
+        private var idx = 0
+        private val total = (when (kind) { 0 -> 0.30f; 1 -> 0.24f; 2, 3, 4 -> p; 5 -> 0.9f; 6 -> 1.2f; else -> 0.35f } * SAMPLE_RATE).toInt()
+        private var ph = 0.0; private var bph = 0.0; private var lp = 0f; private var lp2 = 0f
+        private val pan = Random.nextFloat() * 0.3f - 0.15f
+        private val gl = 1f - maxOf(0f, pan); private val gr = 1f + minOf(0f, pan)
+        override fun isActive() = idx < total
+        override fun render(bufferLeft: FloatArray, bufferRight: FloatArray, sampleCount: Int) {
+            val tau = 2.0 * Math.PI
+            for (i in 0 until sampleCount) {
+                if (idx >= total) break
+                val t = idx.toFloat() / SAMPLE_RATE
+                val n = Random.nextFloat() * 2f - 1f
+                val e = { d: Float -> kotlin.math.exp(-t * d) }
+                var v = 0f
+                when (kind) {
+                    0 -> {   // mic key: click, hiss burst, static tail
+                        lp += 0.35f * (n - lp)
+                        v = (n - lp) * 0.5f * e(9f) + (if (t < 0.045f) sin(tau * 1500.0 * t).toFloat() * 0.3f else 0f) + (n - lp) * 0.16f * e(5f)
+                    }
+                    1 -> {   // mic release: tiny chirp + hiss
+                        lp += 0.35f * (n - lp)
+                        v = (n - lp) * 0.4f * e(14f) + (if (t < 0.06f) sin(tau * 950.0 * t).toFloat() * 0.25f * (1f - t / 0.06f) else 0f)
+                    }
+                    2 -> {   // helicopter: blade thump + engine whine, grows as it comes, pitch drops once it passes
+                        val x = t / p
+                        val env = Math.pow(sin(Math.PI * x).toDouble().coerceAtLeast(0.0), 1.4).toFloat()
+                        val dop = 1.14f - 0.28f * x
+                        bph += tau * 14.0 * dop / SAMPLE_RATE
+                        val th = Math.pow(sin(bph).coerceAtLeast(0.0), 5.0).toFloat()
+                        lp += 0.07f * (n - lp)
+                        v = (th * 0.9f + lp * 0.9f + sin(tau * 62.0 * dop * t).toFloat() * 0.22f + (n - lp) * th * 0.18f * env) * env * 0.8f
+                    }
+                    3 -> {   // jet: rising roar, scream and fall
+                        val x = t / p
+                        val env = Math.pow(sin(Math.PI * x).toDouble().coerceAtLeast(0.0), 2.2).toFloat()
+                        val dop = 1.3f - 0.55f * x
+                        lp += (0.12f + 0.5f * env) * (n - lp)
+                        lp2 += 0.02f * (n - lp2)
+                        ph += tau * 520.0 * dop / SAMPLE_RATE
+                        v = (lp * 1.2f + (n - lp) * 0.3f * env + lp2 * 1.4f + sin(ph).toFloat() * 0.07f) * env * 0.8f
+                    }
+                    4 -> {   // minigun: spin-up, 70 rounds per second, spin-down
+                        val gate = minOf(1f, t / 0.12f) * minOf(1f, (p - t) / 0.18f).coerceAtLeast(0f)
+                        val loc = (t * 70f) % 1f / 70f
+                        v = (n * kotlin.math.exp(-loc * 700f) * 0.7f + sin(tau * 170.0 * loc).toFloat() * kotlin.math.exp(-loc * 260f) * 0.7f) * gate * 0.55f
+                    }
+                    5 -> {   // missile launch: ignition thump + hissing climb
+                        lp += (0.08f + 0.45f * minOf(1f, t / 0.45f)) * (n - lp)
+                        ph += tau * (90.0 + 520.0 * minOf(1f, t / 0.6f)) / SAMPLE_RATE
+                        v = lp * 1.3f * minOf(1f, t / 0.04f) * e(2.0f) + sin(ph).toFloat() * 0.12f * e(2.5f) + sin(tau * 60.0 * t).toFloat() * e(9f) * 0.6f
+                    }
+                    6 -> {   // explosion
+                        lp += (0.5f * e(3f) + 0.02f) * (n - lp)
+                        ph += tau * (30.0 + 120.0 * e(5f)) / SAMPLE_RATE
+                        v = (lp * e(3f) * 2.6f + sin(ph).toFloat() * e(2.6f) * 0.9f) * 0.6f
+                    }
+                    else -> {   // radar lock-on: three short beeps
+                        val b = (t < 0.05f) || (t in 0.11f..0.16f) || (t in 0.22f..0.27f)
+                        if (b) v = sin(tau * 1800.0 * t).toFloat() * 0.3f
                     }
                 }
                 bufferLeft[i] += v * gl
