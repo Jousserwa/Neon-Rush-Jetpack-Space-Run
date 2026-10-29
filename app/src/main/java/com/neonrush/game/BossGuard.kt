@@ -57,7 +57,7 @@ object BossGuard {
         val period = if (phase2) 14 else if (enrage >= 1) 16 else 20
         val up = (if (enrage == 2) 7 else if (enrage == 1) 6 else 5) + WorldEchoBoss.shieldBonus()
         val ph = tick % period
-        shieldUp = ph < up && health > 0.1f
+        shieldUp = ph < up && health > 0.1f && !BossLunge.vulnerable   // a lunging boss drops its shield
         shieldWarn = !shieldUp && ph >= period - 2 && health > 0.1f
         var y = bossY
         val inc = incomingY
@@ -88,11 +88,13 @@ object BossGuard {
     fun hit(base: Float): Float {
         if (shieldUp) { lastDeflect = true; return 0f }
         lastDeflect = false
+        val lungeMul = if (BossLunge.vulnerable) 2f else 1f      // open mouth = double damage
+        val armorMul = if (Shooting.lastArmor) 1.5f else 1f      // armor rounds hit harder
         val t = now()
         hitStreak = if (t - lastHitMs > 1200L) 1 else hitStreak + 1
         lastHitMs = t
         val armor = 1f / (1f + 0.22f * (hitStreak - 1).coerceAtMost(8))
         val rage = if (enrage == 2) 0.7f else if (enrage == 1) 0.85f else 1f
-        return base * armor * rage * (if (phase2) 0.9f else 1f)
+        return base * armor * rage * (if (phase2) 0.9f else 1f) * lungeMul * armorMul
     }
 }
