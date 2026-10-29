@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neonrush.game.BroodBomb
 import com.neonrush.game.LegendMoves
+import com.neonrush.game.MagazineBay
 import com.neonrush.game.NeonSoundEngine
 import com.neonrush.game.PilotDrift
 import com.neonrush.game.Shooting
@@ -81,6 +82,7 @@ fun ArmorOverlay(
         mags.clear(); grabs.clear(); popup = ""; popupAge = -1f
         if (!active) return@LaunchedEffect
         fun rnd(a: Float, b: Float) = a + Random.nextFloat() * (b - a)
+        BroodBomb.rack(ctx)
         var next = rnd(9f, 12f); var runT = 0f; var last = 0L; var wasBoss = false; var lastHp = 1f; var armT = 0f
         val bombOk = tierName == "LEGENDARY" || tierName == "HARD"
         var bombPending = false; var nextBomb = rnd(55f, 80f)
@@ -98,7 +100,7 @@ fun ArmorOverlay(
             if (bombPending && boss && lastHp < 0.8f && mags.none { it.bomb }) { bombPending = false; mags.add(Mag(1.1f, rnd(22f, 78f), bomb = true)) }
             if (!boss && legend) { nextBomb -= dt; if (nextBomb <= 0f) { nextBomb = rnd(55f, 80f); if (BroodBomb.count(ctx) < BroodBomb.MAX && mags.none { it.bomb }) mags.add(Mag(1.1f, rnd(22f, 78f), bomb = true)) } }
             wasBoss = boss
-            if (!boss && mags.none { !it.drop && !it.bomb }) { next -= dt; if (next <= 0f) { next = if (legend) rnd(15f, 21f) else rnd(26f, 36f); mags.add(Mag(1.1f, rnd(18f, 82f))) } }
+            if (!boss && mags.none { !it.drop && !it.bomb }) { next -= dt; if (next <= 0f) { next = (if (legend) rnd(15f, 21f) else rnd(26f, 36f)) * MagazineBay.dropMul(ctx); mags.add(Mag(1.1f, rnd(18f, 82f))) } }
             val pxPx = PilotDrift.x * w; val pyPx = yRef.value / 100f * h
             val it2 = mags.iterator()
             while (it2.hasNext()) {
@@ -123,9 +125,16 @@ fun ArmorOverlay(
                     val added = Shooting.addArmor(ctx, n)
                     armed = Shooting.ammo(ctx)
                     grabs.add(Grab(0f, n.coerceAtMost(if (legend) 9 else 5), legend))
-                    sfx.playArmorPickup(); scoreRef.value(if (legend) 60 else 40)
-                    popup = if (added > 0) "+$added ARMOR ROUNDS" + (if (legend) "\n+ OVERDRIVE CHARGE" else "") else "GUN FULL"; popupAge = 0f
-                    if (legend) LegendMoves.charge(0.3f)
+                    sfx.playArmorPickup()
+                    if (added > 0) {
+                        scoreRef.value(if (legend) 60 else 40)
+                        popup = "+$added SHOTS\n(${armed}/${MagazineBay.capacity(ctx)})" + (if (legend) "\n+ OVERDRIVE CHARGE" else ""); popupAge = 0f
+                        if (legend) LegendMoves.charge(0.3f)
+                    } else {   // storage full: the armor turns into score (and overdrive charge on Legendary)
+                        scoreRef.value(50)
+                        popup = "STORAGE FULL\n+50 SCORE" + (if (legend) "\n+ OVERDRIVE CHARGE" else ""); popupAge = 0f
+                        if (legend) LegendMoves.charge(0.25f)
+                    }
                 } else if (m.x < -0.2f) it2.remove()
             }
             val gi = grabs.iterator()
