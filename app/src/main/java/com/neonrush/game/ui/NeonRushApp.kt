@@ -994,7 +994,7 @@ fun HeaderProfileDeck(profile: GameProfile, viewModel: NeonRushViewModel) {
                         bestScore = profile.bestScore, bestZone = profile.bestZoneReached, streak = profile.currentStreak,
                         totalRuns = profile.totalRuns, masteryLevel = RunGoals.level(profile.masteryPoints),
                         hullsOwned = hangarSt?.ownedHullCount ?: 0, proMonths = perks.months, isLegend = perks.isLegend, rank = perks.rank,
-                        passCosmetics = passSt.cosmetics
+                        passCosmetics = passSt.cosmetics, airSorties = com.neonrush.game.AirSupport.totalSorties(LocalContext.current)
                     )
                     var showPilotCard by remember { mutableStateOf(false) }
                     LaunchedEffect(Unit) { while (true) { hudDelay(5000); HullFx.gemTick = tickNow } }
@@ -1203,6 +1203,7 @@ fun LeaderboardsTab(viewModel: NeonRushViewModel, playerProfile: GameProfile) {
                                         fontSize = 15.sp,
                                         color = if (isSelf) CyberPrimary else Color.White
                                     )
+                                    AirRibbon(airLevelOf(pilot.badgeIds), Modifier.padding(start = 6.dp), compact = true)
                                     if (pilot.isFollowed) {
                                         Text(
                                             text = " ✓ Followed",
@@ -1459,6 +1460,8 @@ fun ArcadeHomeView(
     // Play In-App Review: only on the calm home screen, after a happy milestone (never mid-run or right after dying).
     val reviewActivity = LocalContext.current.findActivity()
     val proCtx = LocalContext.current
+    var showBay by remember { mutableStateOf(false) }
+    var showAirBay by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         delay(2500)
         val act = reviewActivity
@@ -1722,8 +1725,38 @@ fun ArcadeHomeView(
         // Pilot Fusion: fuse cores into gems and Fusion Levels
         FusionCard(onFuse = { kinds, cb -> viewModel.fuseCores(kinds) { n, g -> cb(n, g) } }, modifier = Modifier.padding(vertical = 4.dp))
         // Armory: ammo packs and bolt looks
-        ArmoryCard(isPro = isPro, onBuyAmmo = { i -> viewModel.buyAmmo(i) { ok -> android.widget.Toast.makeText(proCtx, if (ok) "Ammo pack added!" else "Not enough gems", android.widget.Toast.LENGTH_SHORT).show() } },
-            onBolt = { id -> viewModel.buyBolt(id) { ok -> if (!ok) android.widget.Toast.makeText(proCtx, "Not enough gems", android.widget.Toast.LENGTH_SHORT).show() } }, modifier = Modifier.padding(vertical = 4.dp))
+        ArmoryCard(isPro = isPro, onBuyAmmo = { i -> viewModel.buyAmmo(i) { ok -> android.widget.Toast.makeText(proCtx, if (ok) "Armor refilled!" else "Not enough gems, gun full or daily limit reached", android.widget.Toast.LENGTH_SHORT).show() } },
+            onBolt = { id -> viewModel.buyBolt(id) { ok -> if (!ok) android.widget.Toast.makeText(proCtx, "Not enough gems", android.widget.Toast.LENGTH_SHORT).show() } },
+            onOpenBay = { showBay = true }, modifier = Modifier.padding(vertical = 4.dp))
+        // Magazine Bay page: gun storage tiers (real money, one per day) + Bomb Rack (gems)
+        if (showBay) {
+            val bayPerks by viewModel.proPerks.snapshot.collectAsState()
+            MagazineBayDialog(
+                isPro = isPro, proMonths = bayPerks.months, testing = TESTING_DISABLE_PRO_GATE,
+                onClose = { showBay = false }, onGoPro = { showBay = false; showPlanPaywall = true },
+                onBuyBombRack = { cb -> viewModel.upgradeBombRack { err -> cb(err) } },
+                onBuyTier = { n, cb ->
+                    val act = reviewActivity
+                    val why = com.neonrush.game.MagazineBay.blockReason(proCtx, n, isPro, bayPerks.months, TESTING_DISABLE_PRO_GATE)
+                    if (why != null) { android.widget.Toast.makeText(proCtx, why, android.widget.Toast.LENGTH_SHORT).show(); cb(false) }
+                    else if (TESTING_DISABLE_PRO_GATE) { com.neonrush.game.MagazineBay.applyTier(proCtx, n); cb(true) }   // testing: tiers are free, no store needed
+                    else if (act == null) cb(false)
+                    else RevenueCatManager.purchaseGemPack(act, com.neonrush.game.MagazineBay.TIERS[n - 1].id) { ok -> if (ok) com.neonrush.game.MagazineBay.applyTier(proCtx, n); cb(ok) }
+                }
+            )
+        }
+        // Air Support Bay: helicopter / jet backup (Pro), call packs
+        AirSupportCard(isPro = isPro, onOpen = { showAirBay = true }, modifier = Modifier.padding(vertical = 4.dp))
+        if (showAirBay) {
+            AirSupportBayDialog(isPro = isPro, testing = TESTING_DISABLE_PRO_GATE, onClose = { showAirBay = false }, onGoPro = { showAirBay = false; showPlanPaywall = true },
+                onBuyPack = { i, cb ->
+                    val act = reviewActivity
+                    val pack = com.neonrush.game.AirSupport.PACKS[i]
+                    if (TESTING_DISABLE_PRO_GATE) { com.neonrush.game.AirSupport.addCalls(proCtx, pack.calls); cb(true) }   // testing: packs are free
+                    else if (act == null) cb(false)
+                    else RevenueCatManager.purchaseGemPack(act, pack.id) { ok -> if (ok) com.neonrush.game.AirSupport.addCalls(proCtx, pack.calls); cb(ok) }
+                })
+        }
         // World Echo Boss: this week's returning boss + twist
         WorldEchoCard(isPro = isPro, modifier = Modifier.padding(vertical = 4.dp))
         // Mystery Realm Doors: one pick a day after a run
@@ -4811,6 +4844,12 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                 ShootingOverlay(elements = simState.activeTrackElements, pilotY = simState.userYPos, bossActive = simState.bossActive, bossY = simState.bossY,
             active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, isPro = isPro || TESTING_DISABLE_PRO_GATE,
             onDestroy = { id -> viewModel.shootDown(id) }, onBossHit = { viewModel.damageBoss(Shooting.BOSS_DAMAGE) }) // Shooting: fire button + bolts
+                var airPaywall by remember { mutableStateOf(false) }
+                if (airPaywall) PaywallDialog(onDismiss = { airPaywall = false }, reason = "air_support")
+                AirSupportOverlay(active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, isPro = isPro || TESTING_DISABLE_PRO_GATE, testing = TESTING_DISABLE_PRO_GATE,
+                    bossActive = simState.bossActive, bossY = simState.bossY, pilotY = simState.userYPos, fuel = simState.fuelLevelPercent, shields = simState.shieldLayers,
+                    onGoPro = { airPaywall = true }, onBossStrike = { d -> viewModel.airBossStrike(d) }, onSweep = { x -> viewModel.airSweep(x) },
+                    onScore = { n -> viewModel.addBonusScore(n) }) // Air Support: radio call, gunship / jet sortie, missiles
 
                 // Invisible onboarding: non-blocking contextual prompts.
                 HintOverlay(hint = simState.hint, userYPos = simState.userYPos)
