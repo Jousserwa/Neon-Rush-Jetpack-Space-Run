@@ -92,7 +92,7 @@ fun LegendMovesOverlay(
         Canvas(Modifier.fillMaxSize()) {
             @Suppress("UNUSED_VARIABLE") val f = frame
             val w = size.width; val h = size.height
-            val py = yRef.value / 100f * h; val px = 0.2f * w
+            val py = yRef.value / 100f * h; val px = com.neonrush.game.PilotDrift.x * w
             if (flash > 0f) drawRect(Color(0xFFFF1744).copy(alpha = 0.28f * (flash / 0.5f).coerceIn(0f, 1f)))
             if (LegendMoves.dashing() || dashAge >= 0f) {
                 val k = (if (dashAge >= 0f) dashAge / 0.8f else 0f).coerceIn(0f, 1f)
