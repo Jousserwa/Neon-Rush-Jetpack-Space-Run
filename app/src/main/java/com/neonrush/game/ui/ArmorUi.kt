@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.neonrush.game.BroodBomb
 import com.neonrush.game.LegendMoves
 import com.neonrush.game.NeonSoundEngine
 import com.neonrush.game.PilotDrift
@@ -39,7 +40,7 @@ import kotlin.math.hypot
 import kotlin.math.sin
 import kotlin.random.Random
 
-private class Mag(var x: Float, var y: Float, var age: Float = 0f, var pulled: Boolean = false, val drop: Boolean = false)
+private class Mag(var x: Float, var y: Float, var age: Float = 0f, var pulled: Boolean = false, val drop: Boolean = false, val bomb: Boolean = false)
 private class Grab(var age: Float, val rounds: Int, val legend: Boolean)
 
 /**
@@ -71,7 +72,9 @@ fun ArmorOverlay(
     var popup by remember { mutableStateOf("") }
     var popupAge by remember { mutableStateOf(-1f) }
     var labelPos by remember { mutableStateOf(IntOffset(-999, -999)) }
-    val art = rememberArt("ammo_crate")
+    val artCyan = rememberArt("armor_mag_cyan"); val artGold = rememberArt("armor_mag_gold"); val artCrate = rememberArt("ammo_crate")
+    val artBomb = if (legend) rememberArt("bomb_gold") else rememberArt("bomb_pink")
+    val art = if (legend) (artGold ?: artCrate) else (artCyan ?: artCrate)
     val gold = Color(0xFFFFC21A); val hot = Color(0xFFFFF3B0); val cyan = Color(0xFF3DE8FF)
 
     LaunchedEffect(active, legend) {
@@ -79,6 +82,8 @@ fun ArmorOverlay(
         if (!active) return@LaunchedEffect
         fun rnd(a: Float, b: Float) = a + Random.nextFloat() * (b - a)
         var next = rnd(9f, 12f); var runT = 0f; var last = 0L; var wasBoss = false; var lastHp = 1f; var armT = 0f
+        val bombOk = tierName == "LEGENDARY" || tierName == "HARD"
+        var bombPending = false; var nextBomb = rnd(55f, 80f)
         while (true) {
             val now = withFrameNanos { it }
             val dt = if (last == 0L) 0.016f else ((now - last) / 1_000_000_000f).coerceAtMost(0.05f)
@@ -89,8 +94,11 @@ fun ArmorOverlay(
             val boss = bossRef.value
             if (boss) lastHp = bossHpRef.value
             if (wasBoss && !boss && lastHp < 0.1f) mags.add(Mag(1.1f, rnd(25f, 75f), drop = true))   // a defeated boss leaves one behind
+            if (boss && !wasBoss && bombOk && Random.nextFloat() < 0.55f) bombPending = true     // some bosses bring a bomb along
+            if (bombPending && boss && lastHp < 0.8f && mags.none { it.bomb }) { bombPending = false; mags.add(Mag(1.1f, rnd(22f, 78f), bomb = true)) }
+            if (!boss && legend) { nextBomb -= dt; if (nextBomb <= 0f) { nextBomb = rnd(55f, 80f); if (BroodBomb.count(ctx) < BroodBomb.MAX && mags.none { it.bomb }) mags.add(Mag(1.1f, rnd(22f, 78f), bomb = true)) } }
             wasBoss = boss
-            if (!boss && mags.none { !it.drop }) { next -= dt; if (next <= 0f) { next = if (legend) rnd(15f, 21f) else rnd(26f, 36f); mags.add(Mag(1.1f, rnd(18f, 82f))) } }
+            if (!boss && mags.none { !it.drop && !it.bomb }) { next -= dt; if (next <= 0f) { next = if (legend) rnd(15f, 21f) else rnd(26f, 36f); mags.add(Mag(1.1f, rnd(18f, 82f))) } }
             val pxPx = PilotDrift.x * w; val pyPx = yRef.value / 100f * h
             val it2 = mags.iterator()
             while (it2.hasNext()) {
@@ -105,6 +113,12 @@ fun ArmorOverlay(
                 } else m.x -= 0.27f * dt
                 if (d < 30f * dens) {
                     it2.remove()
+                    if (m.bomb) {
+                        val ok = BroodBomb.add(ctx)
+                        grabs.add(Grab(0f, 6, legend)); sfx.playArmorPickup(); scoreRef.value(30)
+                        popup = if (ok) "+1 BROOD BOMB\n(${BroodBomb.count(ctx)}/${BroodBomb.MAX})" else "BOMB POCKET FULL"; popupAge = 0f
+                        continue
+                    }
                     val n = Shooting.armorFor(tierName, isPro)
                     val added = Shooting.addArmor(ctx, n)
                     armed = Shooting.ammo(ctx)
@@ -146,14 +160,30 @@ fun ArmorOverlay(
             // magazines on the track
             for (m in mags) {
                 val c = Offset(m.x * w, m.y / 100f * h + sin(t * 3f + m.y) * 4.dp.toPx())
+                if (m.bomb) {
+                    val bt = if (legend) gold else Color(0xFFFF4DD2)
+                    val pulse = 0.5f + 0.5f * sin(t * 6f)
+                    for (k in 0..1) { val kk = (t * 0.9f + k * 0.5f) % 1f; drawCircle(bt.copy(alpha = 0.6f * (1f - kk)), (20f + 34f * kk).dp.toPx(), c, style = Stroke(2.5f.dp.toPx())) }
+                    val sc = 1f + 0.06f * pulse
+                    if (artBomb != null) {
+                        val dh = 58.dp.toPx() * sc; val dw = dh * artBomb.width / artBomb.height
+                        drawImage(artBomb, dstOffset = IntOffset((c.x - dw / 2f).toInt(), (c.y - dh / 2f).toInt()), dstSize = IntSize(dw.toInt(), dh.toInt()))
+                    } else {
+                        drawCircle(Color(0xFF263238), 18.dp.toPx() * sc, c); drawCircle(bt, 18.dp.toPx() * sc, c, style = Stroke(3.dp.toPx())); drawCircle(bt.copy(alpha = 0.8f), 8.dp.toPx(), c)
+                    }
+                    drawCircle(Color(0xFFFFE082).copy(alpha = 0.6f + 0.4f * pulse), 3.dp.toPx(), Offset(c.x - 4.dp.toPx(), c.y - 32.dp.toPx() * sc))
+                    if (m.pulled) drawLine(Brush.horizontalGradient(listOf(bt.copy(alpha = 0.7f), Color.Transparent), c.x, c.x + 90.dp.toPx()), c, Offset(c.x + 90.dp.toPx(), c.y), 4.dp.toPx(), StrokeCap.Round)
+                    continue
+                }
                 val tint = if (legend) gold else cyan
                 val pulse = 0.5f + 0.5f * sin(t * 5f)
                 drawCircle(Brush.radialGradient(listOf(tint.copy(alpha = 0.45f + 0.2f * pulse), Color.Transparent), c, 46.dp.toPx()), 46.dp.toPx(), c)
                 drawCircle(tint.copy(alpha = 0.5f * (1f - pulse)), (22f + 22f * pulse).dp.toPx(), c, style = Stroke(2.dp.toPx()))
-                rotate(sin(t * 2f + m.y) * 12f, c) {
+                rotate(sin(t * 2f + m.y) * 8f, c) {
                     val bw = (if (legend) 30f else 24f).dp.toPx(); val bh = (if (legend) 44f else 36f).dp.toPx()
                     if (art != null) {
-                        drawImage(art, dstOffset = IntOffset((c.x - bw * 0.9f).toInt(), (c.y - bh * 0.9f).toInt()), dstSize = IntSize((bw * 1.8f).toInt(), (bh * 1.8f).toInt()))
+                        val dh = bh * 1.9f; val dw = dh * art.width / art.height
+                        drawImage(art, dstOffset = IntOffset((c.x - dw / 2f).toInt(), (c.y - dh / 2f).toInt()), dstSize = IntSize(dw.toInt(), dh.toInt()))
                     } else {
                         drawRoundRect(Color(0xFF1B1B2E), Offset(c.x - bw / 2, c.y - bh / 2), Size(bw, bh), CornerRadius(5.dp.toPx()))
                         drawRoundRect(tint, Offset(c.x - bw / 2, c.y - bh / 2), Size(bw, bh), CornerRadius(5.dp.toPx()), style = Stroke(2.dp.toPx()))
