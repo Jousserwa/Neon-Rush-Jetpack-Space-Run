@@ -1,5 +1,6 @@
 package com.neonrush.game
 
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -27,4 +28,26 @@ object BossBrood {
     @Volatile var novaY = 0f
     fun reset() { babies.clear(); novaRequested = false }
     fun hasBabies() = babies.isNotEmpty()
+}
+
+/**
+ * BROOD BOMB: a rare collectible (Legendary and Hard, mostly around boss fights). Stock is kept in the gun's pocket (max 3, saved between runs).
+ * Tap BOMB while babies are alive (or on Legendary during a boss) and a shockwave wipes out every baby at once; on Legendary it also breaks the shield and hurts the boss.
+ */
+object BroodBomb {
+    const val MAX = 3
+    var version by mutableStateOf(0)
+    private fun prefs(ctx: Context) = ctx.applicationContext.getSharedPreferences("neonrush_shooting", Context.MODE_PRIVATE)
+    fun count(ctx: Context): Int { @Suppress("UNUSED_VARIABLE") val v = version; return try { prefs(ctx).getInt("bombs", 0) } catch (_: Throwable) { 0 } }
+    /** Adds one bomb; false when the pocket is full. */
+    fun add(ctx: Context): Boolean {
+        val n = count(ctx); if (n >= MAX) return false
+        try { prefs(ctx).edit().putInt("bombs", n + 1).apply() } catch (_: Throwable) { }
+        version += 1; return true
+    }
+    fun use(ctx: Context): Boolean {
+        val n = count(ctx); if (n <= 0) return false
+        try { prefs(ctx).edit().putInt("bombs", n - 1).apply() } catch (_: Throwable) { }
+        version += 1; return true
+    }
 }
