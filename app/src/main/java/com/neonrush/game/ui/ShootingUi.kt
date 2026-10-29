@@ -29,7 +29,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.neonrush.game.BossBrood
 import com.neonrush.game.BossGuard
+import com.neonrush.game.BossLunge
 import com.neonrush.game.NeonSoundEngine
 import com.neonrush.game.Shooting
 import com.neonrush.game.VisualTrackElement
@@ -38,14 +40,15 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
 
-private class Bolt(var x: Float, val y: Float, val power: Boolean)
+private class Bolt(var x: Float, val y: Float, val armor: Boolean)
 private class Boom(val x: Float, val y: Float, var age: Float = 0f)
 private class Spark(var x: Float, var y: Float, var vx: Float, var vy: Float, var life: Float, val max: Float, val col: Color, val shard: Boolean = false, var rot: Float = 0f)
 private class Ring(val x: Float, val y: Float, val col: Color, val big: Boolean, var age: Float = 0f)
 
 /**
- * In-race shooting: a FIRE button with a heat ring (Legendary Pro) or a shot counter (Medium/Hard), the bolts themselves, and the hit tests.
- * Bolts destroy shootable obstacles through [onDestroy]; on Legendary they also chip the boss through [onBossHit].
+ * In-race shooting. The FIRE button fires ARMOR ROUNDS first (collected from armor magazines, kept in the gun) and then the run's basic bolts.
+ * Basic bolts kill one target; an armor round that touches a boss-brood baby chain-destroys every baby (BossBrood.novaRequested).
+ * Legendary bolts chip the boss through [onBossHit] (armor rounds x1.5, see BossGuard); Medium/Hard bolts clear obstacles and babies only.
  */
 @Composable
 fun ShootingOverlay(
@@ -73,6 +76,11 @@ fun ShootingOverlay(
     var banner by remember { mutableStateOf("") }
     val sfx = remember { NeonSoundEngine() }
     val packRef = rememberUpdatedState(pack)
+    var muzzle by remember { mutableStateOf(0f) }
+    val artM = rememberArt("shot_${pack.art}_m"); val artL = rememberArt("shot_${pack.art}_l")
+    val artMuzzle = rememberArt("shot_muzzle")
+    val artBoom = listOf(rememberArt("shot_boom1"), rememberArt("shot_boom2"), rememberArt("shot_boom3"), rememberArt("shot_boom4"))
+    val gold = Color(0xFFFFC21A); val goldHot = Color(0xFFFFF3B0)
     // sparks + glass shards flying out of an impact (x 0..1 of the width, y 0..100 of the height)
     fun burst(x: Float, y: Float, col: Color, n: Int, speed: Float, shards: Int) {
         if (sparks.size > 260) return
@@ -85,20 +93,19 @@ fun ShootingOverlay(
             sparks.add(Spark(x, y, cos(a) * sp, sin(a) * sp * 160f, 0.55f, 0.55f, Color.White, true, a))
         }
     }
-    var muzzle by remember { mutableStateOf(0f) }
-    val artM = rememberArt("shot_${pack.art}_m"); val artL = rememberArt("shot_${pack.art}_l")
-    val artMuzzle = rememberArt("shot_muzzle")
-    val artBoom = listOf(rememberArt("shot_boom1"), rememberArt("shot_boom2"), rememberArt("shot_boom3"), rememberArt("shot_boom4"))
 
     fun fire() {
         if (cooldown > 0f) return
-        if (!Shooting.consume(ctx, mode)) { cooldown = 0.25f; sfx.playOverheat(); return }
-        cooldown = (if (mode == 2) Shooting.FIRE_GAP_LEGEND else Shooting.FIRE_GAP_POWER) * (if (com.neonrush.game.LegendMoves.overdriveOn()) 0.5f else 1f)
-        bolts.add(Bolt(0.25f, yRef.value.toFloat(), mode == 1))
+        val kind = Shooting.consume(ctx, mode)
+        if (kind == 0) { cooldown = 0.3f; sfx.playOverheat(); return }
+        val armor = kind == 2
+        val gap = if (mode == 2) (if (armor) Shooting.FIRE_GAP_LEGEND else 0.28f) else Shooting.FIRE_GAP_POWER
+        cooldown = gap * (if (com.neonrush.game.LegendMoves.overdriveOn()) 0.5f else 1f)
+        bolts.add(Bolt(com.neonrush.game.PilotDrift.x + 0.05f, yRef.value.toFloat(), armor))
         muzzle = 0.12f
-        sfx.playShot(mode == 1)
+        sfx.playShot(armor)
         if (bossRef.value) BossGuard.noteShot()
-        burst(0.24f, yRef.value.toFloat(), Color(packRef.value.argb2), 4, 0.25f, 0)
+        burst(com.neonrush.game.PilotDrift.x + 0.04f, yRef.value.toFloat(), if (armor) goldHot else Color(packRef.value.argb2), if (armor) 6 else 4, 0.25f, 0)
     }
 
     LaunchedEffect(active) {
@@ -109,11 +116,11 @@ fun ShootingOverlay(
             val now = withFrameNanos { it }
             val dt = if (last == 0L) 0.016f else ((now - last) / 1_000_000_000f).coerceAtMost(0.05f)
             last = now
-            Shooting.cool(dt)
             if (cooldown > 0f) cooldown -= dt
             if (muzzle > 0f) muzzle -= dt
             if (bossFlash > 0f) bossFlash -= dt
             run {
+                val bi = booms.iterator(); while (bi.hasNext()) { val bm = bi.next(); bm.age += dt; if (bm.age > 0.36f) bi.remove() }
                 val si = sparks.iterator()
                 while (si.hasNext()) { val sp = si.next(); sp.life -= dt; sp.x += sp.vx * dt; sp.y += sp.vy * dt; sp.vx *= 0.93f; sp.vy *= 0.93f; sp.rot += dt * 14f; if (sp.life <= 0f) si.remove() }
                 val ri = rings.iterator()
@@ -128,35 +135,48 @@ fun ShootingOverlay(
                 val en = if (on) BossGuard.enrage else 0
                 if (en > prevEn) sfx.playEnrage()
                 prevEn = en
-                val nb = if (!on) "" else if (su) "🛡 SHIELD UP - HOLD FIRE" else if (BossGuard.shieldWarn) "⚠ SHIELD CHARGING" else if (en == 2) "🔥 BOSS FURIOUS" else if (en == 1) "🔥 BOSS ENRAGED" else ""
+                val nb = if (!on) "" else if (BossLunge.vulnerable) "💥 BOSS EXPOSED - FIRE! x2" else if (su) "🛡 SHIELD UP - HOLD FIRE" else if (BossGuard.shieldWarn) "⚠ SHIELD CHARGING" else if (en == 2) "🔥 BOSS FURIOUS" else if (en == 1) "🔥 BOSS ENRAGED" else ""
                 if (nb != banner) banner = nb
             }
             var incoming = -1f
-            run { val bi = booms.iterator(); while (bi.hasNext()) { val bm = bi.next(); bm.age += dt; if (bm.age > 0.36f) bi.remove() } }
-            if (held && mode == 2 && cooldown <= 0f) fire()
+            val bossHitX = 0.72f + BossLunge.shift.coerceAtMost(0f)
             val iter = bolts.iterator()
             while (iter.hasNext()) {
                 val b = iter.next()
                 val from = b.x
-                b.x += dt * (if (b.power) 1.25f else 1.7f)
-                if (sparks.size < 220) sparks.add(Spark(b.x - 0.025f, b.y + (Random.nextFloat() - 0.5f) * 3f, -0.12f, (Random.nextFloat() - 0.5f) * 16f, 0.22f, 0.22f, if (Random.nextBoolean()) Color(packRef.value.argb) else Color(packRef.value.argb2)))
-                if (mode == 2 && bossRef.value && b.x > 0.28f && b.x < 0.85f) incoming = b.y
+                b.x += dt * (if (b.armor) 1.9f else 1.6f)
+                val c1 = if (b.armor) gold else Color(packRef.value.argb); val c2 = if (b.armor) goldHot else Color(packRef.value.argb2)
+                if (sparks.size < 220) sparks.add(Spark(b.x - 0.025f, b.y + (Random.nextFloat() - 0.5f) * 3f, -0.12f, (Random.nextFloat() - 0.5f) * 16f, if (b.armor) 0.3f else 0.22f, if (b.armor) 0.3f else 0.22f, if (Random.nextBoolean()) c1 else c2))
+                if (mode == 2 && bossRef.value && b.x > bossHitX - 0.44f && b.x < bossHitX + 0.13f) incoming = b.y
                 var used = false
-                for (e in elRef.value) {
-                    if (!Shooting.canShoot(e.type, e.subType)) continue
-                    if (e.xOffsetFraction >= from - 0.04f && e.xOffsetFraction <= b.x + 0.04f && abs(e.yMatchPos - b.y) <= 8f) { destroyRef.value(e.id); booms.add(Boom(e.xOffsetFraction, e.yMatchPos.toFloat())); used = true
-                        sfx.playSmash(); burst(e.xOffsetFraction, e.yMatchPos.toFloat(), Color(packRef.value.argb), 12, 0.45f, 6); rings.add(Ring(e.xOffsetFraction, e.yMatchPos.toFloat(), Color(packRef.value.argb2), false)); break }
+                // boss-brood babies: a basic bolt kills one, an armor round sets off the chain blast
+                for (bb in BossBrood.babies) {
+                    if (bb.hp <= 0 || bb.age < 0.4f) continue
+                    if (bb.x >= from - 0.04f && bb.x <= b.x + 0.04f && abs(bb.y - b.y) <= 9f) {
+                        if (b.armor) { BossBrood.novaRequested = true; BossBrood.novaX = bb.x; BossBrood.novaY = bb.y } else bb.hp = 0
+                        burst(bb.x, bb.y, c1, 10, 0.45f, 4); rings.add(Ring(bb.x, bb.y, c2, false)); sfx.playSmash(); used = true; break
+                    }
                 }
-                if (!used && mode == 2 && bossRef.value && b.x > 0.72f && abs(bossYRef.value - b.y) <= 14f) {
+                if (!used) for (e in elRef.value) {
+                    if (!Shooting.canShoot(e.type, e.subType)) continue
+                    if (e.xOffsetFraction >= from - 0.04f && e.xOffsetFraction <= b.x + 0.04f && abs(e.yMatchPos - b.y) <= 8f) {
+                        destroyRef.value(e.id); booms.add(Boom(e.xOffsetFraction, e.yMatchPos.toFloat())); used = true
+                        sfx.playSmash(); burst(e.xOffsetFraction, e.yMatchPos.toFloat(), c1, if (b.armor) 16 else 12, 0.45f, 6); rings.add(Ring(e.xOffsetFraction, e.yMatchPos.toFloat(), c2, b.armor)); break
+                    }
+                }
+                if (!used && mode == 2 && bossRef.value && b.x > bossHitX && abs(bossYRef.value - b.y) <= 14f) {
+                    Shooting.lastArmor = b.armor
                     hitRef.value(); used = true
+                    val bx = 0.88f + BossLunge.shift
                     if (BossGuard.lastDeflect) {
-                        sfx.playDeflect(); burst(0.83f, b.y, Color(0xFFB3E5FC), 9, 0.5f, 0); rings.add(Ring(0.87f, bossYRef.value.toFloat(), Color(0xFF80D8FF), false))
+                        sfx.playDeflect(); burst(bx - 0.04f, b.y, Color(0xFFB3E5FC), 9, 0.5f, 0); rings.add(Ring(bx, bossYRef.value.toFloat(), Color(0xFF80D8FF), false))
                     } else {
-                        sfx.playBossHit(BossGuard.hitStreak / 8f); bossFlash = 0.2f; burst(0.85f, b.y, Color(0xFFFFB74D), 10, 0.5f, 3); rings.add(Ring(0.87f, bossYRef.value.toFloat(), Color(0xFFFF5252), false))
+                        sfx.playBossHit(BossGuard.hitStreak / 8f); bossFlash = 0.2f; burst(bx - 0.02f, b.y, if (b.armor) goldHot else Color(0xFFFFB74D), if (b.armor) 14 else 10, 0.5f, 3); rings.add(Ring(bx, bossYRef.value.toFloat(), if (b.armor) gold else Color(0xFFFF5252), b.armor))
                     }
                 }
                 if (used || b.x > 1.1f) iter.remove()
             }
+            if (held && cooldown <= 0f) fire()
             BossGuard.incomingY = incoming
             frame++
         }
@@ -165,31 +185,37 @@ fun ShootingOverlay(
     Box(modifier.fillMaxSize()) {
         Canvas(Modifier.fillMaxSize()) {
             @Suppress("UNUSED_VARIABLE") val f = frame
-            val c1 = Color(pack.argb); val c2 = Color(pack.argb2)
             fun sprite(img: ImageBitmap, rightX: Float, cy: Float, wPx: Float, alpha: Float = 1f) {
                 val hPx = wPx * img.height / img.width
                 drawImage(img, dstOffset = IntOffset((rightX - wPx).toInt(), (cy - hPx / 2f).toInt()), dstSize = IntSize(wPx.toInt(), hPx.toInt()), alpha = alpha)
             }
             for (b in bolts) {
                 val x = b.x * size.width; val y = b.y / 100f * size.height
-                val img = if (b.power) artL else artM
-                if (img != null) sprite(img, x + 10.dp.toPx(), y, (if (b.power) 124.dp else 88.dp).toPx())
+                val c1 = if (b.armor) gold else Color(pack.argb); val c2 = if (b.armor) goldHot else Color(pack.argb2)
+                if (b.armor) {
+                    // armor round: long golden comet with a hot core and a halo
+                    val len = 120.dp.toPx()
+                    drawLine(Brush.horizontalGradient(listOf(Color.Transparent, gold.copy(alpha = 0.7f)), startX = x - len, endX = x), Offset(x - len, y), Offset(x, y), 10.dp.toPx(), StrokeCap.Round)
+                    drawCircle(gold.copy(alpha = 0.28f), 16.dp.toPx(), Offset(x, y))
+                }
+                val img = if (b.armor) artL else artM
+                if (img != null) sprite(img, x + 10.dp.toPx(), y, (if (b.armor) 124.dp else 88.dp).toPx())
                 else {
-                    val len = if (b.power) 64f else 44f
-                    drawLine(Brush.horizontalGradient(listOf(Color.Transparent, c1), startX = x - len, endX = x), Offset(x - len, y), Offset(x, y), strokeWidth = if (b.power) 11f else 7f, cap = StrokeCap.Round)
-                    drawLine(c2, Offset(x - len * 0.4f, y), Offset(x, y), strokeWidth = if (b.power) 5f else 3f, cap = StrokeCap.Round)
-                    drawCircle(c1.copy(alpha = 0.35f), if (b.power) 16f else 10f, Offset(x, y))
+                    val len = if (b.armor) 64f else 44f
+                    drawLine(Brush.horizontalGradient(listOf(Color.Transparent, c1), startX = x - len, endX = x), Offset(x - len, y), Offset(x, y), strokeWidth = if (b.armor) 11f else 7f, cap = StrokeCap.Round)
+                    drawLine(c2, Offset(x - len * 0.4f, y), Offset(x, y), strokeWidth = if (b.armor) 5f else 3f, cap = StrokeCap.Round)
+                    drawCircle(c1.copy(alpha = 0.35f), if (b.armor) 16f else 10f, Offset(x, y))
                 }
             }
             // muzzle flash at the pilot
             if (muzzle > 0f) {
-                val my = yRef.value / 100f * size.height; val mx = 0.2f * size.width
+                val my = yRef.value / 100f * size.height; val mx = com.neonrush.game.PilotDrift.x * size.width
                 if (artMuzzle != null) sprite(artMuzzle, mx + 56.dp.toPx(), my, 56.dp.toPx(), (muzzle / 0.12f).coerceIn(0f, 1f))
-                else drawCircle(c2.copy(alpha = (muzzle / 0.12f).coerceIn(0f, 1f)), 14.dp.toPx(), Offset(mx + 24.dp.toPx(), my))
+                else drawCircle(Color(pack.argb2).copy(alpha = (muzzle / 0.12f).coerceIn(0f, 1f)), 14.dp.toPx(), Offset(mx + 24.dp.toPx(), my))
             }
             // boss shield bubble + damage flash
             if (mode == 2 && bossRef.value) {
-                val bc = Offset(0.87f * size.width, bossYRef.value / 100f * size.height)
+                val bc = Offset((0.88f + BossLunge.shift) * size.width, bossYRef.value / 100f * size.height)
                 val sh = BossGuard.shieldUp; val warn = BossGuard.shieldWarn
                 if (sh || warn) {
                     val r = 58.dp.toPx(); val cy = Color(0xFF80D8FF)
@@ -204,12 +230,10 @@ fun ShootingOverlay(
                     drawCircle(Color.White.copy(alpha = 0.7f * k), 34.dp.toPx(), bc)
                 }
             }
-            // shockwave rings
             for (rg in rings) {
                 val k = (rg.age / 0.35f).coerceIn(0f, 1f)
                 drawCircle(rg.col.copy(alpha = 0.9f * (1f - k)), (10f + (if (rg.big) 60f else 38f) * k).dp.toPx(), Offset(rg.x * size.width, rg.y / 100f * size.height), style = Stroke((4f * (1f - k) + 1f).dp.toPx()))
             }
-            // sparks, trails and shards
             for (sp in sparks) {
                 val a = (sp.life / sp.max).coerceIn(0f, 1f)
                 val pos = Offset(sp.x * size.width, sp.y / 100f * size.height)
@@ -229,28 +253,29 @@ fun ShootingOverlay(
                 val ex = bm.x * size.width; val ey = bm.y / 100f * size.height
                 val img = artBoom[fi]
                 if (img != null) sprite(img, ex + 36.dp.toPx(), ey, 72.dp.toPx(), 1f - k * 0.5f)
-                else drawCircle(c1.copy(alpha = 1f - k), (10f + 40f * k).dp.toPx(), Offset(ex, ey), style = Stroke(3.dp.toPx()))
+                else drawCircle(Color(pack.argb).copy(alpha = 1f - k), (10f + 40f * k).dp.toPx(), Offset(ex, ey), style = Stroke(3.dp.toPx()))
             }
         }
-        val hot = mode == 2 && Shooting.overheated
-        val ring = if (hot) Color(0xFFFF5252) else Color(pack.argb)
-        val left = if (mode == 2) null else Shooting.runShots + Shooting.ammo(ctx)
         if (banner.isNotEmpty()) {
-            val shieldMsg = banner.startsWith("🛡")
-            Text(banner, color = if (shieldMsg) Color(0xFF80D8FF) else if (banner.startsWith("⚠")) Color(0xFFFFD54F) else Color(0xFFFF5252),
+            val expose = banner.startsWith("💥")
+            Text(banner, color = if (expose) Color(0xFFFFD54F) else if (banner.startsWith("🛡")) Color(0xFF80D8FF) else if (banner.startsWith("⚠")) Color(0xFFFFD54F) else Color(0xFFFF5252),
                 fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace,
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 40.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xCC080620)).padding(horizontal = 10.dp, vertical = 4.dp))
         }
+        val armorN = Shooting.ammo(ctx)
+        val total = armorN + Shooting.runShots
+        val ring = if (armorN > 0) gold else Color(pack.argb)
         Box(
             Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 16.dp).size(78.dp).clip(CircleShape)
-                .background(Color(0xCC080620)).border(2.dp, ring.copy(alpha = if (left == 0) 0.3f else 0.9f), CircleShape)
+                .background(Color(0xCC080620)).border(2.dp, ring.copy(alpha = if (total == 0) 0.3f else 0.9f), CircleShape)
                 .pointerInput(mode) { detectTapGestures(onPress = { held = true; fire(); tryAwaitRelease(); held = false }) },
             contentAlignment = Alignment.Center
         ) {
-            if (mode == 2) Canvas(Modifier.fillMaxSize().padding(4.dp)) { drawArc(ring, -90f, 360f * Shooting.heat, false, style = Stroke(7f, cap = StrokeCap.Round)) }
+            val cap = if (mode == 2) 70f else 6f
+            Canvas(Modifier.fillMaxSize().padding(4.dp)) { drawArc(ring, -90f, 360f * (armorN / cap).coerceIn(0f, 1f), false, style = Stroke(7f, cap = StrokeCap.Round)) }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(if (hot) "🔥" else "⚡", fontSize = 22.sp)
-                Text(if (hot) "COOL" else if (left != null) "$left" else "FIRE", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+                Text(if (armorN > 0) "🛡" else "⚡", fontSize = 22.sp)
+                Text(if (total == 0) "EMPTY" else if (armorN > 0) "$armorN" else "${Shooting.runShots}", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
             }
         }
     }
@@ -273,16 +298,15 @@ fun ArmoryCard(isPro: Boolean, onBuyAmmo: (Int) -> Unit, onBolt: (String) -> Uni
             if (crate != null) androidx.compose.foundation.Image(androidx.compose.ui.graphics.painter.BitmapPainter(crate), contentDescription = null, modifier = Modifier.size(34.dp)) else Text("🔫", fontSize = 22.sp)
             Spacer(Modifier.width(8.dp))
             Text("ARMORY", color = Color(sel.argb), fontSize = 13.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
-            Text("$ammo power shots", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+            Text("$ammo armor rounds", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
         }
         Text(
-            "Medium & Hard: ${if (isPro) Shooting.PRO_SHOTS else Shooting.FREE_SHOTS} free power shots every run, more from packs. " +
-                (if (isPro) "Legendary: unlimited bolts with a heat meter that also hit the boss." else "👑 Pro on Legendary: unlimited bolts that also hit the boss."),
+            "Collect ARMOR magazines in the race: they load rounds that stay in your gun until fired. Medium & Hard ${if (isPro) Shooting.ARMOR_MED_PRO else Shooting.ARMOR_MED} per magazine, Legendary ${Shooting.ARMOR_LEGEND}. Armor rounds hit harder and one blast wipes out a whole boss brood. Packs below add rounds too.",
             color = Color.White.copy(alpha = 0.75f), fontSize = 10.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(vertical = 6.dp)
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Shooting.AMMO.forEachIndexed { i, p ->
-                Text("${p.shots} SHOTS\n${p.gems} 💎", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, fontFamily = FontFamily.Monospace,
+                Text("${p.shots} ROUNDS\n${p.gems} 💎", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, fontFamily = FontFamily.Monospace,
                     modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(Brush.horizontalGradient(listOf(Color(0xFF3DE8FF), Color(0xFF69F0AE)))).clickable { onBuyAmmo(i) }.padding(vertical = 8.dp))
             }
         }
