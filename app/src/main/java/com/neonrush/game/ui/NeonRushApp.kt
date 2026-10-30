@@ -4834,7 +4834,9 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                     onNudgeY = { d -> viewModel.worldNudgeY(d) }, onHit = { l, soft -> viewModel.worldHit(l, soft) }, onScore = { n -> viewModel.addBonusScore(n) }) // special-world mechanics + drift bonus
                 LegendMovesOverlay(active = simState.isStarted && !simState.isCompleted, legend = viewModel.selectedDifficulty == NeonRushViewModel.DifficultyTier.LEGENDARY,
                     pilotY = simState.userYPos, bossActive = simState.bossActive, onDash = { viewModel.legendDash() }, onPulse = { viewModel.legendPulse() },
-                    onOverdrive = { viewModel.legendOverdrive() }, onBonus = { n -> viewModel.addBonusScore(n) }) // dash / magnet pulse / overdrive + boss banners
+                    onOverdrive = { viewModel.legendOverdrive() }, onBonus = { n -> viewModel.addBonusScore(n) },
+                    onSmash = { viewModel.dashSmash() },
+                    pickups = { simState.activeTrackElements.filter { it.type == "gem" || it.type == "fuel" || it.type == "powerup" }.map { androidx.compose.ui.geometry.Offset(it.xOffsetFraction, it.yMatchPos.toFloat()) } }) // dash / magnet pulse / overdrive + boss banners
                 BossDamageOverlay(active = simState.isStarted && !simState.isCompleted, bossActive = simState.bossActive, bossHealth = simState.bossHealth,
                     bossY = simState.bossY, zoneNumber = simState.currentZoneNumber, tick = simState.tickIndex) // boss wounds, hit numbers, death blast, returns counter
                 ArmorOverlay(active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, isPro = isPro || TESTING_DISABLE_PRO_GATE,
@@ -4842,7 +4844,8 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                 BossEventsOverlay(active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, bossActive = simState.bossActive,
                     bossHealth = simState.bossHealth, bossY = simState.bossY, pilotY = simState.userYPos, accent = hexToColor(simState.zoneDNA.environmentColor),
                     onHit = { l, soft -> viewModel.worldHit(l, soft) }, onScore = { n -> viewModel.addBonusScore(n) },
-                    onBossDamage = { viewModel.damageBoss(Shooting.BOSS_DAMAGE) }) // boss lunge + brood + brood bomb
+                    onBossDamage = { viewModel.damageBoss(Shooting.BOSS_DAMAGE) },
+                    onBombSweep = { viewModel.bombSweep() }, onBombBoss = { d -> viewModel.bombBoss(d) }) // boss lunge + brood + brood bomb
                 ShootingOverlay(elements = simState.activeTrackElements, pilotY = simState.userYPos, bossActive = simState.bossActive, bossY = simState.bossY,
             active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, isPro = isPro || TESTING_DISABLE_PRO_GATE,
             onDestroy = { id -> viewModel.shootDown(id) }, onBossHit = { viewModel.damageBoss(Shooting.BOSS_DAMAGE) }) // Shooting: fire button + bolts
