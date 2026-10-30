@@ -52,10 +52,10 @@ object BossGuard {
     fun step(tick: Int, health: Float, bossY: Int, minY: Int = 12, maxY: Int = 88): Int {
         if (!hard) { shieldUp = false; shieldWarn = false; enrage = 0; lastBossY = bossY; return bossY }
         if (health > 0.95f) phase2 = false
-        enrage = if (health < 0.25f) 2 else if (health < 0.5f) 1 else 0
+        enrage = maxOf(if (health < 0.25f) 2 else if (health < 0.5f) 1 else 0, Siege.enrageFloor())   // Siege phase B / round 4 raise the floor
         if (legend && enrage >= 1 && !phase2) { phase2 = true; phase2Ms = now() }
-        val period = if (phase2) 14 else if (enrage >= 1) 16 else 20
-        val up = (if (enrage == 2) 7 else if (enrage == 1) 6 else 5) + WorldEchoBoss.shieldBonus()
+        val period = ((if (phase2) 14 else if (enrage >= 1) 16 else 20) + Siege.periodAdj()).coerceAtLeast(10)
+        val up = ((if (enrage == 2) 7 else if (enrage == 1) 6 else 5) + WorldEchoBoss.shieldBonus() + Siege.upAdj()).coerceIn(2, period - 4)
         val ph = tick % period
         shieldUp = ph < up && health > 0.1f && !BossLunge.vulnerable   // a lunging boss drops its shield
         shieldWarn = !shieldUp && ph >= period - 2 && health > 0.1f
