@@ -106,7 +106,7 @@ fun AirSupportCard(isPro: Boolean, onOpen: () -> Unit, modifier: Modifier = Modi
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("AIR SUPPORT BAY", color = CYAN, fontSize = 13.sp, fontWeight = FontWeight.Black, fontFamily = MONO)
-                Text(if (!isPro) "👑 Pro: helicopter + jet backup on Hard and Legendary" else if (free) "FREE CALL READY · $calls calls in stock" else "$calls calls in stock · free call used today", color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp, fontFamily = MONO)
+                Text(if (!isPro) "👑 Pro: seven air calls, from a strafe run to DOOMSDAY" else if (free) "FREE STRIKE READY · $calls strikes in the vault" else "$calls strikes in the vault · free strike used today", color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp, fontFamily = MONO)
                 if (lv > 0) AirRibbon(lv, Modifier.padding(top = 6.dp), compact = true)
             }
             Text("OPEN ▸", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = MONO, modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Brush.horizontalGradient(listOf(CYAN, GREEN))).padding(horizontal = 12.dp, vertical = 8.dp))
@@ -144,7 +144,7 @@ fun AirSupportBayDialog(isPro: Boolean, testing: Boolean, onClose: () -> Unit, o
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("AIR SUPPORT BAY", color = CYAN, fontSize = 22.sp, fontWeight = FontWeight.Black, fontFamily = MONO)
-                        Text("Call in the cavalry · Hard 40% power · Legendary full power", color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, fontFamily = MONO)
+                        Text("Seven calls · Medium 1-2 · Hard 1-5 · Legendary all 7", color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, fontFamily = MONO)
                     }
                     Box(Modifier.size(40.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.3f), CircleShape).clickable { onClose() }, contentAlignment = Alignment.Center) { Text("✕", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black) }
                 }
@@ -223,14 +223,28 @@ fun AirSupportBayDialog(isPro: Boolean, testing: Boolean, onClose: () -> Unit, o
                 val rs = RoundedCornerShape(14.dp)
                 Column(Modifier.fillMaxWidth().clip(rs).background(Color(0xFF110E2B)).border(1.dp, Color.White.copy(alpha = 0.15f), rs).padding(12.dp)) {
                     Text("HOW IT WORKS", color = GOLD, fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = MONO)
-                    for (r in listOf("Hard and Legendary only · Pro only", "The call button appears after the boss beats you (Legendary: once, Hard: twice) or when heavy attacks pile up", "Radio call, then about 3 seconds of gunship: the guns clear the lane and the brood, 2 missiles hit the boss", "You are covered (safe) from the call until the aircraft leaves", "Max 2 sorties per run, 20 seconds apart · each sortie uses 1 call", "Hard: 40% power · Legendary: full power", "Packs never expire")) {
+                    for (r in listOf("Pro only · Medium: calls 1-2 · Hard: calls 1-5 · Legendary: all 7", "The call button appears after the boss beats you or when heavy attacks pile up. Pick any call you can afford", "Every call you make in the same round adds heat: +1 strike on the next call (max +3). A new round starts cool again", "Each call type can be used once per round. Aircraft need about 20 s to rearm", "Strikes leave the vault the moment a call goes out", "Destroy a round without calling anyone: +1 strike back (CLEAN ROUND)", "Legendary: every 8 boss rounds destroyed saves a checkpoint at once, plus 1 bonus strike", "You are covered (safe) from the radio call until the aircraft leave")) {
                         Text("•  $r", color = Color.White.copy(alpha = 0.78f), fontSize = 10.sp, fontFamily = MONO, modifier = Modifier.padding(top = 3.dp))
+                    }
+                }
+                // ---- the call ladder ----
+                Spacer(Modifier.height(16.dp))
+                Column(Modifier.fillMaxWidth().clip(rs).background(Color(0xFF110E2B)).border(1.dp, GOLD.copy(alpha = 0.4f), rs).padding(12.dp)) {
+                    Text("THE SEVEN CALLS", color = GOLD, fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = MONO)
+                    for (c in AirSupport.CALLS) {
+                        Row(Modifier.fillMaxWidth().padding(top = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("${c.id}  ${c.name}  ·  ${c.tag}", color = if (c.id >= 6) GOLD else GREEN, fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = MONO)
+                                Text(c.blurb + (if (c.id == 6) " (unlocks at 4 bosses)" else if (c.id == 7) " (unlocks at 5 bosses)" else "") + (if (c.id >= 6) " Legendary only." else ""), color = Color.White.copy(alpha = 0.7f), fontSize = 9.sp, fontFamily = MONO)
+                            }
+                            Text("${c.base} ⚡", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black, fontFamily = MONO)
+                        }
                     }
                 }
                 // ---- packs ----
                 Spacer(Modifier.height(18.dp))
                 Text("CALL PACKS", color = GOLD, fontSize = 14.sp, fontWeight = FontWeight.Black, fontFamily = MONO)
-                Text("Consumable · buy as many as you like · one call = one sortie", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp, fontFamily = MONO)
+                Text("Consumable · one stock · strikes are used the moment a call goes out", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp, fontFamily = MONO)
                 Spacer(Modifier.height(8.dp))
                 AirSupport.PACKS.forEachIndexed { i, p ->
                     val best = i == AirSupport.PACKS.lastIndex
@@ -244,7 +258,7 @@ fun AirSupportBayDialog(isPro: Boolean, testing: Boolean, onClose: () -> Unit, o
                             Column(Modifier.weight(1f)) {
                                 Text(p.tag, color = accent, fontSize = 10.sp, fontWeight = FontWeight.Black, fontFamily = MONO)
                                 Text("${p.calls} CALLS", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black, fontFamily = MONO)
-                                Text("${p.calls} sorties · ${p.calls * 2} missiles" + if (p.calls >= 15) " · unlocks the JET" else "", color = Color.White.copy(alpha = 0.65f), fontSize = 9.sp, fontFamily = MONO)
+                                Text("${p.calls} strikes" + if (p.calls >= 15) " · unlocks the JET" else "", color = Color.White.copy(alpha = 0.65f), fontSize = 9.sp, fontFamily = MONO)
                             }
                             Text(if (can) p.price else if (!isPro) "👑 PRO" else "...", color = if (can) Color.Black else Color.White.copy(alpha = 0.8f), fontSize = 15.sp, fontWeight = FontWeight.Black, fontFamily = MONO, textAlign = TextAlign.Center,
                                 modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(if (can) Brush.horizontalGradient(listOf(accent, Color(0xFFFFF3B0))) else Brush.horizontalGradient(listOf(Color(0xFF3A3A4A), Color(0xFF2A2A38))))
