@@ -56,7 +56,8 @@ private class Arc(val x0: Float, val y0: Float, val x1: Float, val y1: Float, va
 @Composable
 fun BossEventsOverlay(
     active: Boolean, tierName: String, bossActive: Boolean, bossHealth: Float, bossY: Int, pilotY: Int, accent: Color,
-    onHit: (Int, Boolean) -> Unit, onScore: (Int) -> Unit, onBossDamage: () -> Unit = {}, modifier: Modifier = Modifier
+    onHit: (Int, Boolean) -> Unit, onScore: (Int) -> Unit, onBossDamage: () -> Unit = {},
+    onBombSweep: () -> List<Offset> = { emptyList() }, onBombBoss: (Float) -> Unit = {}, modifier: Modifier = Modifier
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val legend = tierName == "LEGENDARY"; val hard = tierName == "HARD"
@@ -70,11 +71,14 @@ fun BossEventsOverlay(
     val hitRef = rememberUpdatedState(onHit)
     val scoreRef = rememberUpdatedState(onScore)
     val bossDmgRef = rememberUpdatedState(onBossDamage)
+    val sweepRef = rememberUpdatedState(onBombSweep)
+    val bombBossRef = rememberUpdatedState(onBombBoss)
+    var bombPending by remember { mutableStateOf(false) }
     var bombAge by remember { mutableStateOf(-1f) }
     val artBomb = if (legend) rememberArt("bomb_gold") else rememberArt("bomb_pink")
     val bombCount = BroodBomb.count(ctx)
     var hasBabies by remember { mutableStateOf(false) }
-    val showBomb = bombCount > 0 && active && (hasBabies || (legend && bossActive))
+    val showBomb = bombCount > 0 && active
     var sz by remember { mutableStateOf(IntSize.Zero) }
     var frame by remember { mutableStateOf(0) }
     var banner by remember { mutableStateOf("") }
@@ -86,12 +90,9 @@ fun BossEventsOverlay(
     var novaPos by remember { mutableStateOf(Offset.Zero) }
     val body = accent
     fun detonate() {
-        if (!BroodBomb.use(ctx)) return
-        bombAge = 0f
-        sfx.playNova()
-        BossBrood.novaRequested = true; BossBrood.novaX = PilotDrift.x + 0.05f; BossBrood.novaY = yRef.value.toFloat()   // wipes every baby (chain arcs + kill credit)
-        if (legend && bossRef.value) { BossGuard.shieldUp = false; Shooting.lastArmor = true; repeat(4) { bossDmgRef.value() } }
-        scoreRef.value(40)
+        if (bombAge >= 0f || !BroodBomb.use(ctx)) return
+        bombAge = 0f; bombPending = true      // the shell flies for 0.38 s, then the blast does its work (see the frame loop)
+        sfx.playAirMissile()
     }
 
     LaunchedEffect(active, tierName) {
@@ -184,7 +185,22 @@ fun BossEventsOverlay(
             val pi = puffs.iterator(); while (pi.hasNext()) { val p = pi.next(); p.age += dt; if (p.age > 0.4f) pi.remove() }
             val ai = arcs.iterator(); while (ai.hasNext()) { val a = ai.next(); a.age += dt; if (a.age > 0.45f) ai.remove() }
             if (novaAge >= 0f) { novaAge += dt; if (novaAge > 0.6f) novaAge = -1f }
-            if (bombAge >= 0f) { bombAge += dt; if (bombAge > 0.9f) bombAge = -1f }
+            if (bombAge >= 0f) {
+                bombAge += dt
+                if (bombPending && bombAge >= 0.38f) {   // BLAST: clears the screen, wipes the brood, breaks the shield and wounds the boss
+                    bombPending = false
+                    sfx.playNova(); sfx.playAirBoom()
+                    val hadBabies = BossBrood.hasBabies()
+                    BossBrood.novaRequested = true; BossBrood.novaX = PilotDrift.x + 0.05f; BossBrood.novaY = yRef.value.toFloat()
+                    val gone = sweepRef.value()
+                    for (o in gone.take(14)) puffs.add(Puff(o.x, o.y))
+                    var txt = "💥 BROOD BOMB · ${gone.size} CLEARED" + (if (hadBabies) " · BROOD WIPED" else "")
+                    if (bossRef.value) { val dmg = if (legend) 0.18f else 0.10f; bombBossRef.value(dmg); txt += " · BOSS -${(dmg * 100).toInt()}% · SHIELD DOWN"; Shooting.lastArmor = true }
+                    say(txt, if (legend) Color(0xFFFFC21A) else Color(0xFFFF4DD2), 2.2f)
+                    scoreRef.value(40 + 6 * gone.size)
+                }
+                if (bombAge > 1.5f) bombAge = -1f
+            }
             BossBrood.babies.isNotEmpty().let { if (it != hasBabies) hasBabies = it }
             frame++
         }
@@ -208,12 +224,24 @@ fun BossEventsOverlay(
                 val bc = Offset(X(0.88f + BossLunge.shift), Y(bossYRef.value.toFloat()))
                 for (k in 1..4) drawCircle(Color(0xFFFF8A80).copy(alpha = 0.14f / k), 70.dp.toPx(), Offset(bc.x + k * 22.dp.toPx(), bc.y))
             }
-            // bomb shockwave: a screen-wide ring from the pilot + flash
+            // BOMB: a glowing shell flies from the pilot to the middle of the track, then a screen-wide blast
             if (bombAge >= 0f) {
-                val k = (bombAge / 0.9f).coerceIn(0f, 1f); val bc = if (legend) Color(0xFFFFC21A) else Color(0xFFFF4DD2)
-                val o = Offset(X(PilotDrift.x), Y(yRef.value.toFloat()))
-                drawRect(Color.White.copy(alpha = 0.35f * (1f - k) * (1f - k)))
-                for (r in 0..2) { val kk = (k - r * 0.1f).coerceIn(0f, 1f); drawCircle(bc.copy(alpha = 0.85f * (1f - kk)), (30f + 560f * kk).dp.toPx(), o, style = Stroke((10f * (1f - kk) + 1f).dp.toPx())) }
+                val bc = if (legend) Color(0xFFFFC21A) else Color(0xFFFF4DD2)
+                val o = Offset(X(PilotDrift.x), Y(yRef.value.toFloat())); val mid = Offset(size.width * 0.55f, size.height * 0.5f)
+                if (bombAge < 0.38f) {
+                    val k = bombAge / 0.38f
+                    for (tr in 0..6) { val kk = (k - tr * 0.06f).coerceAtLeast(0f); val pp = Offset(o.x + (mid.x - o.x) * kk, o.y + (mid.y - o.y) * kk - sin(kk * 3.14f) * 90.dp.toPx()); drawCircle(bc.copy(alpha = 0.6f * (1f - tr / 7f)), (9f - tr).dp.toPx().coerceAtLeast(1f), pp) }
+                    val hp = Offset(o.x + (mid.x - o.x) * k, o.y + (mid.y - o.y) * k - sin(k * 3.14f) * 90.dp.toPx())
+                    drawCircle(Color.White, 8.dp.toPx(), hp); drawCircle(bc.copy(alpha = 0.5f), 18.dp.toPx(), hp)
+                    drawCircle(bc.copy(alpha = 0.8f), 26.dp.toPx() * (1f - k) + 6.dp.toPx(), mid, style = Stroke(2.dp.toPx()))   // target marker
+                } else {
+                    val k = ((bombAge - 0.38f) / 1.1f).coerceIn(0f, 1f)
+                    drawRect(Color.White.copy(alpha = 0.75f * (1f - k) * (1f - k)))
+                    drawRect(Brush.radialGradient(listOf(bc.copy(alpha = 0.45f * (1f - k)), Color.Transparent), mid, size.maxDimension * (0.3f + 0.9f * k)), size = size)
+                    for (r in 0..3) { val kk = (k * 1.2f - r * 0.1f).coerceIn(0f, 1f); drawCircle(bc.copy(alpha = 0.9f * (1f - kk)), (30f + 700f * kk).dp.toPx(), mid, style = Stroke((14f * (1f - kk) + 1f).dp.toPx())) }
+                    for (r in 0 until 28) { val a = r * 0.2244f; val s0 = (40f + 520f * k).dp.toPx(); drawLine(Color.White.copy(alpha = 0.8f * (1f - k)), Offset(mid.x + cos(a) * s0, mid.y + sin(a) * s0), Offset(mid.x + cos(a) * (s0 + 60.dp.toPx() * (1f - k) + 6.dp.toPx()), mid.y + sin(a) * (s0 + 60.dp.toPx() * (1f - k) + 6.dp.toPx())), 3.dp.toPx(), StrokeCap.Round) }
+                    if (bossRef.value) { val bc2 = Offset(X(0.88f + BossLunge.shift), Y(bossYRef.value.toFloat())); drawCircle(bc.copy(alpha = 0.9f * (1f - k)), (20f + 220f * k).dp.toPx(), bc2, style = Stroke((8f * (1f - k) + 1f).dp.toPx())) }
+                }
             }
             // chain blast
             if (novaAge >= 0f) {
@@ -258,16 +286,9 @@ fun BossEventsOverlay(
         }
         if (showBomb) {
             val bt = if (legend) Color(0xFFFFC21A) else Color(0xFFFF4DD2)
-            Box(
-                Modifier.align(Alignment.BottomEnd).padding(end = 22.dp, bottom = 104.dp).size(66.dp).clip(androidx.compose.foundation.shape.CircleShape)
-                    .background(Color(0xDD080620)).border(2.5.dp, bt, androidx.compose.foundation.shape.CircleShape)
-                    .pointerInput(Unit) { detectTapGestures(onPress = { detonate() }) },
-                contentAlignment = Alignment.Center
-            ) {
-                if (artBomb != null) androidx.compose.foundation.Image(androidx.compose.ui.graphics.painter.BitmapPainter(artBomb), contentDescription = null, modifier = Modifier.size(46.dp))
-                else Text("💣", fontSize = 26.sp)
-                Text("x$bombCount", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
-            }
+            @Suppress("UNUSED_VARIABLE") val f = frame
+            GameButton(BtnKind.BOMB, 58.dp, bt, "BOMB", "x$bombCount", 1f, bombAge < 0f, bombAge >= 0f, { detonate() }, art = artBomb,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 28.dp, bottom = 108.dp))
         }
         if (banner.isNotEmpty()) {
             Text(banner, color = bannerCol, fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center,
