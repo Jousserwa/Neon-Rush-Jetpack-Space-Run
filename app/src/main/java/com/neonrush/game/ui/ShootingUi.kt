@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import com.neonrush.game.BossBrood
 import com.neonrush.game.BossGuard
 import com.neonrush.game.BossLunge
+import com.neonrush.game.Fleet
 import com.neonrush.game.MagazineBay
 import com.neonrush.game.NeonSoundEngine
 import com.neonrush.game.Shooting
@@ -133,18 +134,18 @@ fun ShootingOverlay(
             }
             // boss counter-measures feedback (shield / enrage): sounds + banner, only for pilots who can hurt the boss
             run {
-                val on = mode == 2 && bossRef.value
+                val on = mode >= 1 && bossRef.value
                 val su = on && BossGuard.shieldUp
                 if (su && !prevShield) sfx.playShieldUp()
                 prevShield = su
                 val en = if (on) BossGuard.enrage else 0
                 if (en > prevEn) sfx.playEnrage()
                 prevEn = en
-                val nb = if (!on) "" else if (BossLunge.vulnerable) "💥 BOSS EXPOSED - FIRE! x2" else if (su) "🛡 SHIELD UP - HOLD FIRE" else if (BossGuard.shieldWarn) "⚠ SHIELD CHARGING" else if (en == 2) "🔥 BOSS FURIOUS" else if (en == 1) "🔥 BOSS ENRAGED" else ""
+                val nb = if (!on) "" else if (Fleet.alive() > 0) "🛡 ESCORT SHIELD - DESTROY THE WINGMEN" else if (BossLunge.vulnerable) "💥 BOSS EXPOSED - FIRE! x2" else if (su) "🛡 SHIELD UP - HOLD FIRE" else if (BossGuard.shieldWarn) "⚠ SHIELD CHARGING" else if (en == 2) "🔥 BOSS FURIOUS" else if (en == 1) "🔥 BOSS ENRAGED" else ""
                 if (nb != banner) banner = nb
             }
             var incoming = -1f
-            val bossHitX = 0.72f + BossLunge.shift.coerceAtMost(0f)
+            val bossHitX = 0.72f + BossLunge.shift.coerceAtMost(0f) + Fleet.dx
             val iter = bolts.iterator()
             while (iter.hasNext()) {
                 val b = iter.next()
@@ -152,7 +153,7 @@ fun ShootingOverlay(
                 b.x += dt * (if (b.armor) 1.9f else 1.6f)
                 val c1 = if (b.armor) gold else Color(packRef.value.argb); val c2 = if (b.armor) goldHot else Color(packRef.value.argb2)
                 if (sparks.size < 220) sparks.add(Spark(b.x - 0.025f, b.y + (Random.nextFloat() - 0.5f) * 3f, -0.12f, (Random.nextFloat() - 0.5f) * 16f, if (b.armor) 0.3f else 0.22f, if (b.armor) 0.3f else 0.22f, if (Random.nextBoolean()) c1 else c2))
-                if (mode == 2 && bossRef.value && b.x > bossHitX - 0.44f && b.x < bossHitX + 0.13f) incoming = b.y
+                if (mode >= 1 && bossRef.value && b.x > bossHitX - 0.44f && b.x < bossHitX + 0.13f) incoming = b.y
                 var used = false
                 // boss-brood babies: a basic bolt kills one, an armor round sets off the chain blast
                 for (bb in BossBrood.babies) {
@@ -169,10 +170,11 @@ fun ShootingOverlay(
                         sfx.playSmash(); burst(e.xOffsetFraction, e.yMatchPos.toFloat(), c1, if (b.armor) 16 else 12, 0.45f, 6); rings.add(Ring(e.xOffsetFraction, e.yMatchPos.toFloat(), c2, b.armor)); break
                     }
                 }
-                if (!used && mode == 2 && bossRef.value && b.x > bossHitX && abs(bossYRef.value - b.y) <= 14f) {
+                if (!used && mode >= 1 && bossRef.value) { when (Fleet.hitBolt(from, b.x, b.y, b.armor)) { 1 -> { used = true; sfx.playBossHit(0.3f); burst(b.x, b.y, if (b.armor) goldHot else Color(0xFFFFB74D), 8, 0.45f, 3); rings.add(Ring(b.x, b.y, c2, false)) }; 2 -> { used = true; sfx.playDeflect(); burst(b.x, b.y, Color(0xFFB3E5FC), 8, 0.5f, 0) } } }
+                if (!used && mode >= 1 && bossRef.value && b.x > bossHitX && abs(bossYRef.value - b.y) <= 14f) {
                     Shooting.lastArmor = b.armor
                     hitRef.value(); used = true
-                    val bx = 0.88f + BossLunge.shift
+                    val bx = 0.88f + BossLunge.shift + Fleet.dx
                     if (BossGuard.lastDeflect) {
                         sfx.playDeflect(); burst(bx - 0.04f, b.y, Color(0xFFB3E5FC), 9, 0.5f, 0); rings.add(Ring(bx, bossYRef.value.toFloat(), Color(0xFF80D8FF), false))
                     } else {
@@ -219,8 +221,8 @@ fun ShootingOverlay(
                 else drawCircle(Color(pack.argb2).copy(alpha = (muzzle / 0.12f).coerceIn(0f, 1f)), 14.dp.toPx(), Offset(mx + 24.dp.toPx(), my))
             }
             // boss shield bubble + damage flash
-            if (mode == 2 && bossRef.value) {
-                val bc = Offset((0.88f + BossLunge.shift) * size.width, bossYRef.value / 100f * size.height)
+            if (mode >= 1 && bossRef.value) {
+                val bc = Offset((0.88f + BossLunge.shift + Fleet.dx) * size.width, bossYRef.value / 100f * size.height)
                 val sh = BossGuard.shieldUp; val warn = BossGuard.shieldWarn
                 if (sh || warn) {
                     val r = 58.dp.toPx(); val cy = Color(0xFF80D8FF)
@@ -277,9 +279,9 @@ fun ShootingOverlay(
         val ring = if (armorN > 0) gold else Color(pack.argb)
         val magFill = if (armorN <= 0) (if (Shooting.runShots > 0) 1f else 0f) else ((armorN - 1) % MagazineBay.MAG_SIZE + 1) / MagazineBay.MAG_SIZE.toFloat()   // the magazine being fired
         GameButton(
-            BtnKind.FIRE, 78.dp, ring, if (total == 0) "EMPTY" else "FIRE", if (total == 0) "" else "$total", magFill.coerceIn(0f, 1f), total > 0, held,
+            BtnKind.FIRE, 70.dp, ring, if (total == 0) "EMPTY" else "FIRE", if (total == 0) "" else "$total", magFill.coerceIn(0f, 1f), total > 0, held,
             { held = true; fire() }, { held = false }, extra = magFill.coerceIn(0f, 1f),
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 12.dp)
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 3.dp)
         )
     }
 }
