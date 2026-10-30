@@ -275,19 +275,12 @@ fun ShootingOverlay(
         val armorN = Shooting.ammo(ctx)
         val total = armorN + Shooting.runShots
         val ring = if (armorN > 0) gold else Color(pack.argb)
-        Box(
-            Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 16.dp).size(78.dp).clip(CircleShape)
-                .background(Color(0xCC080620)).border(2.dp, ring.copy(alpha = if (total == 0) 0.3f else 0.9f), CircleShape)
-                .pointerInput(mode) { detectTapGestures(onPress = { held = true; fire(); tryAwaitRelease(); held = false }) },
-            contentAlignment = Alignment.Center
-        ) {
-            val magFill = if (armorN <= 0) 0f else ((armorN - 1) % MagazineBay.MAG_SIZE + 1) / MagazineBay.MAG_SIZE.toFloat()   // the magazine being fired
-            Canvas(Modifier.fillMaxSize().padding(4.dp)) { drawArc(ring, -90f, 360f * magFill.coerceIn(0f, 1f), false, style = Stroke(7f, cap = StrokeCap.Round)) }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(if (armorN > 0) "🛡" else "⚡", fontSize = 22.sp)
-                Text(if (total == 0) "EMPTY" else if (armorN > 0) "$armorN" else "${Shooting.runShots}", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
-            }
-        }
+        val magFill = if (armorN <= 0) (if (Shooting.runShots > 0) 1f else 0f) else ((armorN - 1) % MagazineBay.MAG_SIZE + 1) / MagazineBay.MAG_SIZE.toFloat()   // the magazine being fired
+        GameButton(
+            BtnKind.FIRE, 78.dp, ring, if (total == 0) "EMPTY" else "FIRE", if (total == 0) "" else "$total", magFill.coerceIn(0f, 1f), total > 0, held,
+            { held = true; fire() }, { held = false }, extra = magFill.coerceIn(0f, 1f),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 12.dp)
+        )
     }
 }
 
