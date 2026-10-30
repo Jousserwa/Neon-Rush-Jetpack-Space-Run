@@ -33,6 +33,7 @@ import com.neonrush.game.BroodBomb
 import com.neonrush.game.Shooting
 import com.neonrush.game.BossBrood
 import com.neonrush.game.BossLunge
+import com.neonrush.game.Fleet
 import com.neonrush.game.NeonSoundEngine
 import com.neonrush.game.PilotDrift
 import com.neonrush.game.RiskGates
@@ -134,7 +135,7 @@ fun BossEventsOverlay(
                     3 -> { BossLunge.shift = target; if (pt >= 0.55f) { phase = 4; pt = 0f; BossLunge.vulnerable = false } }
                     4 -> { BossLunge.shift = target * (1f - (pt / 0.9f).coerceIn(0f, 1f)); if (pt >= 0.9f) { phase = 0; BossLunge.shift = 0f; lungeDone = true } }
                 }
-                if ((phase == 2 || phase == 3) && abs(bossYRef.value - pyN) < 15f && (0.88f + BossLunge.shift) - pxN < 0.20f) hurt(14, "BOSS SLAM!")
+                if ((phase == 2 || phase == 3) && abs(bossYRef.value - pyN) < 15f && (0.88f + BossLunge.shift + Fleet.dx) - pxN < 0.20f) hurt(14, "BOSS SLAM!")
             }
             // ---------------- brood ----------------
             if (boss && broodN > 0 && !broodDone && phase == 0 && queue == 0 && hp < 0.6f) {
@@ -145,7 +146,7 @@ fun BossEventsOverlay(
                 spawnT -= dt
                 if (spawnT <= 0f) {
                     spawnT = 0.28f; queue--; spawned++
-                    BossBrood.babies.add(Baby(0.88f + BossLunge.shift - 0.05f, bossYRef.value.toFloat(), -0.05f, rnd(-18f, 18f), 1, 0f, Random.nextFloat() * 6.28f))
+                    BossBrood.babies.add(Baby(0.88f + BossLunge.shift + Fleet.dx - 0.05f, bossYRef.value.toFloat(), -0.05f, rnd(-18f, 18f), 1, 0f, Random.nextFloat() * 6.28f))
                     sfx.playBirth()
                     if (queue == 0) say("🐣 ${spawned} BABIES! Armor rounds wipe them all", Color(0xFFFFC21A), 2.6f)
                 }
@@ -221,7 +222,7 @@ fun BossEventsOverlay(
                 drawLine(Brush.horizontalGradient(listOf(Color(0xFFFF1744).copy(alpha = 0.5f * fl), Color.Transparent), bc.x, px), Offset(px, py), bc, 6.dp.toPx() * telegraph, StrokeCap.Round)
             }
             if (BossLunge.vulnerable && BossLunge.shift < -0.02f) {
-                val bc = Offset(X(0.88f + BossLunge.shift), Y(bossYRef.value.toFloat()))
+                val bc = Offset(X(0.88f + BossLunge.shift + Fleet.dx), Y(bossYRef.value.toFloat()))
                 for (k in 1..4) drawCircle(Color(0xFFFF8A80).copy(alpha = 0.14f / k), 70.dp.toPx(), Offset(bc.x + k * 22.dp.toPx(), bc.y))
             }
             // BOMB: a glowing shell flies from the pilot to the middle of the track, then a screen-wide blast
@@ -240,7 +241,7 @@ fun BossEventsOverlay(
                     drawRect(Brush.radialGradient(listOf(bc.copy(alpha = 0.45f * (1f - k)), Color.Transparent), mid, size.maxDimension * (0.3f + 0.9f * k)), size = size)
                     for (r in 0..3) { val kk = (k * 1.2f - r * 0.1f).coerceIn(0f, 1f); drawCircle(bc.copy(alpha = 0.9f * (1f - kk)), (30f + 700f * kk).dp.toPx(), mid, style = Stroke((14f * (1f - kk) + 1f).dp.toPx())) }
                     for (r in 0 until 28) { val a = r * 0.2244f; val s0 = (40f + 520f * k).dp.toPx(); drawLine(Color.White.copy(alpha = 0.8f * (1f - k)), Offset(mid.x + cos(a) * s0, mid.y + sin(a) * s0), Offset(mid.x + cos(a) * (s0 + 60.dp.toPx() * (1f - k) + 6.dp.toPx()), mid.y + sin(a) * (s0 + 60.dp.toPx() * (1f - k) + 6.dp.toPx())), 3.dp.toPx(), StrokeCap.Round) }
-                    if (bossRef.value) { val bc2 = Offset(X(0.88f + BossLunge.shift), Y(bossYRef.value.toFloat())); drawCircle(bc.copy(alpha = 0.9f * (1f - k)), (20f + 220f * k).dp.toPx(), bc2, style = Stroke((8f * (1f - k) + 1f).dp.toPx())) }
+                    if (bossRef.value) { val bc2 = Offset(X(0.88f + BossLunge.shift + Fleet.dx), Y(bossYRef.value.toFloat())); drawCircle(bc.copy(alpha = 0.9f * (1f - k)), (20f + 220f * k).dp.toPx(), bc2, style = Stroke((8f * (1f - k) + 1f).dp.toPx())) }
                 }
             }
             // chain blast
@@ -287,8 +288,8 @@ fun BossEventsOverlay(
         if (showBomb) {
             val bt = if (legend) Color(0xFFFFC21A) else Color(0xFFFF4DD2)
             @Suppress("UNUSED_VARIABLE") val f = frame
-            GameButton(BtnKind.BOMB, 58.dp, bt, "BOMB", "x$bombCount", 1f, bombAge < 0f, bombAge >= 0f, { detonate() }, art = artBomb,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 28.dp, bottom = 108.dp))
+            GameButton(BtnKind.BOMB, 52.dp, bt, "BOMB", "x$bombCount", 1f, bombAge < 0f, bombAge >= 0f, { detonate() }, art = artBomb,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 25.dp, bottom = 92.dp))
         }
         if (banner.isNotEmpty()) {
             Text(banner, color = bannerCol, fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center,
