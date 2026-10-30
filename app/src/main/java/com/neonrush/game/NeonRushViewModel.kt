@@ -1665,6 +1665,7 @@ fun airBossStrike(dmgIn: Float) {
     val dmg = Siege.scale(dmgIn)
     val st = _simState.value
     if (!st.bossActive) return
+    if (Fleet.damageAll(dmgIn) > 0) return   // the strike goes through the escorts first
     BossGuard.shieldUp = false
     BossDamageFx.hit(dmg, true)
     _simState.value = st.copy(bossHealth = (st.bossHealth - dmg).coerceAtLeast(0f), score = st.score + 25)
@@ -1695,6 +1696,7 @@ fun bombBoss(dmgIn: Float) {
     val dmg = Siege.scale(dmgIn)
     val st = _simState.value
     if (!st.bossActive) return
+    if (Fleet.damageAll(dmgIn) > 0) return   // the blast takes the escorts first
     BossGuard.shieldUp = false
     BossDamageFx.hit(dmg, true)
     LegendMoves.charge(0.1f)
@@ -1712,7 +1714,8 @@ fun airSweep(maxX: Float): Int {
 fun damageBoss(amount: Float) {
     val st = _simState.value
     if (!st.bossActive) return
-    val dmg = Siege.scale(BossGuard.hit(amount)) // shield bounce / armor / rage (BossGuard.kt)
+    if (Fleet.alive() > 0) { BossGuard.lastDeflect = true; BossDamageFx.block(); return }   // the escorts shield the main boss
+    val dmg = Siege.scale(BossGuard.hit(amount) * Siege.dmgMul) // shield bounce / armor / rage (BossGuard.kt)
     if (dmg <= 0f) { BossDamageFx.block(); return }
     BossDamageFx.hit(dmg, false)
     LegendMoves.charge(0.04f)
@@ -1789,7 +1792,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             nearMiss.reset()
             fuelGate.touchAsync(RevenueCatManager.isPro.value)
             assistGemsGiven = 0
-            RiskGates.reset(); Siege.reset(); Siege.configure(selectedDifficulty.name, RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE); AirSupport.newRun(); BossGuard.reset(); BossGuard.configure(selectedDifficulty != DifficultyTier.EASY, selectedDifficulty == DifficultyTier.LEGENDARY); LegendMoves.reset(); PilotDrift.reset()
+            RiskGates.reset(); Siege.reset(); Fleet.reset(); Siege.configure(selectedDifficulty.name, RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE); AirSupport.newRun(); BossGuard.reset(); BossGuard.configure(selectedDifficulty != DifficultyTier.EASY, selectedDifficulty == DifficultyTier.LEGENDARY); LegendMoves.reset(); PilotDrift.reset()
             Shooting.newRun(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE, selectedDifficulty == DifficultyTier.LEGENDARY); MagazineBay.onRunStart(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE)
             gameDao.updateProfile { p -> p.copy(currentRunGemsCredited = 0, currentRunBossZonesRewarded = "", currentRunMilestonesRewarded = "") }
             var tick = 0
@@ -1936,7 +1939,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         }
                     }
 
-                    val isCheckpointZone = nextZoneNumber % checkpointEvery() == 0
+                    val isCheckpointZone = nextZoneNumber % checkpointEvery() == 0 && selectedDifficulty != DifficultyTier.LEGENDARY   // Legendary saves by boss rounds instead
                     if (isCheckpointZone) {
                         gameDao.updateProfile { current ->
                             val reached = current.checkpointsReachedCsv.split(",").filter { it.isNotEmpty() }
@@ -2036,7 +2039,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         soundEngine.playTone(220f, 600, "sawtooth")
                         updatedMsg = "CRITICAL WARNING: ZONE BOSS INCOMING!"
                         HullFx.bossTick = tick
-                        bossHealthState = Siege.startHp()
+                        bossHealthState = Siege.startHp(); Fleet.onEntry(Siege.entryFresh, Siege.lastRepair, Siege.zone)
                     }
                     val bossIvTicks = (Upgrades.bossBulletInterval(activeUpgradesCsv, 9) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4).let { BossGuard.iv(it, state.bossHealth) }
                     val eliteNow = EliteBosses.forZone(nextZoneNumber) ?: (if (RealmRules.isRivalZone(nextZoneNumber)) null else EliteBosses.forWorld(worldFamilyFor(state, nextZoneNumber), nextZoneNumber))
@@ -2052,12 +2055,23 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         EliteBosses.fire(eliteNow, tick, bossIvTicks, bossYState, userY, random, updatedElements)
                     }
                                         Siege.script(tick, bossYState, userY, selectedDifficulty == DifficultyTier.EASY, random, updatedElements)
+                    Fleet.fire(tick, userY, selectedDifficulty == DifficultyTier.EASY, random, updatedElements)
                     bossYState = BossGuard.step(tick, bossHealthState, bossYState)
                     BossGuard.counter(tick, userY, updatedElements)
                     Siege.lastHp = bossHealthState
                     bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv) * BossGuard.drain() * Siege.timerDrain()
                     if (bossHealthState <= 0f) {
                         soundEngine.playBossDown(); BossGuard.reset(); Siege.onKill(tick)
+                        AirSupport.onRoundDestroyed(appCtx, (RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE) && selectedDifficulty != DifficultyTier.EASY)   // clean round = +1 strike
+                        if (selectedDifficulty == DifficultyTier.LEGENDARY && Siege.runKills % 8 == 0) {   // LEGENDARY: every 8 boss rounds destroyed saves a checkpoint at once
+                            val cz = Siege.zone
+                            AirSupport.grant(appCtx, 1, "🏁 LEGENDARY CHECKPOINT · ZONE $cz SAVED · +1 STRIKE")
+                            updatedMsg = "🏁 LEGENDARY CHECKPOINT SAVED: Zone $cz!"
+                            gameDao.updateProfile { current ->
+                                val reached = current.checkpointsReachedCsv.split(",").filter { it.isNotEmpty() }
+                                if (cz.toString() !in reached) current.copy(checkpointsReachedCsv = (reached + cz.toString()).joinToString(",")) else current
+                            }
+                        }
                         if (BossGuard.hard) viewModelScope.launch { WorldEchoBoss.onDefeat(appCtx, gameDao, RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE) }
                         var wasNewlyRewarded = false
                         var bossReward = 0
@@ -2884,7 +2898,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         }
                     }
 
-                    val isCheckpointZone = nextZoneNumber % checkpointEvery() == 0
+                    val isCheckpointZone = nextZoneNumber % checkpointEvery() == 0 && selectedDifficulty != DifficultyTier.LEGENDARY   // Legendary saves by boss rounds instead
                     if (isCheckpointZone) {
                         gameDao.updateProfile { current ->
                             val reached = current.checkpointsReachedCsv.split(",").filter { it.isNotEmpty() }
@@ -2986,7 +3000,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         soundEngine.playTone(220f, 600, "sawtooth")
                         updatedMsg = "CRITICAL WARNING: ZONE BOSS INCOMING!"
                         HullFx.bossTick = tick
-                        bossHealthState = Siege.startHp()
+                        bossHealthState = Siege.startHp(); Fleet.onEntry(Siege.entryFresh, Siege.lastRepair, Siege.zone)
                     }
                     val bossIvTicks = (Upgrades.bossBulletInterval(activeUpgradesCsv, 6) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4).let { BossGuard.iv(it, state.bossHealth) }
                     val eliteNow = EliteBosses.forZone(nextZoneNumber) ?: (if (RealmRules.isRivalZone(nextZoneNumber)) null else EliteBosses.forWorld(worldFamilyFor(state, nextZoneNumber), nextZoneNumber))
@@ -3002,12 +3016,23 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         EliteBosses.fire(eliteNow, tick, bossIvTicks, bossYState, userY, random, updatedElements)
                     }
                                         Siege.script(tick, bossYState, userY, selectedDifficulty == DifficultyTier.EASY, random, updatedElements)
+                    Fleet.fire(tick, userY, selectedDifficulty == DifficultyTier.EASY, random, updatedElements)
                     bossYState = BossGuard.step(tick, bossHealthState, bossYState)
                     BossGuard.counter(tick, userY, updatedElements)
                     Siege.lastHp = bossHealthState
                     bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv) * BossGuard.drain() * Siege.timerDrain()
                     if (bossHealthState <= 0f) {
                         soundEngine.playBossDown(); BossGuard.reset(); Siege.onKill(tick)
+                        AirSupport.onRoundDestroyed(appCtx, (RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE) && selectedDifficulty != DifficultyTier.EASY)   // clean round = +1 strike
+                        if (selectedDifficulty == DifficultyTier.LEGENDARY && Siege.runKills % 8 == 0) {   // LEGENDARY: every 8 boss rounds destroyed saves a checkpoint at once
+                            val cz = Siege.zone
+                            AirSupport.grant(appCtx, 1, "🏁 LEGENDARY CHECKPOINT · ZONE $cz SAVED · +1 STRIKE")
+                            updatedMsg = "🏁 LEGENDARY CHECKPOINT SAVED: Zone $cz!"
+                            gameDao.updateProfile { current ->
+                                val reached = current.checkpointsReachedCsv.split(",").filter { it.isNotEmpty() }
+                                if (cz.toString() !in reached) current.copy(checkpointsReachedCsv = (reached + cz.toString()).joinToString(",")) else current
+                            }
+                        }
                         if (BossGuard.hard) viewModelScope.launch { WorldEchoBoss.onDefeat(appCtx, gameDao, RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE) }
                         soundEngine.playTone(990f, 400, "sine")
                         updatedMsg = "BOSS DEFEATED!"; seasonPass.onToken(SeasonPass.TOKENS_BOSS); onBossDefeatedForDrops()
