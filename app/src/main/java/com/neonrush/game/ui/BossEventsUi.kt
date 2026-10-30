@@ -288,8 +288,8 @@ fun BossEventsOverlay(
         if (showBomb) {
             val bt = if (legend) Color(0xFFFFC21A) else Color(0xFFFF4DD2)
             @Suppress("UNUSED_VARIABLE") val f = frame
-            GameButton(BtnKind.BOMB, 52.dp, bt, "BOMB", "x$bombCount", 1f, bombAge < 0f, bombAge >= 0f, { detonate() }, art = artBomb,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 25.dp, bottom = 92.dp))
+            GameButton(BtnKind.BOMB, 58.dp, bt, "BOMB", "x$bombCount", 1f, bombAge < 0f, bombAge >= 0f, { detonate() }, art = artBomb,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 28.dp, bottom = 108.dp))
         }
         if (banner.isNotEmpty()) {
             Text(banner, color = bannerCol, fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center,
