@@ -3,47 +3,57 @@ package com.neonrush.game
 import kotlin.random.Random
 
 /**
- * THE SIEGE (Stage 148). Replaces the old "boss returns" counter. A boss zone is a Siege of up to 4 ROUNDS; every round has 2 PHASES:
- *   Phase A = Pressure (shield rhythm, the round's own attack pattern), Phase B = Desperation (faster, angrier).
- *  - A round only closes when its boss is DESTROYED (in phase A or phase B, it counts the same). Then a short breather, then the next round.
+ * THE SIEGE (Stage 148, loop version). A boss zone is a Siege of up to 4 ROUNDS. Inside a round the boss FIGHTS IN PHASES, over and over, until it is destroyed:
+ *   Phase A (pressure, 10-20 s) -> boss backs off 3-4 s -> Phase B (desperation, 10-20 s) -> boss backs off 3-4 s -> Phase A again ... (hull stays wounded: it repairs only a little between phases)
+ *  - Destroyed in ANY phase = the round is closed. Then a long break of about 3-4 minutes (the world flies on), then the next round with a fresh, tougher boss.
  *  - Each round attacks differently: 1 PROBE (aimed shots) · 2 BARRAGE (fans) · 3 SIEGE (walls with a gap) · 4 WRATH (all of it, mixed).
- *  - The world HOLDS (no distance, no zone change) while a Siege is on, so it can never be cut short by the next zone.
+ *  - While the boss is fighting or backing off the world HOLDS (no distance, no zone change). During the long breaks it flies on, but never past the end of the zone.
  *  - Plan share: free 1 round, Pro MEDIUM 2, Pro HARD 3, Pro LEGENDARY 4 (see [configure]). Rounds past the plan are shown as a locked teaser.
- *  - Safety net: a boss that outlives its round window (about 40 s) overloads its own core, so nobody can get stuck.
+ *  - Safety net: after 4 phases (A,B,A,B, about 1.5-2 min) without a kill the boss WITHDRAWS for about 3 min, then returns, still wounded. Nobody gets stuck.
  * Time unit: the sim tick (about 0.2 s).
  */
 object Siege {
     const val ROUNDS = 4
     const val LEAD_IN = 24          // ticks before round 1 of a boss zone
-    const val BREATHER = 30         // ticks between a kill and the next round (about 6 s)
-    const val OVERLOAD_AT = 200     // ticks (about 40 s) after which the boss core overloads
-    private val PHASE_A = intArrayOf(55, 65, 80, 95)          // phase A length per round (about 11 / 13 / 16 / 19 s)
+    const val MAX_PHASES = 4        // phases fought without a kill before the boss withdraws
+    const val RETREAT_TICKS = 900   // ticks (about 3 min) the boss stays away after withdrawing
+    const val REPAIR = 0.35f        // hull it repairs during a long withdrawal
+    const val PHASE_REPAIR = 0.06f  // hull it repairs during the short break between phases
+    private val LEN_A = intArrayOf(50, 60, 75, 85)            // phase A length per round (10 / 12 / 15 / 17 s)
+    private val LEN_B = intArrayOf(60, 70, 85, 100)           // phase B length per round (12 / 14 / 17 / 20 s)
     private val SCALE = floatArrayOf(1f, 1.25f, 1.5f, 1.8f)   // each later round takes more damage to bring down
     val NAMES = arrayOf("PROBE", "BARRAGE", "SIEGE", "WRATH")
     val TIPS = arrayOf("AIMED SHOTS · LEARN ITS RHYTHM", "FAN VOLLEYS · SLIP BETWEEN THE BOLTS", "WALLS OF FIRE · FIND THE GAP", "EVERYTHING AT ONCE · NO MERCY")
 
-    const val IDLE = 0; const val WAIT = 1; const val FIGHT = 2; const val BREATH = 3; const val DONE = 4
+    const val IDLE = 0; const val WAIT = 1; const val FIGHT = 2; const val BREATH = 3; const val DONE = 4; const val RETREAT = 5; const val GAP = 6
 
     @Volatile var state = IDLE
     @Volatile var zone = -1
     @Volatile var round = 1
-    @Volatile var roundStart = 0
+    @Volatile var ph = 0                     // 0 = phase A, 1 = phase B (while in GAP: the phase that comes next)
+    @Volatile var phaseStart = 0
+    @Volatile var phasesFought = 0
     @Volatile var nextAt = 0
     @Volatile var nowTick = 0
     @Volatile var maxRounds = 1
     @Volatile var canShoot = false
     @Volatile var special = false            // special worlds keep the old single-boss rules
     @Volatile var locked = false             // the plan ended the Siege early: rounds above [rounds] are a teaser
-    @Volatile var overload = false
+    @Volatile var returning = false          // this boss entry is a return after a withdrawal
+    @Volatile var fresh = true               // next entry is a brand-new boss at full hull
+    @Volatile var afterRetreat = false
+    @Volatile var lastHp = 1f                // the sim reports the boss hull every tick
+    @Volatile var carryHp = 1f
     @Volatile var kills = 0
     @Volatile var lastKillPhase = 0
     @Volatile var closedRound = 0
-    @Volatile var startSeq = 0               // a round began
-    @Volatile var phaseSeq = 0               // phase B began
+    @Volatile var startSeq = 0               // a round began (or the boss returned)
+    @Volatile var phaseSeq = 0               // a new phase began (not the first of a round)
+    @Volatile var gapSeq = 0                 // the boss backed off between phases
+    @Volatile var retreatSeq = 0             // the boss withdrew for the long break
     @Volatile var closeSeq = 0               // a boss was destroyed (round closed)
     @Volatile var clearedSeq = 0             // round 4 closed: Siege cleared
     @Volatile var lockedSeq = 0              // the plan's last round closed with rounds still to go
-    private var lastPhase = 0
 
     fun configure(difficultyName: String, isPro: Boolean) {
         maxRounds = if (!isPro) 1 else when (difficultyName) { "MEDIUM" -> 2; "HARD" -> 3; "LEGENDARY" -> 4; else -> 1 }
@@ -51,47 +61,70 @@ object Siege {
     }
 
     fun reset() {
-        state = IDLE; zone = -1; round = 1; roundStart = 0; nextAt = 0; locked = false; overload = false; kills = 0; lastKillPhase = 0; lastPhase = 0
+        state = IDLE; zone = -1; round = 1; ph = 0; phasesFought = 0; locked = false; returning = false; fresh = true; afterRetreat = false
+        kills = 0; lastKillPhase = 0; lastHp = 1f; carryHp = 1f
     }
 
     fun rounds(): Int = if (special) 1 else maxRounds
-    fun active(): Boolean = state == WAIT || state == FIGHT || state == BREATH
-    /** The world stands still while a Siege is on (normal worlds only). */
-    fun holding(): Boolean = !special && (state == FIGHT || state == BREATH)
-    fun phase(): Int = if (state != FIGHT) 0 else if (nowTick - roundStart < PHASE_A[round - 1]) 0 else 1
+    fun active(): Boolean = state != IDLE && state != DONE
+    /** The world stands still while the boss fights or backs off between phases (normal worlds only). */
+    fun holding(): Boolean = !special && (state == FIGHT || state == GAP)
+    /** During the long breaks the world flies on, but never past the end of this zone. */
+    fun retreating(): Boolean = !special && (state == RETREAT || state == BREATH)
+    fun phase(): Int = if (state == FIGHT || state == GAP) ph else 0
     fun roundName(): String = NAMES[(round - 1).coerceIn(0, 3)]
-    fun secondsLeftToNext(): Int = if (state == BREATH || state == WAIT) ((nextAt - nowTick) / 5f).toInt().coerceAtLeast(0) else 0
+    fun secondsLeftToNext(): Int = if (state == BREATH || state == WAIT || state == RETREAT || state == GAP) ((nextAt - nowTick) / 5f).toInt().coerceAtLeast(0) else 0
+    /** m:ss for the long countdowns. */
+    fun clock(): String { val t = secondsLeftToNext(); return "${t / 60}:${(t % 60).toString().padStart(2, '0')}" }
+    private fun phaseLen(): Int = (if (ph == 0) LEN_A else LEN_B)[(round - 1).coerceIn(0, 3)]
+    private fun gapLen(): Int = 15 + 3 * ((round + ph) % 3)                 // 3.0 / 3.6 / 4.2 s
+    private fun breakLen(): Int = 900 + 50 * round                          // 3.2 - 3.7 min after a kill
 
     private fun begin(z: Int, tick: Int) {
-        zone = z; round = 1; kills = 0; locked = false; overload = false; state = WAIT; nextAt = tick + LEAD_IN; lastPhase = 0
+        zone = z; round = 1; kills = 0; locked = false; returning = false; fresh = true; afterRetreat = false; ph = 0; phasesFought = 0
+        state = WAIT; nextAt = tick + LEAD_IN
     }
 
-    private fun startRound(tick: Int) {
+    private fun startRound(tick: Int, resume: Boolean) {
         if (round > rounds()) { state = DONE; return }
-        state = FIGHT; roundStart = tick; overload = false; lastPhase = 0; startSeq += 1
+        if (!resume) fresh = true
+        returning = resume; ph = 0; phasesFought = 1; phaseStart = tick; state = FIGHT; startSeq += 1
+    }
+
+    private fun endPhase(tick: Int) {
+        carryHp = lastHp
+        if (phasesFought >= MAX_PHASES) { state = RETREAT; afterRetreat = true; nextAt = tick + RETREAT_TICKS; retreatSeq += 1 }
+        else { ph = 1 - ph; state = GAP; afterRetreat = false; nextAt = tick + gapLen(); gapSeq += 1 }
     }
 
     /** Called every tick of a boss zone by the sim: is the boss on the field right now? */
     fun allow(z: Int, tick: Int): Boolean {
         nowTick = tick
         if (z != zone) begin(z, tick)
-        if ((state == WAIT || state == BREATH) && tick >= nextAt) startRound(tick)
-        if (state == FIGHT) {
-            val p = phase()
-            if (p != lastPhase) { lastPhase = p; if (p == 1) phaseSeq += 1 }
+        when (state) {
+            WAIT, BREATH -> if (tick >= nextAt) startRound(tick, false)
+            RETREAT -> if (tick >= nextAt) startRound(tick, true)
+            GAP -> if (tick >= nextAt) { state = FIGHT; phaseStart = tick; phasesFought += 1; phaseSeq += 1 }
+            FIGHT -> if (tick - phaseStart >= phaseLen()) endPhase(tick)
+            else -> {}
         }
         return state == FIGHT
     }
 
-    /** Full health at the start of every round (the boss never retreats and comes back wounded any more). */
-    fun startHp(): Float = 1f
+    /** Hull when the boss steps onto the field: full for a new round, otherwise the wounded boss with a small (phase break) or bigger (withdrawal) repair. */
+    fun startHp(): Float {
+        if (fresh) { fresh = false; afterRetreat = false; return 1f }
+        val rep = if (afterRetreat) REPAIR else PHASE_REPAIR
+        afterRetreat = false
+        return (carryHp + rep).coerceIn(0.05f, 1f)
+    }
 
-    /** The boss was destroyed: the round closes, whatever phase it was in. */
+    /** The boss was destroyed: the round closes, whatever phase it was in. Then the long break. */
     fun onKill(tick: Int) {
         lastKillPhase = phase(); closedRound = round; kills += 1; closeSeq += 1
         if (round >= ROUNDS) { state = DONE; locked = false; clearedSeq += 1 }
         else if (round >= rounds()) { state = DONE; locked = !special && rounds() < ROUNDS; if (locked) lockedSeq += 1 }
-        else { round += 1; state = BREATH; nextAt = tick + BREATHER }
+        else { round += 1; state = BREATH; nextAt = tick + breakLen(); fresh = true; ph = 0 }
     }
 
     /** Bigger bodies in later rounds: damage taken is divided by this. */
@@ -100,7 +133,7 @@ object Siege {
     /** Floor for the boss's anger: phase B is always angry, round 4 from the first second. */
     fun enrageFloor(): Int {
         if (state != FIGHT) return 0
-        val b = phase() == 1
+        val b = ph == 1
         return when {
             round >= 4 -> if (b) 2 else 1
             round == 3 -> if (b) 2 else 0
@@ -111,14 +144,10 @@ object Siege {
     fun periodAdj(): Int = if (state != FIGHT) 0 else intArrayOf(0, -2, -4, -6)[round - 1]
     fun upAdj(): Int = if (state != FIGHT) 0 else intArrayOf(-1, 1, 2, 3)[round - 1]
 
-    /** How fast the boss's health runs down on its own (1 = the old rule). Shooters must earn the kill; non-shooters (EASY) and stalled fights drain. */
+    /** How fast the boss's health runs down on its own (1 = the old rule). Shooters must earn the kill; non-shooters (EASY) get a pass-through boss that burns out. */
     fun timerDrain(): Float {
         if (special || state != FIGHT) return 1f
-        val base = (if (canShoot) 0.08f else 0.5f) / SCALE[(round - 1).coerceIn(0, 3)]
-        val over = nowTick - roundStart - OVERLOAD_AT
-        if (over <= 0) return base
-        overload = true
-        return base + (1f - base) * (over / 40f).coerceIn(0f, 1f)
+        return (if (canShoot) 0.08f else 0.5f) / SCALE[(round - 1).coerceIn(0, 3)]
     }
 
     /** The round's own attack pattern, spawned on top of the boss's normal fire. */
