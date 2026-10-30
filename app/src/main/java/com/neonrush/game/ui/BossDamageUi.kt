@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neonrush.game.BossDamageFx
 import com.neonrush.game.BossLunge
-import com.neonrush.game.BossReturns
+import com.neonrush.game.Siege
 import com.neonrush.game.NeonSoundEngine
 import kotlin.math.PI
 import kotlin.math.cos
@@ -76,7 +76,7 @@ fun BossDamageOverlay(
 
     LaunchedEffect(active) {
         if (!active) return@LaunchedEffect
-        var last = 0L; var wasBoss = false; var lastHp = 1f; var seenHit = BossDamageFx.hitSeq; var seenBlock = BossDamageFx.blockSeq; var seenCut = BossReturns.cutSeq; var killAt = -10f
+        var last = 0L; var wasBoss = false; var lastHp = 1f; var seenHit = BossDamageFx.hitSeq; var seenBlock = BossDamageFx.blockSeq; var seenCut = Siege.closeSeq; var seenStart = Siege.startSeq; var seenPhase = Siege.phaseSeq; var seenLocked = Siege.lockedSeq; var overSaid = false; var killAt = -10f
         fun rnd(a: Float, b: Float) = a + Random.nextFloat() * (b - a)
         while (true) {
             val now = withFrameNanos { it }
@@ -88,16 +88,22 @@ fun BossDamageOverlay(
             val bx = (0.88f + BossLunge.shift) * w; val by = yRef.value / 100f * h; val R = h * 0.19f
             // chip damage bar follows slowly
             if (trail < hp) trail = hp else trail = (trail - dt * 0.35f).coerceAtLeast(hp)
-            // ---- destroyed (the sim says so through BossReturns.cutSeq), appear, retreat ----
-            if (BossReturns.cutSeq != seenCut) {
-                seenCut = BossReturns.cutSeq; cutPop = 0f; killAt = clock
-                banner = "BOSS DESTROYED"; bannerSub = if (BossReturns.lastAfter == 0) "NO MORE RETURNS IN THIS ZONE" else "RETURNS  ${BossReturns.lastBefore}  →  ${BossReturns.lastAfter}"; bannerAge = 0f; bannerGold = true
+            // ---- destroyed (the sim says so through Siege.closeSeq), appear, retreat ----
+            if (Siege.closeSeq != seenCut) {
+                seenCut = Siege.closeSeq; cutPop = 0f; killAt = clock
+                val cr = Siege.closedRound
+                banner = "BOSS DESTROYED"
+                bannerSub = if (Siege.special) "BOSS DEFEATED" else if (cr >= Siege.ROUNDS) "SIEGE CLEARED · ALL 4 ROUNDS"
+                    else if (Siege.locked) "ROUND $cr CLEARED · ROUNDS ${cr + 1}-4 NEED A HIGHER PLAN"
+                    else "ROUND $cr CLEARED · " + (if (Siege.lastKillPhase == 0) "FAST KILL IN PHASE A" else "FINISHED IN PHASE B") + " · NEXT ROUND IN ${Siege.secondsLeftToNext()}s"
+                bannerAge = 0f; bannerGold = true; overSaid = false
                 deathT = 0f; flash = 0.6f; blasts.clear()
                 for (i in 0 until 8) blasts.add(BossBlast(bx, by, R, i))
                 for (i in 0 until 16) { val a = rnd(0f, 2f * PI.toFloat()); val sp = rnd(80f, 360f) * dens; chunks.add(DChunk(bx + rnd(-0.4f, 0.4f) * R, by + rnd(-0.3f, 0.3f) * R, cos(a) * sp, sin(a) * sp - 60f * dens, rnd(0f, 6f), rnd(-8f, 8f), rnd(6f, 16f) * dens, if (i % 3 == 0) Color(0xFFFFB74D) else Color(0xFF37474F))) }
             }
-            if (boss && !wasBoss && clock - killAt > 1.5f && lastHp < 0.97f && lastHp > 0.02f) { banner = "BOSS RETURNS WOUNDED"; bannerSub = "HULL ${(hp * 100).roundToInt()}%"; bannerAge = 0f; bannerGold = false }
-            if (!boss && wasBoss && clock - killAt > 1.5f) { banner = "BOSS RETREATS"; bannerSub = "HULL ${(lastHp * 100).roundToInt()}% · it will be back wounded"; bannerAge = 0f; bannerGold = false }
+            if (!Siege.special && Siege.startSeq != seenStart) { seenStart = Siege.startSeq; if (clock - killAt > 1.2f || Siege.round == 1) { banner = "ROUND ${Siege.round} · ${Siege.roundName()}"; bannerSub = Siege.TIPS[(Siege.round - 1).coerceIn(0, 3)]; bannerAge = 0f; bannerGold = false } }
+            if (!Siege.special && Siege.phaseSeq != seenPhase) { seenPhase = Siege.phaseSeq; banner = "PHASE B · DESPERATION"; bannerSub = "IT FIGHTS HARDER · FINISH IT"; bannerAge = 0f; bannerGold = false }
+            if (!Siege.special && Siege.overload && !overSaid && boss) { overSaid = true; banner = "CORE OVERLOAD"; bannerSub = "THE BOSS IS BURNING OUT"; bannerAge = 0f; bannerGold = true }
             if (boss) lastHp = hp
             wasBoss = boss
             // ---- hits ----
@@ -190,13 +196,19 @@ fun BossDamageOverlay(
                 drawText(pct, topLeft = Offset(bl + bw + 6f * dens, bt + bh / 2f - pct.size.height / 2f))
             }
         }
-        // ---- returns counter ----
-        if (zoneNumber % 5 == 0 && (bossActive || BossReturns.zone == zoneNumber)) {
-            val left = BossReturns.remaining()
+        // ---- siege bar: round, phase, plan share ----
+        if (!Siege.special && Siege.active()) {
+            val rc = Siege.round; val ph = Siege.phase(); val fight = Siege.state == Siege.FIGHT
             Row(Modifier.align(Alignment.TopCenter).padding(top = 76.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)).background(Color(0x55080620)).padding(horizontal = 8.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("BOSS RETURNS ", color = Color.White.copy(alpha = 0.7f), fontSize = 8.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
-                for (i in 0 until BossReturns.base()) Text("●", color = if (i < left) Color(0xFFFF5252).copy(alpha = 0.9f) else Color.White.copy(alpha = 0.18f), fontSize = 8.sp)
-                if (cutPop >= 0f) Text("  -${BossReturns.CUT}", color = Color(0xFFFFD54F).copy(alpha = (1f - cutPop / 2.4f).coerceIn(0f, 1f)), fontSize = (11f + 5f * (1f - minOf(1f, cutPop * 3f))).sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+                Text("SIEGE ", color = Color.White.copy(alpha = 0.7f), fontSize = 8.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+                for (i in 1..Siege.ROUNDS) {
+                    val open = i <= Siege.rounds()
+                    Text(if (i < rc) "◆" else if (i == rc) "◈" else if (open) "◇" else "🔒",
+                        color = if (i < rc) Color(0xFFFFD54F) else if (i == rc) Color(0xFFFF5252) else Color.White.copy(alpha = if (open) 0.35f else 0.25f), fontSize = 10.sp)
+                    Text(" ", fontSize = 6.sp)
+                }
+                Text(if (fight) "R$rc ${Siege.roundName()} · " + (if (ph == 0) "PHASE A" else "PHASE B") else if (Siege.state == Siege.BREATH) "NEXT ROUND ${Siege.secondsLeftToNext()}s" else "INCOMING",
+                    color = if (ph == 1 && fight) Color(0xFFFF8A80) else Color(0xFF80DEEA), fontSize = 8.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
             }
         }
         // ---- banner (top, faint, quick) ----
