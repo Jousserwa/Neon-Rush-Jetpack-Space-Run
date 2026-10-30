@@ -37,6 +37,11 @@ object Siege {
     @Volatile var nowTick = 0
     @Volatile var maxRounds = 1
     @Volatile var canShoot = false
+    @Volatile var planTier = 0               // highest 15-zone boss tier the plan unlocks (free 0, MEDIUM 1, HARD 3, LEGENDARY all)
+    @Volatile var dmgMul = 1f                // pilot bolt damage on bosses per difficulty
+    @Volatile var drainBase = 0.5f           // passive hull drain per difficulty (1 = the old rule)
+    @Volatile var entryFresh = true          // the boss that just stepped on the field is brand new
+    @Volatile var lastRepair = 0f            // hull repaired for that entry
     @Volatile var special = false            // special worlds keep the old single-boss rules
     @Volatile var locked = false             // the plan ended the Siege early: rounds above [rounds] are a teaser
     @Volatile var returning = false          // this boss entry is a return after a withdrawal
@@ -45,6 +50,7 @@ object Siege {
     @Volatile var lastHp = 1f                // the sim reports the boss hull every tick
     @Volatile var carryHp = 1f
     @Volatile var kills = 0
+    @Volatile var runKills = 0               // boss rounds destroyed in this whole run (Legendary checkpoint every 8)
     @Volatile var lastKillPhase = 0
     @Volatile var closedRound = 0
     @Volatile var startSeq = 0               // a round began (or the boss returned)
@@ -58,11 +64,14 @@ object Siege {
     fun configure(difficultyName: String, isPro: Boolean) {
         maxRounds = if (!isPro) 1 else when (difficultyName) { "MEDIUM" -> 2; "HARD" -> 3; "LEGENDARY" -> 4; else -> 1 }
         canShoot = difficultyName != "EASY"
+        planTier = if (!isPro) 0 else when (difficultyName) { "MEDIUM" -> 1; "HARD" -> 3; "LEGENDARY" -> 99; else -> 0 }
+        dmgMul = when (difficultyName) { "EASY" -> 0f; "MEDIUM" -> 0.7f; "HARD" -> 0.85f; else -> 1f }
+        drainBase = when (difficultyName) { "EASY" -> 0.5f; "MEDIUM" -> 0.2f; "HARD" -> 0.12f; else -> 0.08f }.let { if (!isPro) maxOf(it, 0.25f) else it }
     }
 
     fun reset() {
         state = IDLE; zone = -1; round = 1; ph = 0; phasesFought = 0; locked = false; returning = false; fresh = true; afterRetreat = false
-        kills = 0; lastKillPhase = 0; lastHp = 1f; carryHp = 1f
+        kills = 0; runKills = 0; lastKillPhase = 0; lastHp = 1f; carryHp = 1f
     }
 
     fun rounds(): Int = if (special) 1 else maxRounds
@@ -113,15 +122,17 @@ object Siege {
 
     /** Hull when the boss steps onto the field: full for a new round, otherwise the wounded boss with a small (phase break) or bigger (withdrawal) repair. */
     fun startHp(): Float {
-        if (fresh) { fresh = false; afterRetreat = false; return 1f }
+        entryFresh = fresh
+        if (fresh) { fresh = false; afterRetreat = false; lastRepair = 0f; return 1f }
         val rep = if (afterRetreat) REPAIR else PHASE_REPAIR
+        lastRepair = rep
         afterRetreat = false
         return (carryHp + rep).coerceIn(0.05f, 1f)
     }
 
     /** The boss was destroyed: the round closes, whatever phase it was in. Then the long break. */
     fun onKill(tick: Int) {
-        lastKillPhase = phase(); closedRound = round; kills += 1; closeSeq += 1
+        lastKillPhase = phase(); closedRound = round; kills += 1; runKills += 1; closeSeq += 1
         if (round >= ROUNDS) { state = DONE; locked = false; clearedSeq += 1 }
         else if (round >= rounds()) { state = DONE; locked = !special && rounds() < ROUNDS; if (locked) lockedSeq += 1 }
         else { round += 1; state = BREATH; nextAt = tick + breakLen(); fresh = true; ph = 0 }
@@ -147,7 +158,8 @@ object Siege {
     /** How fast the boss's health runs down on its own (1 = the old rule). Shooters must earn the kill; non-shooters (EASY) get a pass-through boss that burns out. */
     fun timerDrain(): Float {
         if (special || state != FIGHT) return 1f
-        return (if (canShoot) 0.08f else 0.5f) / SCALE[(round - 1).coerceIn(0, 3)]
+        if (Fleet.alive() > 0) return 0f                  // the wingmen shield the main boss: no drain until they are down
+        return drainBase / SCALE[(round - 1).coerceIn(0, 3)]
     }
 
     /** The round's own attack pattern, spawned on top of the boss's normal fire. */
