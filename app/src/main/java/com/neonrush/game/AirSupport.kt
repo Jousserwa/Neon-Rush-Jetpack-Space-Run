@@ -12,7 +12,7 @@ import java.util.Locale
  * AIR SUPPORT (Stage 145): a Pro-only backup call. A helicopter gunship (or, once unlocked, a jet) answers a radio call, sweeps the whole screen
  * for about 3 seconds, clears obstacles and the boss brood with its guns and fires two missiles at the boss, then flies off.
  *  - HARD: 40% strength.  LEGENDARY: full strength.  EASY / MEDIUM: not available.  Free players only see a PRO preview.
- *  - The call opens after the boss has beaten you once (Legendary) or twice (Hard): a deflected shot or a hit on you counts as a failed attempt.
+ *  - The call opens after you have been hit once (or a shot of yours bounced off the boss shield).
  *    It also opens when you are taking a lot of hits in a row (intensive attack): then the guns clear the screen but no missiles are fired.
  *  - Per run: at most 2 sorties, 20 s apart. Pro gets 1 free call every day; more calls come in packs (consumable, ids below).
  *  - Calls flown here never block the Legendary leaderboard: players get an AIR SUPPORT ribbon and badge instead.
@@ -70,8 +70,8 @@ object AirSupport {
     fun newRun() { phase = 0; sorties = 0; fails = 0; intense = false; readyAtMs = 0L; teaserShown = false }
     fun modeOk(tierName: String) = tierName == "HARD" || tierName == "LEGENDARY"
     fun strength(tierName: String) = if (tierName == "LEGENDARY") 1f else 0.4f
-    private fun failsNeeded(tierName: String) = if (tierName == "LEGENDARY") 1 else 2
-    /** The call button is offered: boss beat you enough times, or a heavy attack is on. */
+    @Suppress("UNUSED_PARAMETER") private fun failsNeeded(tierName: String) = 1   // one hit on you (or one shot bounced off the shield) is enough
+    /** The call button is offered: you were hit once while a boss is on screen, or a heavy attack is on. */
     fun offered(tierName: String, bossActive: Boolean): Boolean = modeOk(tierName) && ((bossActive && fails >= failsNeeded(tierName)) || intense)
     fun cooldownLeftMs(): Long = (readyAtMs - System.currentTimeMillis()).coerceAtLeast(0L)
     fun canCallNow(): Boolean = phase == 0 && sorties < SORTIES_PER_RUN && cooldownLeftMs() == 0L
