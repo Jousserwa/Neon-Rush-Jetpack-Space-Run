@@ -4586,7 +4586,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                         if (simState.bossActive) {
                             val eliteB = EliteBosses.forZone(simState.currentZoneNumber)
                             val bossImg = bossImagesByWorld[eliteB?.base ?: (variant?.baseFamily ?: currentWorld.worldFamily)] ?: bossImagesByWorld[1]!!
-                            val bossX = cw * (0.88f + com.neonrush.game.BossLunge.shift)   // the boss lunges toward the pilot now and then
+                            val bossX = cw * (0.88f + com.neonrush.game.BossLunge.shift + com.neonrush.game.Fleet.dx)   // the boss lunges toward the pilot now and then
                             val bossYPx = ch * (simState.bossY / 100f)
                             val bossDisplayHeight = ch * 0.38f
                             val bossDisplayWidth = bossDisplayHeight * (bossImg.width.toFloat() / bossImg.height.toFloat())
@@ -4839,6 +4839,8 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                     pickups = { simState.activeTrackElements.filter { it.type == "gem" || it.type == "fuel" || it.type == "powerup" }.map { androidx.compose.ui.geometry.Offset(it.xOffsetFraction, it.yMatchPos.toFloat()) } }) // dash / magnet pulse / overdrive + boss banners
                 BossDamageOverlay(active = simState.isStarted && !simState.isCompleted, bossActive = simState.bossActive, bossHealth = simState.bossHealth,
                     bossY = simState.bossY, zoneNumber = simState.currentZoneNumber, tick = simState.tickIndex) // boss wounds, hit numbers, death blast, returns counter
+                FleetOverlay(active = simState.isStarted && !simState.isCompleted, bossActive = simState.bossActive, bossY = simState.bossY, pilotY = simState.userYPos,
+                    onHit = { l, soft -> viewModel.worldHit(l, soft) }, onScore = { n -> viewModel.addBonusScore(n) }) // escort bosses: formation / orbit / hunters / sweepers
                 ArmorOverlay(active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, isPro = isPro || TESTING_DISABLE_PRO_GATE,
                     bossActive = simState.bossActive, bossHealth = simState.bossHealth, pilotY = simState.userYPos, onScore = { n -> viewModel.addBonusScore(n) }) // armor magazines
                 BossEventsOverlay(active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, bossActive = simState.bossActive,
