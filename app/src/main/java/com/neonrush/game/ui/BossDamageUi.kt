@@ -195,7 +195,7 @@ fun BossDamageOverlay(
             val left = BossReturns.remaining()
             Row(Modifier.align(Alignment.TopCenter).padding(top = 76.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)).background(Color(0x55080620)).padding(horizontal = 8.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("BOSS RETURNS ", color = Color.White.copy(alpha = 0.7f), fontSize = 8.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
-                for (i in 0 until BossReturns.BASE) Text("●", color = if (i < left) Color(0xFFFF5252).copy(alpha = 0.9f) else Color.White.copy(alpha = 0.18f), fontSize = 9.sp)
+                for (i in 0 until BossReturns.base()) Text("●", color = if (i < left) Color(0xFFFF5252).copy(alpha = 0.9f) else Color.White.copy(alpha = 0.18f), fontSize = 8.sp)
                 if (cutPop >= 0f) Text("  -${BossReturns.CUT}", color = Color(0xFFFFD54F).copy(alpha = (1f - cutPop / 2.4f).coerceIn(0f, 1f)), fontSize = (11f + 5f * (1f - minOf(1f, cutPop * 3f))).sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
             }
         }
