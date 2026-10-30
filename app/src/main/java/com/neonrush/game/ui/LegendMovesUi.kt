@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,6 +48,9 @@ fun LegendMovesOverlay(
     modifier: Modifier = Modifier
 ) {
     val sfx = remember { NeonSoundEngine() }
+    val dashScope = rememberCoroutineScope()
+    var dashHeld by remember { mutableStateOf(false) }
+    var dashJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }   // DASH needs a short deliberate hold (0.15 s): a finger sliding across it while steering does nothing
     val yRef = rememberUpdatedState(pilotY)
     val bossRef = rememberUpdatedState(bossActive)
     val bonusRef = rememberUpdatedState(onBonus)
@@ -195,11 +199,11 @@ fun LegendMovesOverlay(
         }
         if (legend) {
             @Suppress("UNUSED_VARIABLE") val f = frame
-            Row(Modifier.align(Alignment.BottomEnd).padding(end = 104.dp, bottom = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+            Row(Modifier.align(Alignment.BottomEnd).padding(end = 94.dp, bottom = 3.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
                 val dc = LegendMoves.dashCd(); val pc = LegendMoves.pulseCd(); val on = LegendMoves.overdriveOn()
-                GameButton(BtnKind.DASH, 56.dp, Color(0xFF80F0FF), "DASH", if (LegendMoves.dashing()) "GO!" else if (dc > 0f) "${kotlin.math.ceil(dc * LegendMoves.DASH_CD / 1000f).toInt()}" else "SMASH", 1f - dc, dc <= 0f, LegendMoves.dashing(), { tryDash() })
-                GameButton(BtnKind.PULSE, 56.dp, Color(0xFFFF4DD2), "PULSE", if (pc > 0f) "${kotlin.math.ceil(pc * LegendMoves.PULSE_CD / 1000f).toInt()}" else "MAGNET", 1f - pc, pc <= 0f, false, { tryPulse() })
-                GameButton(BtnKind.OVER, 60.dp, Color(0xFFFFC21A), "OVERDRIVE", if (on) "${kotlin.math.ceil(LegendMoves.overLeft() * LegendMoves.OVER_MS / 1000f).toInt()}s" else if (LegendMoves.meter >= 1f) "READY" else "${(LegendMoves.meter * 100).toInt()}%",
+                GameButton(BtnKind.DASH, 52.dp, Color(0xFF80F0FF), "DASH", if (LegendMoves.dashing()) "GO!" else if (dc > 0f) "${kotlin.math.ceil(dc * LegendMoves.DASH_CD / 1000f).toInt()}" else "SMASH", 1f - dc, dc <= 0f, LegendMoves.dashing(), { dashHeld = true; dashJob?.cancel(); dashJob = dashScope.launch { kotlinx.coroutines.delay(150); if (dashHeld) tryDash() } }, { dashHeld = false; dashJob?.cancel() })
+                GameButton(BtnKind.PULSE, 52.dp, Color(0xFFFF4DD2), "PULSE", if (pc > 0f) "${kotlin.math.ceil(pc * LegendMoves.PULSE_CD / 1000f).toInt()}" else "MAGNET", 1f - pc, pc <= 0f, false, { tryPulse() })
+                GameButton(BtnKind.OVER, 54.dp, Color(0xFFFFC21A), "OVERDRIVE", if (on) "${kotlin.math.ceil(LegendMoves.overLeft() * LegendMoves.OVER_MS / 1000f).toInt()}s" else if (LegendMoves.meter >= 1f) "READY" else "${(LegendMoves.meter * 100).toInt()}%",
                     if (on) LegendMoves.overLeft() else LegendMoves.meter, LegendMoves.meter >= 1f && !on, on, { tryOver() })
             }
         }
