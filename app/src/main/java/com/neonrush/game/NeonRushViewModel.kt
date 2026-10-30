@@ -1891,7 +1891,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         proGateTriggered = false
                     }
                 }
-                if (state.specialWorldId == null && Siege.holding()) { nextDistance = state.distanceMeters; nextZoneNumber = state.currentZoneNumber }   // the world holds during a Siege
+                if (state.specialWorldId == null && (Siege.holding() || (Siege.retreating() && nextZoneNumber != state.currentZoneNumber))) { nextDistance = state.distanceMeters; nextZoneNumber = state.currentZoneNumber }   // the world holds during a Siege
                 var activeDna = ZoneGenerator.generateZone(nextZoneNumber, runSeed)
                 if (state.specialWorldId != null) activeDna = overrideEnvironment(activeDna, state.specialWorldId)
                 var updatedMsg = state.feedbackMessage
@@ -2054,6 +2054,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         Siege.script(tick, bossYState, userY, selectedDifficulty == DifficultyTier.EASY, random, updatedElements)
                     bossYState = BossGuard.step(tick, bossHealthState, bossYState)
                     BossGuard.counter(tick, userY, updatedElements)
+                    Siege.lastHp = bossHealthState
                     bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv) * BossGuard.drain() * Siege.timerDrain()
                     if (bossHealthState <= 0f) {
                         soundEngine.playBossDown(); BossGuard.reset(); Siege.onKill(tick)
@@ -2839,7 +2840,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         proGateTriggered = false
                     }
                 }
-                if (state.specialWorldId == null && Siege.holding()) { nextDistance = state.distanceMeters; nextZoneNumber = state.currentZoneNumber }   // the world holds during a Siege
+                if (state.specialWorldId == null && (Siege.holding() || (Siege.retreating() && nextZoneNumber != state.currentZoneNumber))) { nextDistance = state.distanceMeters; nextZoneNumber = state.currentZoneNumber }   // the world holds during a Siege
                 var activeDna = ZoneGenerator.generateZone(nextZoneNumber, runSeed)
                 if (state.specialWorldId != null) activeDna = overrideEnvironment(activeDna, state.specialWorldId)
                 var updatedMsg = state.feedbackMessage
@@ -3003,6 +3004,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         Siege.script(tick, bossYState, userY, selectedDifficulty == DifficultyTier.EASY, random, updatedElements)
                     bossYState = BossGuard.step(tick, bossHealthState, bossYState)
                     BossGuard.counter(tick, userY, updatedElements)
+                    Siege.lastHp = bossHealthState
                     bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv) * BossGuard.drain() * Siege.timerDrain()
                     if (bossHealthState <= 0f) {
                         soundEngine.playBossDown(); BossGuard.reset(); Siege.onKill(tick)
