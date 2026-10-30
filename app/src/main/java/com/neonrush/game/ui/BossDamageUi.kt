@@ -76,7 +76,7 @@ fun BossDamageOverlay(
 
     LaunchedEffect(active) {
         if (!active) return@LaunchedEffect
-        var last = 0L; var wasBoss = false; var lastHp = 1f; var seenHit = BossDamageFx.hitSeq; var seenBlock = BossDamageFx.blockSeq; var seenCut = Siege.closeSeq; var seenStart = Siege.startSeq; var seenPhase = Siege.phaseSeq; var seenLocked = Siege.lockedSeq; var overSaid = false; var killAt = -10f
+        var last = 0L; var wasBoss = false; var lastHp = 1f; var seenHit = BossDamageFx.hitSeq; var seenBlock = BossDamageFx.blockSeq; var seenCut = Siege.closeSeq; var seenStart = Siege.startSeq; var seenPhase = Siege.phaseSeq; var seenLocked = Siege.lockedSeq; var seenRetreat = Siege.retreatSeq; var seenGap = Siege.gapSeq; var killAt = -10f
         fun rnd(a: Float, b: Float) = a + Random.nextFloat() * (b - a)
         while (true) {
             val now = withFrameNanos { it }
@@ -95,15 +95,16 @@ fun BossDamageOverlay(
                 banner = "BOSS DESTROYED"
                 bannerSub = if (Siege.special) "BOSS DEFEATED" else if (cr >= Siege.ROUNDS) "SIEGE CLEARED · ALL 4 ROUNDS"
                     else if (Siege.locked) "ROUND $cr CLEARED · ROUNDS ${cr + 1}-4 NEED A HIGHER PLAN"
-                    else "ROUND $cr CLEARED · " + (if (Siege.lastKillPhase == 0) "FAST KILL IN PHASE A" else "FINISHED IN PHASE B") + " · NEXT ROUND IN ${Siege.secondsLeftToNext()}s"
-                bannerAge = 0f; bannerGold = true; overSaid = false
+                    else "ROUND $cr CLEARED · " + (if (Siege.lastKillPhase == 0) "FAST KILL IN PHASE A" else "FINISHED IN PHASE B") +  " · NEXT ROUND IN ${Siege.clock()}"
+                bannerAge = 0f; bannerGold = true
                 deathT = 0f; flash = 0.6f; blasts.clear()
                 for (i in 0 until 8) blasts.add(BossBlast(bx, by, R, i))
                 for (i in 0 until 16) { val a = rnd(0f, 2f * PI.toFloat()); val sp = rnd(80f, 360f) * dens; chunks.add(DChunk(bx + rnd(-0.4f, 0.4f) * R, by + rnd(-0.3f, 0.3f) * R, cos(a) * sp, sin(a) * sp - 60f * dens, rnd(0f, 6f), rnd(-8f, 8f), rnd(6f, 16f) * dens, if (i % 3 == 0) Color(0xFFFFB74D) else Color(0xFF37474F))) }
             }
-            if (!Siege.special && Siege.startSeq != seenStart) { seenStart = Siege.startSeq; if (clock - killAt > 1.2f || Siege.round == 1) { banner = "ROUND ${Siege.round} · ${Siege.roundName()}"; bannerSub = Siege.TIPS[(Siege.round - 1).coerceIn(0, 3)]; bannerAge = 0f; bannerGold = false } }
-            if (!Siege.special && Siege.phaseSeq != seenPhase) { seenPhase = Siege.phaseSeq; banner = "PHASE B · DESPERATION"; bannerSub = "IT FIGHTS HARDER · FINISH IT"; bannerAge = 0f; bannerGold = false }
-            if (!Siege.special && Siege.overload && !overSaid && boss) { overSaid = true; banner = "CORE OVERLOAD"; bannerSub = "THE BOSS IS BURNING OUT"; bannerAge = 0f; bannerGold = true }
+            if (!Siege.special && Siege.startSeq != seenStart) { seenStart = Siege.startSeq; if (clock - killAt > 1.2f || Siege.round == 1) { banner = (if (Siege.returning) "BOSS RETURNS · " else "") + "ROUND ${Siege.round} · ${Siege.roundName()}"; bannerSub = Siege.TIPS[(Siege.round - 1).coerceIn(0, 3)]; bannerAge = 0f; bannerGold = false } }
+            if (!Siege.special && Siege.phaseSeq != seenPhase) { seenPhase = Siege.phaseSeq; banner = if (Siege.ph == 1) "PHASE B · DESPERATION" else "PHASE A · PRESSURE"; bannerSub = if (Siege.ph == 1) "IT FIGHTS HARDER · FINISH IT" else "IT IS BACK · KEEP THE DAMAGE UP"; bannerAge = 0f; bannerGold = false }
+            if (!Siege.special && Siege.gapSeq != seenGap) { seenGap = Siege.gapSeq; banner = "BOSS BACKS OFF"; bannerSub = "PHASE ${if (Siege.ph == 1) "B" else "A"} IN ${Siege.secondsLeftToNext()}s · HULL ${(Siege.carryHp * 100).roundToInt()}%"; bannerAge = 0f; bannerGold = false }
+            if (!Siege.special && Siege.retreatSeq != seenRetreat) { seenRetreat = Siege.retreatSeq; banner = "BOSS WITHDRAWS"; bannerSub = "IT RETURNS IN ${Siege.clock()} · GET STRONGER · HULL ${(Siege.carryHp * 100).roundToInt()}%"; bannerAge = 0f; bannerGold = true }
             if (boss) lastHp = hp
             wasBoss = boss
             // ---- hits ----
@@ -207,7 +208,7 @@ fun BossDamageOverlay(
                         color = if (i < rc) Color(0xFFFFD54F) else if (i == rc) Color(0xFFFF5252) else Color.White.copy(alpha = if (open) 0.35f else 0.25f), fontSize = 10.sp)
                     Text(" ", fontSize = 6.sp)
                 }
-                Text(if (fight) "R$rc ${Siege.roundName()} · " + (if (ph == 0) "PHASE A" else "PHASE B") else if (Siege.state == Siege.BREATH) "NEXT ROUND ${Siege.secondsLeftToNext()}s" else "INCOMING",
+                Text(if (fight) "R$rc ${Siege.roundName()} · " + (if (ph == 0) "PHASE A" else "PHASE B") else if (Siege.state == Siege.GAP) "BOSS BACKS OFF · PHASE ${if (ph == 1) "B" else "A"} IN ${Siege.secondsLeftToNext()}s" else if (Siege.state == Siege.BREATH) "ROUND $rc IN ${Siege.clock()}" else if (Siege.state == Siege.RETREAT) "BOSS WITHDREW · BACK IN ${Siege.clock()}" else "INCOMING",
                     color = if (ph == 1 && fight) Color(0xFFFF8A80) else Color(0xFF80DEEA), fontSize = 8.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
             }
         }
