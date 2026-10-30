@@ -17,6 +17,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -98,8 +99,8 @@ fun AirSupportOverlay(
     var acX by remember { mutableStateOf(-1f) }; var acY by remember { mutableStateOf(0f) }; var acDir by remember { mutableStateOf(1f) }; var acScale by remember { mutableStateOf(1f) }; var acBank by remember { mutableStateOf(0f) }
     var gun by remember { mutableStateOf(false) }
 
-    val radioLen = 4.6f
-    val flyLen = if (jet) 2.4f else 3.2f
+    val radioLen = 3.7f
+    val flyLen = if (jet) 7.0f else 9.0f
 
     // ---------- watcher: counts failed attempts and heavy attacks, offers the call ----------
     LaunchedEffect(active) {
@@ -112,10 +113,10 @@ fun AirSupportOverlay(
             val now = System.currentTimeMillis()
             if (!AirSupport.covering()) {
                 val d = BossGuard.lastDeflect
-                if (bossRef.value && d && !lastDef && now - lastFail > 2500) { AirSupport.fails += 1; lastFail = now }
+                if (bossRef.value && d && !lastDef && now - lastFail > 1500) { AirSupport.fails += 1; lastFail = now }
                 lastDef = d
                 val f = fuelRef.value; val s = shRef.value
-                if (s < lastSh || f <= lastFuel - 5) { hits.add(now); if (bossRef.value && now - lastFail > 2500) { AirSupport.fails += 1; lastFail = now } }
+                if (s < lastSh || f <= lastFuel - 5) { hits.add(now); if (now - lastFail > 1500) { AirSupport.fails += 1; lastFail = now } }
                 lastFuel = f; lastSh = s
                 hits.removeAll { now - it > 15000L }
                 AirSupport.intense = hits.size >= 3
@@ -138,13 +139,12 @@ fun AirSupportOverlay(
     LaunchedEffect(stage) {
         if (stage == 0) return@LaunchedEffect
         var last = 0L
-        val isJet = jet; val len = if (isJet) 2.4f else 3.2f
+        val isJet = jet; val len = if (isJet) 7.0f else 9.0f
         var e0 = false; var e1 = false; var e2 = false; var e3 = false; var e4 = false; var e5 = false
-        var g1 = false; var g2 = false; var m1 = false; var m2 = false; var babies = false; var sweepT = 0f; var lockPlayed = false; var outro = false
+        var g1 = false; var g2 = false; var m1 = false; var m2 = false; var babies = false; var pend = 2; var mCool = 0f; var lastBurst = -1; var flyby2 = false; var sweepT = 0f; var lockPlayed = false; var outro = false
         val strength = AirSupport.strength(tierName)
-        val withBoss = bossRef.value
-        val line1 = "Control, this is Neon One. Taking heavy fire. Requesting air support. Over!"
-        val reply = if (isJet) "Neon One, Viper One. Inbound hot. Clear the lane. Fox three!" else "Copy Neon One. Hawk Six is inbound. Keep your head down. Danger close!"
+                val line1 = "Control, Neon One. Taking fire. Requesting air support!"
+        val reply = if (isJet) "Neon One, Viper One. Inbound hot. Fox three!" else "Copy Neon One. Hawk Six inbound. Heads down!"
         while (true) {
             val now = withFrameNanos { it }
             val dt = if (last == 0L) 0.016f else ((now - last) / 1_000_000_000f).coerceAtMost(0.05f)
@@ -154,7 +154,7 @@ fun AirSupportOverlay(
             st += dt
             if (flash > 0f) flash = (flash - dt * 2.4f).coerceAtLeast(0f)
             if (struck > 0f) struck = (struck - dt).coerceAtLeast(0f)
-            if (bannerAge >= 0f) { bannerAge += dt; if (bannerAge > 2.2f) bannerAge = -1f }
+            if (bannerAge >= 0f) { bannerAge += dt; if (bannerAge > 1.5f) bannerAge = -1f }
             val dens2 = dens
             // particles / tracers / booms
             run {
@@ -164,38 +164,40 @@ fun AirSupportOverlay(
             }
             if (stage == 1) {
                 val t = st
-                fun type(txt: String, from: Float) { lineText = txt.take(((t - from) * 30f).toInt().coerceAtLeast(0)) }
+                fun type(txt: String, from: Float) { lineText = txt.take(((t - from) * 42f).toInt().coerceAtLeast(0)) }
                 if (!e0) { e0 = true; speaker = "NEON ONE"; lineStart = t; sfx.playAirRadio(true); AirSupport.say(ctx, "call1", line1, 0) }
-                if (t < 1.9f) type(line1, lineStart)
-                if (t >= 1.9f && !e1) { e1 = true; lineText = line1; sfx.playAirRadio(false) }
-                if (t >= 2.15f && !e2) { e2 = true; speaker = if (isJet) "VIPER ONE" else "HAWK SIX"; lineStart = t; sfx.playAirRadio(true); AirSupport.say(ctx, if (isJet) "reply_jet" else "reply_heli", reply, 1) }
-                if (t >= 2.15f && t < 4.3f) type(reply, lineStart)
-                if (t >= 2.6f && !e3) { e3 = true; sfx.playAirFlyby(isJet, 6.0f) }
-                if (t >= 3.6f && !e4) { e4 = true; banner = "AIR SUPPORT INBOUND"; bannerAge = 0f }
-                if (t >= 4.3f && !e5) { e5 = true; sfx.playAirRadio(false) }
+                if (t < 1.4f) type(line1, lineStart)
+                if (t >= 1.4f && !e1) { e1 = true; lineText = line1; sfx.playAirRadio(false) }
+                if (t >= 1.6f && !e2) { e2 = true; speaker = if (isJet) "VIPER ONE" else "HAWK SIX"; lineStart = t; sfx.playAirRadio(true); AirSupport.say(ctx, if (isJet) "reply_jet" else "reply_heli", reply, 1) }
+                if (t >= 1.6f && t < 3.3f) type(reply, lineStart)
+                if (t >= 2.0f && !e3) { e3 = true; sfx.playAirFlyby(isJet, 6.5f) }
+                if (t >= 3.3f && !e5) { e5 = true; sfx.playAirRadio(false) }
                 if (t >= radioLen) { stage = 2; st = 0f; if (!demo) AirSupport.phase = 2; return@LaunchedEffect }   // restarts this effect for the flight
             } else if (stage == 2) {
                 val u = (st / len).coerceIn(0f, 1f)
-                // ---- flight path: the whole screen, end to end ----
+                // ---- flight path: two passes across the whole screen. Helicopter: slow cinematic pass out, quick pass back. Jet: the other way round ----
                 var x: Float; var y: Float; var dir: Float; var sc: Float; var bank: Float
+                val pi = PI.toFloat()
                 if (!isJet) {
-                    if (u < 0.45f) { val k = u / 0.45f; x = -0.18f + 1.08f * smooth(k); y = 0.22f + 0.07f * sin(k * PI.toFloat() * 1.5f); dir = 1f; sc = 0.7f + 0.35f * k; bank = 6f + 5f * sin(k * 9f) }
-                    else if (u < 0.62f) { val k = (u - 0.45f) / 0.17f; x = 0.9f + 0.03f * sin(k * PI.toFloat()); y = 0.28f + 0.03f * sin(k * PI.toFloat() * 2f); dir = 1f - 2f * smooth((k - 0.35f) / 0.3f); sc = 1.08f; bank = 0f }
-                    else { val k = (u - 0.62f) / 0.38f; x = 0.9f - 1.12f * smooth(k); y = 0.28f + 0.3f * sin(k * PI.toFloat()) ; dir = -1f; sc = 1.08f - 0.4f * k; bank = 8f * sin(k * 7f) }
+                    if (u < 0.4f) { val k = u / 0.4f; x = -0.18f + 1.08f * smooth(k); y = 0.22f + 0.07f * sin(k * pi * 1.5f); dir = 1f; sc = 0.7f + 0.35f * k; bank = 6f + 5f * sin(k * 9f) }
+                    else if (u < 0.6f) { val k = (u - 0.4f) / 0.2f; x = 0.9f + 0.03f * sin(k * pi); y = 0.28f + 0.03f * sin(k * pi * 2f); dir = 1f - 2f * smooth((k - 0.35f) / 0.3f); sc = 1.08f; bank = 0f }
+                    else { val k = (u - 0.6f) / 0.4f; val kk = k * k * (0.4f + 0.6f * k); x = 0.9f - 1.12f * kk; y = 0.28f + 0.3f * sin(k * pi); dir = -1f; sc = 1.08f - 0.4f * k; bank = 8f * sin(k * 7f) }
                 } else {
-                    if (u < 0.5f) { val k = u / 0.5f; x = -0.22f + 1.5f * k; y = 0.2f + 0.26f * k - 0.1f * sin(k * PI.toFloat()); dir = 1f; sc = 0.8f + 0.4f * k; bank = -10f + 20f * k }
-                    else if (u < 0.62f) { x = 1.4f; y = 0.5f; dir = 1f; sc = 1.2f; bank = 0f }
-                    else { val k = (u - 0.62f) / 0.38f; x = 1.3f - 1.55f * k; y = 0.64f - 0.16f * sin(k * PI.toFloat()); dir = -1f; sc = 1.25f - 0.35f * k; bank = -6f * sin(k * 5f) }
+                    if (u < 0.4f) { val k = u / 0.4f; x = -0.22f + 1.57f * k; y = 0.2f + 0.26f * k - 0.1f * sin(k * pi); dir = 1f; sc = 0.8f + 0.4f * k; bank = -10f + 20f * k }
+                    else if (u < 0.55f) { x = 1.4f; y = 0.5f; dir = 1f; sc = 1.2f; bank = 0f }
+                    else { val k = (u - 0.55f) / 0.45f; x = 1.3f - 1.55f * smooth(k); y = 0.64f - 0.16f * sin(k * pi); dir = -1f; sc = 1.25f - 0.35f * k; bank = -6f * sin(k * 5f) }
                 }
                 acX = x; acY = y; acDir = dir; acScale = sc; acBank = bank
                 val ax = x * w; val ay = y * h
                 val body = (if (isJet) 150f else 130f) * dens * sc
-                // ---- guns ----
-                val win1 = if (isJet) u in 0.1f..0.45f else u in 0.05f..0.42f
-                val win2 = if (isJet) u in 0.7f..0.95f else u in 0.66f..0.95f
-                gun = win1 || win2
-                if (win1 && !g1) { g1 = true; sfx.playAirGun(if (isJet) 1.0f else 1.4f) }
-                if (win2 && !g2) { g2 = true; sfx.playAirGun(1.2f) }
+                if (u >= 0.58f && !flyby2) { flyby2 = true; sfx.playAirFlyby(isJet, 4.5f) }
+                // ---- guns: bursts of one second with short pauses ----
+                val win1 = if (isJet) u in 0.08f..0.4f else u in 0.05f..0.4f
+                val win2 = if (isJet) u in 0.58f..0.95f else u in 0.62f..0.96f
+                val burstOn = (st % 1.4f) < 1.0f
+                gun = (win1 || win2) && burstOn
+                val bi = (st / 1.4f).toInt()
+                if (gun && bi != lastBurst) { lastBurst = bi; sfx.playAirGun(1.0f) }
                 if (gun) {
                     val dirSign = if (dir >= 0f) 1f else -1f
                     val mx = ax + dirSign * body * 0.4f; val my = ay + body * 0.12f
@@ -214,21 +216,25 @@ fun AirSupportOverlay(
                         }
                     }
                 }
-                // ---- missiles ----
-                val fireA = if (isJet) 0.3f else 0.5f; val fireB = if (isJet) 0.38f else 0.56f
+                // ---- missiles: wait for the boss to be on screen, fire two (the second 0.5 s after the first); if it never shows, the volley hits the lane ----
+                val bossNow = bossRef.value
                 val bx = (0.88f + BossLunge.shift) * w; val by = bossYRef.value / 100f * h
-                if (u >= fireA - 0.06f && !lockPlayed && withBoss) { lockPlayed = true; sfx.playAirLock() }
-                fun launch() {
+                mCool -= dt
+                if (bossNow && u >= (if (isJet) 0.2f else 0.32f) - 0.08f && !lockPlayed) { lockPlayed = true; sfx.playAirLock() }
+                fun launch(atBoss: Boolean) {
                     sfx.playAirMissile()
-                    val tgtX = if (withBoss) bx else w * (0.55f + Random.nextFloat() * 0.3f)
-                    val tgtY = if (withBoss) by + (Random.nextFloat() - 0.5f) * 30f * dens else h * (0.3f + Random.nextFloat() * 0.45f)
+                    val tgtX = if (atBoss) bx else w * (0.55f + Random.nextFloat() * 0.3f)
+                    val tgtY = if (atBoss) by + (Random.nextFloat() - 0.5f) * 30f * dens else h * (0.3f + Random.nextFloat() * 0.45f)
                     val dmgBase = if (legend) (if (BossGuard.phase2) 0.35f else 0.5f) else 0.5f * strength
-                    missiles.add(AirMissile(ax, ay + body * 0.1f, tgtX, tgtY, 0.5f, dmgBase, withBoss))
+                    val dist = kotlin.math.hypot(tgtX - ax, tgtY - ay) / w
+                    missiles.add(AirMissile(ax, ay + body * 0.1f, tgtX, tgtY, (0.35f + 0.5f * dist).coerceIn(0.4f, 0.9f), dmgBase, atBoss))
                 }
-                if (u >= fireA && !m1) { m1 = true; launch() }
-                if (u >= fireB && !m2) { m2 = true; launch() }
+                if (pend > 0 && mCool <= 0f) {
+                    if (bossNow && u >= (if (isJet) 0.2f else 0.32f) && u <= 0.92f) { launch(true); pend -= 1; mCool = 0.5f }
+                    else if (u >= 0.86f) { launch(false); pend -= 1; mCool = 0.4f }
+                }
                 // ---- brood wipe ----
-                if (u >= 0.5f && !babies) { babies = true; if (!demo && BossBrood.hasBabies()) { BossBrood.novaX = 0.5f; BossBrood.novaY = 50f; BossBrood.novaRequested = true } }
+                if (u >= 0.45f && !babies) { babies = true; if (!demo && BossBrood.hasBabies()) { BossBrood.novaX = 0.5f; BossBrood.novaY = 50f; BossBrood.novaRequested = true } }
                 val mi = missiles.iterator()
                 while (mi.hasNext()) {
                     val m = mi.next(); m.age += dt
@@ -253,8 +259,8 @@ fun AirSupportOverlay(
                     AirSupport.say(ctx, if (isJet) "out_jet" else "out_heli", if (isJet) "Neon One, Viper One. Target down. Returning to base." else "Neon One, Hawk Six. Lane is clear. Good hunting!", 1) }
                 if (!demo) {
                     val o = if (isJet) "Neon One, Viper One. Target down. Returning to base." else "Neon One, Hawk Six. Lane is clear. Good hunting!"
-                    lineText = o.take(((st - lineStart) * 30f).toInt().coerceAtLeast(0))
-                    if (st > 2.6f) { sfx.playAirRadio(false); stage = 0; return@LaunchedEffect }
+                    lineText = o.take(((st - lineStart) * 42f).toInt().coerceAtLeast(0))
+                    if (st > 2.2f) { sfx.playAirRadio(false); stage = 0; return@LaunchedEffect }
                 } else if (acX > -5f) { acX = -5f }   // preview: the end card waits for a tap
             }
             frame++
@@ -323,8 +329,8 @@ fun AirSupportOverlay(
             if (stage == 2 && acX > -4f) {
                 val body = (if (jet) 150f else 130f) * dens * acScale
                 // reticle on the boss before the missiles go
-                if (!demo && bossRef.value && st / flyLen in 0.25f..0.62f) {
-                    val bx = (0.88f + BossLunge.shift) * w; val by = bossYRef.value / 100f * h; val rr = (70f - 30f * ((st / flyLen - 0.25f) / 0.37f)) * dens
+                if (!demo && bossRef.value && st / flyLen in 0.18f..0.92f) {
+                    val bx = (0.88f + BossLunge.shift) * w; val by = bossYRef.value / 100f * h; val rr = (56f + 14f * sin(st * 6f)) * dens
                     val c = Color(0xFFFF3D3D).copy(alpha = 0.6f + 0.4f * sin(st * 20f))
                     drawCircle(c, rr, Offset(bx, by), style = Stroke(2.5f * dens)); drawCircle(c, rr * 0.45f, Offset(bx, by), style = Stroke(1.5f * dens))
                     drawLine(c, Offset(bx - rr * 1.2f, by), Offset(bx + rr * 1.2f, by), 1.5f * dens); drawLine(c, Offset(bx, by - rr * 1.2f), Offset(bx, by + rr * 1.2f), 1.5f * dens)
@@ -338,8 +344,9 @@ fun AirSupportOverlay(
         if (stage == 1 || (stage == 3 && !demo)) {
             val shape = RoundedCornerShape(12.dp)
             Row(
-                Modifier.align(Alignment.TopCenter).padding(top = 64.dp, start = 10.dp, end = 10.dp).widthIn(max = 460.dp).fillMaxWidth().clip(shape).background(Color(0xE6061018))
-                    .border(1.5.dp, Color(0xFF69F0AE).copy(alpha = 0.7f), shape).padding(8.dp),
+                Modifier.align(Alignment.TopCenter).padding(top = 48.dp, start = 10.dp, end = 10.dp).widthIn(max = 440.dp).fillMaxWidth()
+                    .graphicsLayer { alpha = if (stage == 1) minOf(1f, st / 0.25f) * (1f - smooth((st - 3.0f) / 0.6f)) * 0.8f else (1f - smooth((st - 1.3f) / 0.7f)) * 0.8f }   // faint, and gone before the action
+                    .clip(shape).background(Color(0x66061018)).border(1.dp, Color(0xFF69F0AE).copy(alpha = 0.35f), shape).padding(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Canvas(Modifier.size(60.dp)) {
@@ -369,9 +376,9 @@ fun AirSupportOverlay(
         }
         // -------- banner --------
         if (bannerAge >= 0f) {
-            val a = (1f - (bannerAge / 2.2f)).coerceIn(0f, 1f); val sc = 0.8f + 0.2f * minOf(1f, bannerAge * 6f)
-            Text(banner, color = (if (banner.contains("STRIKE")) Color(0xFFFFB74D) else Color(0xFF69F0AE)).copy(alpha = a), fontSize = (17f * sc).sp, fontWeight = FontWeight.Black, fontFamily = MONO, textAlign = TextAlign.Center,
-                modifier = Modifier.align(Alignment.Center).offset(y = (-70).dp).clip(RoundedCornerShape(12.dp)).background(Color(0xCC080620).copy(alpha = 0.8f * a)).padding(horizontal = 16.dp, vertical = 8.dp))
+            val a = (1f - (bannerAge / 1.5f)).coerceIn(0f, 1f) * 0.8f; val sc = 0.8f + 0.2f * minOf(1f, bannerAge * 6f)
+            Text(banner, color = (if (banner.contains("STRIKE")) Color(0xFFFFB74D) else Color(0xFF69F0AE)).copy(alpha = a), fontSize = (14f * sc).sp, fontWeight = FontWeight.Black, fontFamily = MONO, textAlign = TextAlign.Center,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 108.dp).clip(RoundedCornerShape(10.dp)).background(Color(0x99080620).copy(alpha = 0.5f * a)).padding(horizontal = 12.dp, vertical = 5.dp))
         }
         if (demo && stage in 1..2) Text("👑 PRO PREVIEW · this is what Pro pilots get", color = Color(0xFFFFD23F), fontSize = 10.sp, fontWeight = FontWeight.Black, fontFamily = MONO,
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 40.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xCC2A0A5A)).padding(horizontal = 10.dp, vertical = 4.dp))
