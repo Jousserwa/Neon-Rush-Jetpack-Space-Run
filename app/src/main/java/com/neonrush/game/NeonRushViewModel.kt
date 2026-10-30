@@ -1668,6 +1668,36 @@ fun airBossStrike(dmg: Float) {
     BossDamageFx.hit(dmg, true)
     _simState.value = st.copy(bossHealth = (st.bossHealth - dmg).coerceAtLeast(0f), score = st.score + 25)
 }
+/** DASH really smashes: removes the obstacles and enemy bullets just in front of the pilot while the dash lasts. Returns how many. */
+fun dashSmash(): Int {
+    if (!LegendMoves.dashing()) return 0
+    val st = _simState.value
+    val x0 = PilotDrift.x - 0.04f; val x1 = PilotDrift.x + 0.3f
+    val (gone, keep) = st.activeTrackElements.partition { (it.type == "obstacle" || it.type == "bullet") && it.xOffsetFraction in x0..x1 && kotlin.math.abs(it.yMatchPos - st.userYPos) <= 15 }
+    if (gone.isEmpty()) return 0
+    gone.take(3).forEach { ReactFx.obstacle(it.subType, "BOOM", it.xOffsetFraction, it.yMatchPos) }
+    LegendMoves.charge(0.03f * gone.size)
+    _simState.value = st.copy(activeTrackElements = keep, score = st.score + 5 * gone.size)
+    return gone.size
+}
+/** BROOD BOMB blast: wipes every obstacle and enemy bullet on screen. Returns where they were (x fraction, y percent) so the overlay can pop them. */
+fun bombSweep(): List<androidx.compose.ui.geometry.Offset> {
+    val st = _simState.value
+    val (gone, keep) = st.activeTrackElements.partition { it.type == "obstacle" || it.type == "bullet" }
+    if (gone.isEmpty()) return emptyList()
+    gone.take(6).forEach { ReactFx.obstacle(it.subType, "BOOM", it.xOffsetFraction, it.yMatchPos) }
+    _simState.value = st.copy(activeTrackElements = keep, score = st.score + 6 * gone.size)
+    return gone.map { androidx.compose.ui.geometry.Offset(it.xOffsetFraction, it.yMatchPos.toFloat()) }
+}
+/** BROOD BOMB on a boss: breaks the shield and takes a visible chunk of its hull. */
+fun bombBoss(dmg: Float) {
+    val st = _simState.value
+    if (!st.bossActive) return
+    BossGuard.shieldUp = false
+    BossDamageFx.hit(dmg, true)
+    LegendMoves.charge(0.1f)
+    _simState.value = st.copy(bossHealth = (st.bossHealth - dmg).coerceAtLeast(0.001f))
+}
 /** Air Support guns: removes obstacles and enemy bullets up to [maxX] (fraction of the width). Returns how many went. */
 fun airSweep(maxX: Float): Int {
     val st = _simState.value
