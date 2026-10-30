@@ -31,6 +31,7 @@ import com.neonrush.game.AirSupport
 import com.neonrush.game.BossBrood
 import com.neonrush.game.BossGuard
 import com.neonrush.game.BossLunge
+import com.neonrush.game.Fleet
 import com.neonrush.game.NeonSoundEngine
 import com.neonrush.game.PilotDrift
 import kotlin.math.PI
@@ -98,9 +99,14 @@ fun AirSupportOverlay(
     val booms = remember { ArrayList<AirBoom>() }
     var acX by remember { mutableStateOf(-1f) }; var acY by remember { mutableStateOf(0f) }; var acDir by remember { mutableStateOf(1f) }; var acScale by remember { mutableStateOf(1f) }; var acBank by remember { mutableStateOf(0f) }
     var gun by remember { mutableStateOf(false) }
+    var callId by remember { mutableStateOf(2) }
+    var flightIdx by remember { mutableStateOf(0) }
+    var chain by remember { mutableStateOf(listOf(false)) }
+    var menuOpen by remember { mutableStateOf(false) }
+    var seenBonus by remember { mutableStateOf(AirSupport.bonusSeq) }
 
     val radioLen = 3.7f
-    val flyLen = if (jet) 7.0f else 9.0f
+    val flyLen = (if (jet) 7.0f else 9.0f) * (if (flightIdx > 0) 0.75f else 1f)
 
     // ---------- watcher: counts failed attempts and heavy attacks, offers the call ----------
     LaunchedEffect(active) {
@@ -121,28 +127,36 @@ fun AirSupportOverlay(
                 hits.removeAll { now - it > 15000L }
                 AirSupport.intense = hits.size >= 3
             } else { lastFuel = fuelRef.value; lastSh = shRef.value }
-            val off = AirSupport.offered(tierName, bossRef.value) && AirSupport.sorties < AirSupport.SORTIES_PER_RUN
+            AirSupport.syncRound()
+            if (AirSupport.bonusSeq != seenBonus) { seenBonus = AirSupport.bonusSeq; banner = AirSupport.bonusText; bannerAge = 0f; sfx.playAirLock() }
+            val off = AirSupport.offered(tierName, bossRef.value)
             if (off && !wasOffered && stage == 0) { sfx.playAirLock(); banner = if (isPro) "BACKUP AVAILABLE" else "AIR SUPPORT (PRO) AVAILABLE"; bannerAge = 0f }
             wasOffered = off
             tick += 1
         }
     }
 
-    fun start(asDemo: Boolean) {
-        demo = asDemo; jet = AirSupport.aircraft(ctx) == "jet" && !asDemo || (asDemo && Random.nextBoolean())
+    fun start(asDemo: Boolean, id: Int = 2) {
+        demo = asDemo; callId = id; flightIdx = 0
+        chain = if (asDemo) listOf(Random.nextBoolean()) else AirSupport.chainFor(ctx, id)
+        jet = chain[0]
         parts.clear(); tracers.clear(); missiles.clear(); booms.clear()
         st = 0f; stage = 1; speaker = ""; lineText = ""; acX = -1f; flash = 0f; struck = 0f
         AirSupport.phase = if (asDemo) 0 else 1
     }
 
     // ---------- the sequence ----------
-    LaunchedEffect(stage) {
+    LaunchedEffect(stage, flightIdx) {
         if (stage == 0) return@LaunchedEffect
         var last = 0L
-        val isJet = jet; val len = if (isJet) 7.0f else 9.0f
+        val isJet = jet; val len = (if (isJet) 7.0f else 9.0f) * (if (flightIdx > 0) 0.75f else 1f)
+        val ct = AirSupport.CALLS[(callId - 1).coerceIn(0, 6)]
+        val nFl = chain.size.coerceAtLeast(1)
+        var wiped = false
         var e0 = false; var e1 = false; var e2 = false; var e3 = false; var e4 = false; var e5 = false
-        var g1 = false; var g2 = false; var m1 = false; var m2 = false; var babies = false; var pend = 2; var mCool = 0f; var lastBurst = -1; var flyby2 = false; var sweepT = 0f; var lockPlayed = false; var outro = false
+        var g1 = false; var g2 = false; var m1 = false; var m2 = false; var babies = false; var pend = if (demo) 2 else ct.missiles / nFl + (if (flightIdx < ct.missiles % nFl) 1 else 0); var mCool = 0f; var lastBurst = -1; var flyby2 = false; var sweepT = 0f; var lockPlayed = false; var outro = false
         val strength = AirSupport.strength(tierName)
+        val per = if (demo) 0.5f * strength else ct.dmgEach * strength
                 val line1 = "Control, Neon One. Taking fire. Requesting air support!"
         val reply = if (isJet) "Neon One, Viper One. Inbound hot. Fox three!" else "Copy Neon One. Hawk Six inbound. Heads down!"
         while (true) {
@@ -218,14 +232,14 @@ fun AirSupportOverlay(
                 }
                 // ---- missiles: wait for the boss to be on screen, fire two (the second 0.5 s after the first); if it never shows, the volley hits the lane ----
                 val bossNow = bossRef.value
-                val bx = (0.88f + BossLunge.shift) * w; val by = bossYRef.value / 100f * h
+                val bx = (0.88f + BossLunge.shift + Fleet.dx) * w; val by = bossYRef.value / 100f * h
                 mCool -= dt
                 if (bossNow && u >= (if (isJet) 0.2f else 0.32f) - 0.08f && !lockPlayed) { lockPlayed = true; sfx.playAirLock() }
                 fun launch(atBoss: Boolean) {
                     sfx.playAirMissile()
                     val tgtX = if (atBoss) bx else w * (0.55f + Random.nextFloat() * 0.3f)
                     val tgtY = if (atBoss) by + (Random.nextFloat() - 0.5f) * 30f * dens else h * (0.3f + Random.nextFloat() * 0.45f)
-                    val dmgBase = if (legend) (if (BossGuard.phase2) 0.35f else 0.5f) else 0.5f * strength
+                    val dmgBase = per
                     val dist = kotlin.math.hypot(tgtX - ax, tgtY - ay) / w
                     missiles.add(AirMissile(ax, ay + body * 0.1f, tgtX, tgtY, (0.35f + 0.5f * dist).coerceIn(0.4f, 0.9f), dmgBase, atBoss))
                 }
@@ -233,6 +247,8 @@ fun AirSupportOverlay(
                     if (bossNow && u >= (if (isJet) 0.2f else 0.32f) && u <= 0.92f) { launch(true); pend -= 1; mCool = 0.5f }
                     else if (u >= 0.86f) { launch(false); pend -= 1; mCool = 0.4f }
                 }
+                // ---- special calls: every escort is wiped out ----
+                if (!demo && ct.wipe && !wiped && flightIdx == 0 && u >= 0.35f) { wiped = true; if (Fleet.alive() > 0) { Fleet.damageAll(6f); banner = "ESCORTS WIPED OUT"; bannerAge = 0f; flash = 1f; sfx.playAirBoom() } }
                 // ---- brood wipe ----
                 if (u >= 0.45f && !babies) { babies = true; if (!demo && BossBrood.hasBabies()) { BossBrood.novaX = 0.5f; BossBrood.novaY = 50f; BossBrood.novaRequested = true } }
                 val mi = missiles.iterator()
@@ -250,8 +266,9 @@ fun AirSupportOverlay(
                     }
                 }
                 if (st >= len) {
+                    if (!demo && flightIdx + 1 < nFl) { jet = chain[flightIdx + 1]; st = 0f; flightIdx += 1; return@LaunchedEffect }   // the next aircraft of the call
                     stage = 3; st = 0f; AirSupport.stopVoice()
-                    if (!demo) { AirSupport.finishSortie(); scoreRef.value(if (legend) 100 else 50) }
+                    if (!demo) { AirSupport.finishSortie(); scoreRef.value(30 + 20 * callId) }
                     return@LaunchedEffect
                 }
             } else if (stage == 3) {
@@ -267,31 +284,70 @@ fun AirSupportOverlay(
         }
     }
 
-    val offered = AirSupport.offered(tierName, bossActive) && AirSupport.sorties < AirSupport.SORTIES_PER_RUN
+    val offered = AirSupport.offered(tierName, bossActive)
     @Suppress("UNUSED_VARIABLE") val tk = tick
     Box(modifier.fillMaxSize().onSizeChanged { sz = it }) {
-        // -------- call button --------
+        // -------- call button + the seven-call menu --------
         if (stage == 0 && offered) {
             val cd = AirSupport.cooldownLeftMs()
-            val calls = com.neonrush.game.AirSupport.calls(ctx); val free = AirSupport.freeAvailable(ctx, isPro)
-            val have = testing || free || calls > 0
+            val stock = com.neonrush.game.AirSupport.calls(ctx); val free = AirSupport.freeAvailable(ctx, isPro)
+            val ready = cd == 0L
             val inf = androidx.compose.animation.core.rememberInfiniteTransition(label = "airBtn")
             val pulse by inf.animateFloat(0.55f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(700), androidx.compose.animation.core.RepeatMode.Reverse), label = "p")
-            val ready = cd == 0L
-            val accent = if (!isPro) Color(0xFFB388FF) else if (have && ready) Color(0xFF69F0AE) else Color(0xFF8A8A9A)
-            Column(
-                Modifier.align(Alignment.BottomStart).padding(start = 14.dp, bottom = 20.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xE6080620))
-                    .border(2.dp, accent.copy(alpha = if (have && ready) pulse else 0.5f), RoundedCornerShape(14.dp))
-                    .clickable {
-                        if (!isPro) { if (AirSupport.teaserShown) onGoPro() else { AirSupport.teaserShown = true; start(true) } }
-                        else if (!ready) { }
-                        else if (!AirSupport.pay(ctx, isPro, testing)) android.widget.Toast.makeText(ctx, "No Air Support calls left. Get more in the Air Support Bay on the home screen.", android.widget.Toast.LENGTH_LONG).show()
-                        else start(false)
-                    }.padding(horizontal = 14.dp, vertical = 10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(if (!isPro) "📞 AIR SUPPORT 👑" else if (!ready) "📞 READY IN ${(cd / 1000L) + 1}s" else "📞 AIR SUPPORT", color = accent, fontSize = 13.sp, fontWeight = FontWeight.Black, fontFamily = MONO)
-                Text(if (!isPro) "PRO · TAP TO PREVIEW" else if (testing) "TEST: FREE" else if (free) "FREE CALL TODAY" else if (calls > 0) "$calls CALLS LEFT" else "NO CALLS", color = Color.White.copy(alpha = 0.8f), fontSize = 9.sp, fontFamily = MONO)
+            val accent = if (!isPro) Color(0xFFB388FF) else if (ready) Color(0xFF69F0AE) else Color(0xFF8A8A9A)
+            val have = stock + (if (free) 1 else 0)
+            Column(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, bottom = 20.dp), horizontalAlignment = Alignment.Start) {
+                if (menuOpen && isPro) {
+                    val sur = AirSupport.surcharge()
+                    Column(
+                        Modifier.padding(bottom = 6.dp).widthIn(max = 300.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xF0080620)).border(1.5.dp, accent.copy(alpha = 0.7f), RoundedCornerShape(14.dp)).padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("AIR SUPPORT · PICK A CALL", color = accent, fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = MONO, modifier = Modifier.weight(1f))
+                            Text("✕", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp, modifier = Modifier.clickable { menuOpen = false }.padding(horizontal = 4.dp))
+                        }
+                        Text("VAULT $have ⚡ · USED THIS RUN ${AirSupport.usedThisRun}" + (if (sur > 0) " · HEAT +$sur" else "") + (if (free) " · 1 FREE TODAY" else ""), color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp, fontFamily = MONO)
+                        for (c in AirSupport.CALLS) {
+                            val why = AirSupport.lockedReason(c.id, tierName, isPro)
+                            val cost = AirSupport.cost(c.id)
+                            val ok = why == null && ready && (testing || have >= cost)
+                            val special = c.id >= 6
+                            val col = if (special) Color(0xFFFFC21A) else Color(0xFF69F0AE)
+                            Row(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(if (ok) col.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.05f))
+                                    .border(1.dp, col.copy(alpha = if (ok) 0.8f else 0.2f), RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        if (!ready) android.widget.Toast.makeText(ctx, "The aircraft are still rearming.", android.widget.Toast.LENGTH_SHORT).show()
+                                        else if (AirSupport.pay(ctx, isPro, testing, tierName, c.id)) { menuOpen = false; start(false, c.id) }
+                                        else android.widget.Toast.makeText(ctx, AirSupport.lastFail, android.widget.Toast.LENGTH_LONG).show()
+                                    }.padding(horizontal = 8.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("${c.id}  ${c.name}", color = if (ok) col else Color.White.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = MONO)
+                                    Text(if (why != null) "🔒 $why" else c.blurb, color = Color.White.copy(alpha = if (why != null) 0.55f else 0.75f), fontSize = 8.sp, fontFamily = MONO)
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(if (testing) "FREE" else "$cost ⚡", color = if (ok) Color.White else Color.White.copy(alpha = 0.45f), fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = MONO)
+                                    Text(c.tag, color = col.copy(alpha = 0.7f), fontSize = 7.sp, fontFamily = MONO)
+                                }
+                            }
+                        }
+                    }
+                }
+                Column(
+                    Modifier.clip(RoundedCornerShape(14.dp)).background(Color(0xE6080620))
+                        .border(2.dp, accent.copy(alpha = if (ready) pulse else 0.5f), RoundedCornerShape(14.dp))
+                        .clickable {
+                            if (!isPro) { if (AirSupport.teaserShown) onGoPro() else { AirSupport.teaserShown = true; start(true) } }
+                            else menuOpen = !menuOpen
+                        }.padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(if (!isPro) "📞 AIR SUPPORT 👑" else if (!ready) "📞 READY IN ${(cd / 1000L) + 1}s" else "📞 AIR SUPPORT", color = accent, fontSize = 13.sp, fontWeight = FontWeight.Black, fontFamily = MONO)
+                    Text(if (!isPro) "PRO · TAP TO PREVIEW" else if (testing) "TEST: FREE · TAP FOR CALLS" else "$have ⚡ IN VAULT · TAP FOR CALLS", color = Color.White.copy(alpha = 0.8f), fontSize = 9.sp, fontFamily = MONO)
+                }
             }
         }
         // -------- cover ring + red alert edges --------
@@ -330,7 +386,7 @@ fun AirSupportOverlay(
                 val body = (if (jet) 150f else 130f) * dens * acScale
                 // reticle on the boss before the missiles go
                 if (!demo && bossRef.value && st / flyLen in 0.18f..0.92f) {
-                    val bx = (0.88f + BossLunge.shift) * w; val by = bossYRef.value / 100f * h; val rr = (56f + 14f * sin(st * 6f)) * dens
+                    val bx = (0.88f + BossLunge.shift + Fleet.dx) * w; val by = bossYRef.value / 100f * h; val rr = (56f + 14f * sin(st * 6f)) * dens
                     val c = Color(0xFFFF3D3D).copy(alpha = 0.6f + 0.4f * sin(st * 20f))
                     drawCircle(c, rr, Offset(bx, by), style = Stroke(2.5f * dens)); drawCircle(c, rr * 0.45f, Offset(bx, by), style = Stroke(1.5f * dens))
                     drawLine(c, Offset(bx - rr * 1.2f, by), Offset(bx + rr * 1.2f, by), 1.5f * dens); drawLine(c, Offset(bx, by - rr * 1.2f), Offset(bx, by + rr * 1.2f), 1.5f * dens)
