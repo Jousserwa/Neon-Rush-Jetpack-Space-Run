@@ -123,6 +123,17 @@ object DuelStore {
     fun allBeaten() = RIVALS.indices.all { beaten(it) }
     fun league(): Int = RIVALS.indices.sumOf { lvl(it) }
     fun winGems(nextLevel: Int): Int = 10 + 4 * min(nextLevel, 10)
+    /** Ghost Duel never pays more than this many gems a day in total (wins, milestones and ad doubles together). */
+    const val GEM_CAP = 50
+    @Volatile var lastRaw = 0
+    fun gemsToday(): Int = if (gi("gemDay") == day()) gi("gemSum") else 0
+    fun gemRoom(): Int = (GEM_CAP - gemsToday()).coerceAtLeast(0)
+    /** Pays out up to the daily cap and returns what was really granted. */
+    fun grantCapped(want: Int): Int {
+        val cur = gemsToday(); val g = min(want, (GEM_CAP - cur).coerceAtLeast(0))
+        if (g > 0) { pi("gemDay", day()); pi("gemSum", cur + g) }
+        return g.coerceAtLeast(0)
+    }
     fun unlocked(i: Int) = i == 0 || beaten(i - 1)
     fun bestTime(i: Int) = gi("best$i", 0) / 100f
     fun wins() = RIVALS.indices.sumOf { gi("wins$it") }
@@ -133,7 +144,9 @@ object DuelStore {
         val t100 = (time * 100).toInt()
         if (gi("best$i", 0) == 0 || t100 < gi("best$i", 0)) pi("best$i", t100)
         val base = if (old == 0) RIVALS[i].firstWinGems else winGems(nl)
-        return (base * (if (isPro) 1.25f else 1f)).roundToInt() + (if (old > 0 && nl % 5 == 0) 100 else 0)   // every 5th level: milestone bonus
+        val raw = (base * (if (isPro) 1.25f else 1f)).roundToInt() + (if (old > 0 && nl % 5 == 0) 100 else 0)   // every 5th level: milestone bonus
+        lastRaw = raw
+        return grantCapped(raw)   // capped at GEM_CAP a day
     }
 }
 
@@ -339,6 +352,7 @@ private fun DuelBody(isPro: Boolean, onCreditGems: (Int) -> Unit, onExit: () -> 
     var phase by remember(runKey) { mutableStateOf(0) }       // 0 racing, 1 result
     var gems by remember(runKey) { mutableStateOf(0) }
     var doubled by remember(runKey) { mutableStateOf(false) }
+    var doubledGot by remember(runKey) { mutableStateOf(0) }
     var firstWin by remember(runKey) { mutableStateOf(false) }
     var msg by remember { mutableStateOf("") }
     var confirmQuit by remember { mutableStateOf(false) }
@@ -430,13 +444,14 @@ private fun DuelBody(isPro: Boolean, onCreditGems: (Int) -> Unit, onExit: () -> 
                     Text("— ${rival.name}", color = Color.White.ca(0.6f), fontSize = 11.sp)
                     Text(if (won) "Time ${"%.1f".format(sim.myTime)}s  •  won by ${"%.0f".format(sim.margin)}m" else if (close) "SO CLOSE! Lost by only ${"%.0f".format(sim.margin)}m" else "Lost by ${"%.0f".format(sim.margin)}m", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
                     if (won) Text((if (firstWin) "FIRST WIN BONUS  " else "") + "+$gems 💎", color = DGOLD, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 22.sp, modifier = Modifier.padding(top = 8.dp))
+                    if (won) Text("Daily Ghost Duel gems: ${DuelStore.gemsToday()} / ${DuelStore.GEM_CAP}" + (if (DuelStore.lastRaw > gems && !doubled) "  (limit reached)" else ""), color = Color.White.ca(0.65f), fontFamily = FontFamily.Monospace, fontSize = 10.sp, modifier = Modifier.padding(top = 2.dp))
                     if (won && rivalIdx + 1 < RIVALS.size && DuelStore.beaten(rivalIdx) && firstWin) Text("🔓 ${RIVALS[rivalIdx + 1].name} unlocked!", color = Color(0xFF69F0AE), fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
                     if (won && DuelStore.lvl(rivalIdx) >= 2) Text("⬆ ${rival.name} is now LEVEL ${DuelStore.lvl(rivalIdx) + 1}" + (if (DuelStore.lvl(rivalIdx) % 5 == 0) "  •  MILESTONE +100 💎" else ""), color = Color(0xFF69F0AE), fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
-                    if (won && gems > 0 && !doubled) {
-                        Text(AdMobManager.rewardedLabel(RewardedSlot.STORM, "🎬 WATCH AD: DOUBLE TO +${gems * 2} 💎"), color = Color.Black, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 13.sp,
+                    if (won && gems > 0 && !doubled && DuelStore.gemRoom() > 0) {
+                        Text(AdMobManager.rewardedLabel(RewardedSlot.STORM, "🎬 WATCH AD: DOUBLE TO +${gems + min(gems, DuelStore.gemRoom())} 💎"), color = Color.Black, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, fontSize = 13.sp,
                             modifier = Modifier.padding(top = 14.dp).clip(RoundedCornerShape(24.dp)).background(Color(0xFF4CAF50))
-                                .clickable { activity?.let { a -> AdMobManager.showRewardedIfReady(a, RewardedSlot.STORM) { doubled = true; onCreditGems(gems) } } }.padding(horizontal = 20.dp, vertical = 10.dp))
-                    } else if (doubled) Text("DOUBLED! +$gems 💎 more", color = Color(0xFF69F0AE), fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
+                                .clickable { activity?.let { a -> AdMobManager.showRewardedIfReady(a, RewardedSlot.STORM) { val extra = DuelStore.grantCapped(gems); doubled = true; doubledGot = extra; if (extra > 0) onCreditGems(extra) } } }.padding(horizontal = 20.dp, vertical = 10.dp))
+                    } else if (doubled) Text("DOUBLED! +$doubledGot 💎 more", color = Color(0xFF69F0AE), fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
                     val left = remember(phase, tick) { DuelStore.left(isPro) }
                     val adLeft = remember(phase, tick) { DuelStore.adLeft() }
                     Row(modifier = Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
