@@ -1661,7 +1661,8 @@ fun legendPulse(): Boolean {
     return true
 }
 /** Air Support (AirSupportUi): a missile hits the boss. Breaks its shield, ignores the shield bounce, can finish it. */
-fun airBossStrike(dmg: Float) {
+fun airBossStrike(dmgIn: Float) {
+    val dmg = Siege.scale(dmgIn)
     val st = _simState.value
     if (!st.bossActive) return
     BossGuard.shieldUp = false
@@ -1690,7 +1691,8 @@ fun bombSweep(): List<androidx.compose.ui.geometry.Offset> {
     return gone.map { androidx.compose.ui.geometry.Offset(it.xOffsetFraction, it.yMatchPos.toFloat()) }
 }
 /** BROOD BOMB on a boss: breaks the shield and takes a visible chunk of its hull. */
-fun bombBoss(dmg: Float) {
+fun bombBoss(dmgIn: Float) {
+    val dmg = Siege.scale(dmgIn)
     val st = _simState.value
     if (!st.bossActive) return
     BossGuard.shieldUp = false
@@ -1710,7 +1712,7 @@ fun airSweep(maxX: Float): Int {
 fun damageBoss(amount: Float) {
     val st = _simState.value
     if (!st.bossActive) return
-    val dmg = BossGuard.hit(amount) // shield bounce / armor / rage (BossGuard.kt)
+    val dmg = Siege.scale(BossGuard.hit(amount)) // shield bounce / armor / rage (BossGuard.kt)
     if (dmg <= 0f) { BossDamageFx.block(); return }
     BossDamageFx.hit(dmg, false)
     LegendMoves.charge(0.04f)
@@ -1787,7 +1789,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             nearMiss.reset()
             fuelGate.touchAsync(RevenueCatManager.isPro.value)
             assistGemsGiven = 0
-            RiskGates.reset(); BossReturns.reset(); AirSupport.newRun(); BossGuard.reset(); BossGuard.configure(selectedDifficulty != DifficultyTier.EASY, selectedDifficulty == DifficultyTier.LEGENDARY); LegendMoves.reset(); PilotDrift.reset()
+            RiskGates.reset(); Siege.reset(); Siege.configure(selectedDifficulty.name, RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE); AirSupport.newRun(); BossGuard.reset(); BossGuard.configure(selectedDifficulty != DifficultyTier.EASY, selectedDifficulty == DifficultyTier.LEGENDARY); LegendMoves.reset(); PilotDrift.reset()
             Shooting.newRun(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE, selectedDifficulty == DifficultyTier.LEGENDARY); MagazineBay.onRunStart(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE)
             gameDao.updateProfile { p -> p.copy(currentRunGemsCredited = 0, currentRunBossZonesRewarded = "", currentRunMilestonesRewarded = "") }
             var tick = 0
@@ -1889,6 +1891,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         proGateTriggered = false
                     }
                 }
+                if (state.specialWorldId == null && Siege.holding()) { nextDistance = state.distanceMeters; nextZoneNumber = state.currentZoneNumber }   // the world holds during a Siege
                 var activeDna = ZoneGenerator.generateZone(nextZoneNumber, runSeed)
                 if (state.specialWorldId != null) activeDna = overrideEnvironment(activeDna, state.specialWorldId)
                 var updatedMsg = state.feedbackMessage
@@ -2022,7 +2025,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                 }
                 RealmRules.pulseDrop(nextZoneNumber, tick, userY, updatedElements)
-                val hasBossZone = nextZoneNumber % 5 == 0 && BossReturns.allow(nextZoneNumber, tick) && ((tick % 40) >= (if (EliteBosses.forZone(nextZoneNumber) != null || RealmRules.isRivalZone(nextZoneNumber)) 8 else 24) || isSaturdayBoss)
+                Siege.special = state.specialWorldId != null
+                val hasBossZone = nextZoneNumber % 5 == 0 && Siege.allow(nextZoneNumber, tick)
                 if (state.specialWorldId == null && hasBossZone && !state.bossActive) checkStoryBeats(nextZoneNumber, true)
                 updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, (flavor?.spacingMul ?: 1f) * aggroPressure, assistStrength(tick), selectedDifficulty.warnDelta))
                 var bossHealthState = state.bossHealth
@@ -2032,7 +2036,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         soundEngine.playTone(220f, 600, "sawtooth")
                         updatedMsg = "CRITICAL WARNING: ZONE BOSS INCOMING!"
                         HullFx.bossTick = tick
-                        bossHealthState = BossReturns.comeBack(state.bossHealth)
+                        bossHealthState = Siege.startHp()
                     }
                     val bossIvTicks = (Upgrades.bossBulletInterval(activeUpgradesCsv, 9) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4).let { BossGuard.iv(it, state.bossHealth) }
                     val eliteNow = EliteBosses.forZone(nextZoneNumber) ?: (if (RealmRules.isRivalZone(nextZoneNumber)) null else EliteBosses.forWorld(worldFamilyFor(state, nextZoneNumber), nextZoneNumber))
@@ -2047,11 +2051,12 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         bossYState = EliteBosses.moveY(eliteNow, tick, bossYState, userY)
                         EliteBosses.fire(eliteNow, tick, bossIvTicks, bossYState, userY, random, updatedElements)
                     }
-                                        bossYState = BossGuard.step(tick, bossHealthState, bossYState)
+                                        Siege.script(tick, bossYState, userY, selectedDifficulty == DifficultyTier.EASY, random, updatedElements)
+                    bossYState = BossGuard.step(tick, bossHealthState, bossYState)
                     BossGuard.counter(tick, userY, updatedElements)
-                    bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv) * BossGuard.drain()
+                    bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv) * BossGuard.drain() * Siege.timerDrain()
                     if (bossHealthState <= 0f) {
-                        soundEngine.playBossDown(); BossGuard.reset(); BossReturns.onKill(tick)
+                        soundEngine.playBossDown(); BossGuard.reset(); Siege.onKill(tick)
                         if (BossGuard.hard) viewModelScope.launch { WorldEchoBoss.onDefeat(appCtx, gameDao, RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE) }
                         var wasNewlyRewarded = false
                         var bossReward = 0
@@ -2834,6 +2839,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         proGateTriggered = false
                     }
                 }
+                if (state.specialWorldId == null && Siege.holding()) { nextDistance = state.distanceMeters; nextZoneNumber = state.currentZoneNumber }   // the world holds during a Siege
                 var activeDna = ZoneGenerator.generateZone(nextZoneNumber, runSeed)
                 if (state.specialWorldId != null) activeDna = overrideEnvironment(activeDna, state.specialWorldId)
                 var updatedMsg = state.feedbackMessage
@@ -2968,7 +2974,8 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                 }
                 RealmRules.pulseDrop(nextZoneNumber, tick, userY, updatedElements)
-                val hasBossZone = nextZoneNumber % 5 == 0 && BossReturns.allow(nextZoneNumber, tick) && ((tick % 40) >= (if (EliteBosses.forZone(nextZoneNumber) != null || RealmRules.isRivalZone(nextZoneNumber)) 8 else 24) || isSaturdayBoss)
+                Siege.special = state.specialWorldId != null
+                val hasBossZone = nextZoneNumber % 5 == 0 && Siege.allow(nextZoneNumber, tick)
                 if (state.specialWorldId == null && hasBossZone && !state.bossActive) checkStoryBeats(nextZoneNumber, true)
                 updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, (flavor?.spacingMul ?: 1f) * aggroPressure, assistStrength(tick), selectedDifficulty.warnDelta))
                 var bossHealthState = state.bossHealth
@@ -2978,7 +2985,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         soundEngine.playTone(220f, 600, "sawtooth")
                         updatedMsg = "CRITICAL WARNING: ZONE BOSS INCOMING!"
                         HullFx.bossTick = tick
-                        bossHealthState = BossReturns.comeBack(state.bossHealth)
+                        bossHealthState = Siege.startHp()
                     }
                     val bossIvTicks = (Upgrades.bossBulletInterval(activeUpgradesCsv, 6) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4).let { BossGuard.iv(it, state.bossHealth) }
                     val eliteNow = EliteBosses.forZone(nextZoneNumber) ?: (if (RealmRules.isRivalZone(nextZoneNumber)) null else EliteBosses.forWorld(worldFamilyFor(state, nextZoneNumber), nextZoneNumber))
@@ -2993,11 +3000,12 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         bossYState = EliteBosses.moveY(eliteNow, tick, bossYState, userY)
                         EliteBosses.fire(eliteNow, tick, bossIvTicks, bossYState, userY, random, updatedElements)
                     }
-                                        bossYState = BossGuard.step(tick, bossHealthState, bossYState)
+                                        Siege.script(tick, bossYState, userY, selectedDifficulty == DifficultyTier.EASY, random, updatedElements)
+                    bossYState = BossGuard.step(tick, bossHealthState, bossYState)
                     BossGuard.counter(tick, userY, updatedElements)
-                    bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv) * BossGuard.drain()
+                    bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv) * BossGuard.drain() * Siege.timerDrain()
                     if (bossHealthState <= 0f) {
-                        soundEngine.playBossDown(); BossGuard.reset(); BossReturns.onKill(tick)
+                        soundEngine.playBossDown(); BossGuard.reset(); Siege.onKill(tick)
                         if (BossGuard.hard) viewModelScope.launch { WorldEchoBoss.onDefeat(appCtx, gameDao, RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE) }
                         soundEngine.playTone(990f, 400, "sine")
                         updatedMsg = "BOSS DEFEATED!"; seasonPass.onToken(SeasonPass.TOKENS_BOSS); onBossDefeatedForDrops()
