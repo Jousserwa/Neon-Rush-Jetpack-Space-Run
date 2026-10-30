@@ -4835,6 +4835,8 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                 LegendMovesOverlay(active = simState.isStarted && !simState.isCompleted, legend = viewModel.selectedDifficulty == NeonRushViewModel.DifficultyTier.LEGENDARY,
                     pilotY = simState.userYPos, bossActive = simState.bossActive, onDash = { viewModel.legendDash() }, onPulse = { viewModel.legendPulse() },
                     onOverdrive = { viewModel.legendOverdrive() }, onBonus = { n -> viewModel.addBonusScore(n) }) // dash / magnet pulse / overdrive + boss banners
+                BossDamageOverlay(active = simState.isStarted && !simState.isCompleted, bossActive = simState.bossActive, bossHealth = simState.bossHealth,
+                    bossY = simState.bossY, zoneNumber = simState.currentZoneNumber, tick = simState.tickIndex) // boss wounds, hit numbers, death blast, returns counter
                 ArmorOverlay(active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, isPro = isPro || TESTING_DISABLE_PRO_GATE,
                     bossActive = simState.bossActive, bossHealth = simState.bossHealth, pilotY = simState.userYPos, onScore = { n -> viewModel.addBonusScore(n) }) // armor magazines
                 BossEventsOverlay(active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, bossActive = simState.bossActive,
