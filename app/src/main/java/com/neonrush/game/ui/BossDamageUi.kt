@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neonrush.game.BossDamageFx
 import com.neonrush.game.BossLunge
+import com.neonrush.game.Fleet
 import com.neonrush.game.Siege
 import com.neonrush.game.NeonSoundEngine
 import kotlin.math.PI
@@ -85,7 +86,7 @@ fun BossDamageOverlay(
             val w = sz.width.toFloat(); val h = sz.height.toFloat()
             if (w <= 0f || h <= 0f) { frame++; continue }
             val boss = bossRef.value; val hp = hpRef.value.coerceIn(0f, 1f)
-            val bx = (0.88f + BossLunge.shift) * w; val by = yRef.value / 100f * h; val R = h * 0.19f
+            val bx = (0.88f + BossLunge.shift + Fleet.dx) * w; val by = yRef.value / 100f * h; val R = h * 0.19f
             // chip damage bar follows slowly
             if (trail < hp) trail = hp else trail = (trail - dt * 0.35f).coerceAtLeast(hp)
             // ---- destroyed (the sim says so through Siege.closeSeq), appear, retreat ----
@@ -156,7 +157,7 @@ fun BossDamageOverlay(
             frame.let { }
             val w = size.width; val h = size.height
             val hp = bossHealth.coerceIn(0f, 1f)
-            val bx = (0.88f + BossLunge.shift) * w; val by = bossY / 100f * h; val R = h * 0.19f
+            val bx = (0.88f + BossLunge.shift + Fleet.dx) * w; val by = bossY / 100f * h; val R = h * 0.19f
             if (bossActive && hp > 0.001f) {
                 val sev = (1f - hp).coerceIn(0f, 1f)
                 // red alarm when nearly dead
