@@ -1665,6 +1665,7 @@ fun airBossStrike(dmg: Float) {
     val st = _simState.value
     if (!st.bossActive) return
     BossGuard.shieldUp = false
+    BossDamageFx.hit(dmg, true)
     _simState.value = st.copy(bossHealth = (st.bossHealth - dmg).coerceAtLeast(0f), score = st.score + 25)
 }
 /** Air Support guns: removes obstacles and enemy bullets up to [maxX] (fraction of the width). Returns how many went. */
@@ -1680,7 +1681,8 @@ fun damageBoss(amount: Float) {
     val st = _simState.value
     if (!st.bossActive) return
     val dmg = BossGuard.hit(amount) // shield bounce / armor / rage (BossGuard.kt)
-    if (dmg <= 0f) return
+    if (dmg <= 0f) { BossDamageFx.block(); return }
+    BossDamageFx.hit(dmg, false)
     LegendMoves.charge(0.04f)
     _simState.value = st.copy(bossHealth = (st.bossHealth - dmg).coerceAtLeast(0.001f))
 }
@@ -1755,7 +1757,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             nearMiss.reset()
             fuelGate.touchAsync(RevenueCatManager.isPro.value)
             assistGemsGiven = 0
-            RiskGates.reset(); BossGuard.reset(); BossGuard.configure(selectedDifficulty != DifficultyTier.EASY, selectedDifficulty == DifficultyTier.LEGENDARY); LegendMoves.reset(); PilotDrift.reset()
+            RiskGates.reset(); BossReturns.reset(); AirSupport.newRun(); BossGuard.reset(); BossGuard.configure(selectedDifficulty != DifficultyTier.EASY, selectedDifficulty == DifficultyTier.LEGENDARY); LegendMoves.reset(); PilotDrift.reset()
             Shooting.newRun(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE, selectedDifficulty == DifficultyTier.LEGENDARY); MagazineBay.onRunStart(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE)
             gameDao.updateProfile { p -> p.copy(currentRunGemsCredited = 0, currentRunBossZonesRewarded = "", currentRunMilestonesRewarded = "") }
             var tick = 0
@@ -1990,7 +1992,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                 }
                 RealmRules.pulseDrop(nextZoneNumber, tick, userY, updatedElements)
-                val hasBossZone = nextZoneNumber % 5 == 0 && ((tick % 40) >= (if (EliteBosses.forZone(nextZoneNumber) != null || RealmRules.isRivalZone(nextZoneNumber)) 8 else 24) || isSaturdayBoss)
+                val hasBossZone = nextZoneNumber % 5 == 0 && BossReturns.allow(nextZoneNumber, tick) && ((tick % 40) >= (if (EliteBosses.forZone(nextZoneNumber) != null || RealmRules.isRivalZone(nextZoneNumber)) 8 else 24) || isSaturdayBoss)
                 if (state.specialWorldId == null && hasBossZone && !state.bossActive) checkStoryBeats(nextZoneNumber, true)
                 updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, (flavor?.spacingMul ?: 1f) * aggroPressure, assistStrength(tick), selectedDifficulty.warnDelta))
                 var bossHealthState = state.bossHealth
@@ -2000,7 +2002,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         soundEngine.playTone(220f, 600, "sawtooth")
                         updatedMsg = "CRITICAL WARNING: ZONE BOSS INCOMING!"
                         HullFx.bossTick = tick
-                        bossHealthState = 1.0f
+                        bossHealthState = BossReturns.comeBack(state.bossHealth)
                     }
                     val bossIvTicks = (Upgrades.bossBulletInterval(activeUpgradesCsv, 9) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4).let { BossGuard.iv(it, state.bossHealth) }
                     val eliteNow = EliteBosses.forZone(nextZoneNumber) ?: (if (RealmRules.isRivalZone(nextZoneNumber)) null else EliteBosses.forWorld(worldFamilyFor(state, nextZoneNumber), nextZoneNumber))
@@ -2019,7 +2021,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     BossGuard.counter(tick, userY, updatedElements)
                     bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv) * BossGuard.drain()
                     if (bossHealthState <= 0f) {
-                        soundEngine.playBossDown(); BossGuard.reset()
+                        soundEngine.playBossDown(); BossGuard.reset(); BossReturns.onKill(tick)
                         if (BossGuard.hard) viewModelScope.launch { WorldEchoBoss.onDefeat(appCtx, gameDao, RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE) }
                         var wasNewlyRewarded = false
                         var bossReward = 0
@@ -2936,7 +2938,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     }
                 }
                 RealmRules.pulseDrop(nextZoneNumber, tick, userY, updatedElements)
-                val hasBossZone = nextZoneNumber % 5 == 0 && ((tick % 40) >= (if (EliteBosses.forZone(nextZoneNumber) != null || RealmRules.isRivalZone(nextZoneNumber)) 8 else 24) || isSaturdayBoss)
+                val hasBossZone = nextZoneNumber % 5 == 0 && BossReturns.allow(nextZoneNumber, tick) && ((tick % 40) >= (if (EliteBosses.forZone(nextZoneNumber) != null || RealmRules.isRivalZone(nextZoneNumber)) 8 else 24) || isSaturdayBoss)
                 if (state.specialWorldId == null && hasBossZone && !state.bossActive) checkStoryBeats(nextZoneNumber, true)
                 updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, (flavor?.spacingMul ?: 1f) * aggroPressure, assistStrength(tick), selectedDifficulty.warnDelta))
                 var bossHealthState = state.bossHealth
@@ -2946,7 +2948,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         soundEngine.playTone(220f, 600, "sawtooth")
                         updatedMsg = "CRITICAL WARNING: ZONE BOSS INCOMING!"
                         HullFx.bossTick = tick
-                        bossHealthState = 1.0f
+                        bossHealthState = BossReturns.comeBack(state.bossHealth)
                     }
                     val bossIvTicks = (Upgrades.bossBulletInterval(activeUpgradesCsv, 6) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4).let { BossGuard.iv(it, state.bossHealth) }
                     val eliteNow = EliteBosses.forZone(nextZoneNumber) ?: (if (RealmRules.isRivalZone(nextZoneNumber)) null else EliteBosses.forWorld(worldFamilyFor(state, nextZoneNumber), nextZoneNumber))
@@ -2965,7 +2967,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     BossGuard.counter(tick, userY, updatedElements)
                     bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv) * BossGuard.drain()
                     if (bossHealthState <= 0f) {
-                        soundEngine.playBossDown(); BossGuard.reset()
+                        soundEngine.playBossDown(); BossGuard.reset(); BossReturns.onKill(tick)
                         if (BossGuard.hard) viewModelScope.launch { WorldEchoBoss.onDefeat(appCtx, gameDao, RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE) }
                         soundEngine.playTone(990f, 400, "sine")
                         updatedMsg = "BOSS DEFEATED!"; seasonPass.onToken(SeasonPass.TOKENS_BOSS); onBossDefeatedForDrops()
