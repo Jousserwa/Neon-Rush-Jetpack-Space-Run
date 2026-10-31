@@ -32,7 +32,7 @@ import com.neonrush.game.BossBrood
 import com.neonrush.game.BossGuard
 import com.neonrush.game.BossLunge
 import com.neonrush.game.Fleet
-import com.neonrush.game.Upgrades
+import com.neonrush.game.NrUpgrades
 import com.neonrush.game.NeonSoundEngine
 import com.neonrush.game.PilotDrift
 import kotlin.math.PI
@@ -155,10 +155,10 @@ fun AirSupportOverlay(
         val nFl = chain.size.coerceAtLeast(1)
         var wiped = false
         var e0 = false; var e1 = false; var e2 = false; var e3 = false; var e4 = false; var e5 = false
-        Upgrades.refresh(ctx)
-        var g1 = false; var g2 = false; var m1 = false; var m2 = false; var babies = false; var pend = if (demo) 2 else (ct.missiles + Upgrades.airExtraMissile(isJet)) / nFl + (if (flightIdx < (ct.missiles + Upgrades.airExtraMissile(isJet)) % nFl) 1 else 0); var mCool = 0f; var lastBurst = -1; var flyby2 = false; var sweepT = 0f; var lockPlayed = false; var outro = false
+        NrUpgrades.refresh(ctx)
+        var g1 = false; var g2 = false; var m1 = false; var m2 = false; var babies = false; var pend = if (demo) 2 else (ct.missiles + NrUpgrades.airExtraMissile(isJet)) / nFl + (if (flightIdx < (ct.missiles + NrUpgrades.airExtraMissile(isJet)) % nFl) 1 else 0); var mCool = 0f; var lastBurst = -1; var flyby2 = false; var sweepT = 0f; var lockPlayed = false; var outro = false
         val strength = AirSupport.strength(tierName)
-        val per = if (demo) 0.5f * strength else ct.dmgEach * strength * Upgrades.airMul(isJet)
+        val per = if (demo) 0.5f * strength else ct.dmgEach * strength * NrUpgrades.airMul(isJet)
                 val line1 = "Control, Neon One. Taking fire. Requesting air support!"
         val reply = if (isJet) "Neon One, Viper One. Inbound hot. Fox three!" else "Copy Neon One. Hawk Six inbound. Heads down!"
         while (true) {
