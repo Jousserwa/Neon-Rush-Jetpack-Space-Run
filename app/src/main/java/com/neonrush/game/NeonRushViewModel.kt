@@ -1332,9 +1332,8 @@ fun freezeStreak() {
                 // damage logic needed), spawned slightly ahead so dodging
                 // the drone's body and dodging its shot are two separate
                 // reads, not the same dodge twice.
-                if (rand.nextInt(100) < 30) {
-                    elements.add(VisualTrackElement("${baseId}drb", 1.35f, (droneY + rand.nextInt(-10, 10)).coerceIn(4, 96), "bullet", "DRONE_SHOT"))
-                }
+                // Stage 159: every drone fires an aimed shot at the pilot's lane; a hit costs 5% hull (see the collision handler)
+                elements.add(VisualTrackElement("${baseId}drb", 1.35f, ghostY.coerceIn(4, 96), "bullet", "DRONE_SHOT"))
             }
             else -> elements.add(VisualTrackElement("${baseId}st", 1.2f, offLine(rand, ghostY, 16, 40), "obstacle", "STANDARD"))
         }
@@ -1641,6 +1640,7 @@ fun shootDown(id: String) {
 }
 /** Special-world hazards (WorldMechanicsUi): a hit costs a shield layer first (unless [soft]), then fuel. */
 fun worldHit(fuelLoss: Int, soft: Boolean) {
+    if (Pause.frozen()) return
     val st = _simState.value
     if (!soft && st.shieldLayers > 0) { PilotShieldFx.onHit(); soundEngine.playShieldBreak(); _simState.value = st.copy(shieldLayers = st.shieldLayers - 1); return }
     soundEngine.playCollision()
@@ -1662,13 +1662,16 @@ fun legendPulse(): Boolean {
 }
 /** Air Support (AirSupportUi): a missile hits the boss. Breaks its shield, ignores the shield bounce, can finish it. */
 fun airBossStrike(dmgIn: Float) {
+    if (Pause.frozen()) return
     val dmg = Siege.scale(dmgIn)
     val st = _simState.value
     if (!st.bossActive) return
     if (Fleet.damageAll(dmgIn) > 0) return   // the strike goes through the escorts first
+    val rest = ShieldLayers.absorb(dmg, 3)   // missiles are class 3: nothing stops them, but the layers still take their share
+    if (rest <= 0f) return
     BossGuard.shieldUp = false
-    BossDamageFx.hit(dmg, true)
-    _simState.value = st.copy(bossHealth = (st.bossHealth - dmg).coerceAtLeast(0f), score = st.score + 25)
+    BossDamageFx.hit(rest, true)
+    _simState.value = st.copy(bossHealth = (st.bossHealth - rest).coerceAtLeast(0f), score = st.score + 25)
 }
 /** DASH really smashes: removes the obstacles and enemy bullets just in front of the pilot while the dash lasts. Returns how many. */
 fun dashSmash(): Int {
@@ -1692,15 +1695,41 @@ fun bombSweep(): List<androidx.compose.ui.geometry.Offset> {
     return gone.map { androidx.compose.ui.geometry.Offset(it.xOffsetFraction, it.yMatchPos.toFloat()) }
 }
 /** BROOD BOMB on a boss: breaks the shield and takes a visible chunk of its hull. */
-fun bombBoss(dmgIn: Float) {
+fun bombBoss(dmgRaw: Float) {
+    if (Pause.frozen()) return
+    val dmgIn = dmgRaw * Upgrades.bombMul()
     val dmg = Siege.scale(dmgIn)
     val st = _simState.value
     if (!st.bossActive) return
     if (Fleet.damageAll(dmgIn) > 0) return   // the blast takes the escorts first
+    val rest = ShieldLayers.absorb(dmg, 3)
+    if (rest <= 0f) return
     BossGuard.shieldUp = false
-    BossDamageFx.hit(dmg, true)
+    BossDamageFx.hit(rest, true)
     LegendMoves.charge(0.1f)
-    _simState.value = st.copy(bossHealth = (st.bossHealth - dmg).coerceAtLeast(0.001f))
+    _simState.value = st.copy(bossHealth = (st.bossHealth - rest).coerceAtLeast(0.001f))
+}
+/** Combat Wingman (Stage 159): shoots down one obstacle or enemy bullet in the lane at height [y]. Returns how many went. */
+fun wingClear(y: Int): Int {
+    val st = _simState.value
+    val pick = st.activeTrackElements.filter { (it.type == "obstacle" || it.type == "bullet") && it.xOffsetFraction in 0.12f..0.6f && kotlin.math.abs(it.yMatchPos - y) <= 12 && it.subType != "BLINK_HAZARD" }.minByOrNull { it.xOffsetFraction } ?: return 0
+    ReactFx.obstacle(pick.subType, "BOOM", pick.xOffsetFraction, pick.yMatchPos)
+    _simState.value = st.copy(activeTrackElements = st.activeTrackElements.filter { it.id != pick.id }, score = st.score + 8)
+    return 1
+}
+/** Pulse Lance (Stage 157): [frac] of the hull to the escorts first, else to the main boss. Class 3: nothing stops it, the layers still take their share. */
+fun lanceBoss(frac: Float) {
+    if (Pause.frozen()) return
+    val dmg = Siege.scale(frac)
+    val st = _simState.value
+    if (!st.bossActive) return
+    if (Fleet.damageAll(frac) > 0) return
+    val rest = ShieldLayers.absorb(dmg, 3)
+    if (rest <= 0f) return
+    BossGuard.shieldUp = false
+    BossDamageFx.hit(rest, true)
+    LegendMoves.charge(0.1f)
+    _simState.value = st.copy(bossHealth = (st.bossHealth - rest).coerceAtLeast(0.001f))
 }
 /** Air Support guns: removes obstacles and enemy bullets up to [maxX] (fraction of the width). Returns how many went. */
 fun airSweep(maxX: Float): Int {
@@ -1712,14 +1741,17 @@ fun airSweep(maxX: Float): Int {
     return gone.size
 }
 fun damageBoss(amount: Float) {
+    if (Pause.frozen()) return
     val st = _simState.value
     if (!st.bossActive) return
     if (Fleet.alive() > 0) { BossGuard.lastDeflect = true; BossDamageFx.block(); return }   // the escorts shield the main boss
-    val dmg = Siege.scale(BossGuard.hit(amount) * Siege.dmgMul) // shield bounce / armor / rage (BossGuard.kt)
+    val dmg = Siege.scale(BossGuard.hit(amount * Upgrades.gunMul()) * Siege.dmgMul) // shield bounce / armor / rage (BossGuard.kt)
     if (dmg <= 0f) { BossDamageFx.block(); return }
-    BossDamageFx.hit(dmg, false)
+    val pass = ShieldLayers.absorb(dmg, if (Shooting.lastArmor) 2 else 1)   // the visible shield layers take it first
+    if (pass <= 0f) { LegendMoves.charge(0.02f); return }
+    BossDamageFx.hit(pass, false)
     LegendMoves.charge(0.04f)
-    _simState.value = st.copy(bossHealth = (st.bossHealth - dmg).coerceAtLeast(0.001f))
+    _simState.value = st.copy(bossHealth = (st.bossHealth - pass).coerceAtLeast(0.001f))
 }
 /** Magazine Bay: Bomb Rack upgrade (gems). onDone gets null on success or the reason. */
 fun upgradeBombRack(onDone: (String?) -> Unit = {}) {
@@ -1792,7 +1824,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             nearMiss.reset()
             fuelGate.touchAsync(RevenueCatManager.isPro.value)
             assistGemsGiven = 0
-            RiskGates.reset(); Siege.reset(); Fleet.reset(); Siege.configure(selectedDifficulty.name, RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE); AirSupport.newRun(); BossGuard.reset(); BossGuard.configure(selectedDifficulty != DifficultyTier.EASY, selectedDifficulty == DifficultyTier.LEGENDARY); LegendMoves.reset(); PilotDrift.reset()
+            RiskGates.reset(); Siege.reset(); Fleet.reset(); ShieldLayers.reset(); Siege.configure(selectedDifficulty.name, RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE); AirSupport.newRun(); BossGuard.reset(); BossGuard.configure(selectedDifficulty != DifficultyTier.EASY, selectedDifficulty == DifficultyTier.LEGENDARY); LegendMoves.reset(); PilotDrift.reset()
             Shooting.newRun(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE, selectedDifficulty == DifficultyTier.LEGENDARY); MagazineBay.onRunStart(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE)
             gameDao.updateProfile { p -> p.copy(currentRunGemsCredited = 0, currentRunBossZonesRewarded = "", currentRunMilestonesRewarded = "") }
             var tick = 0
@@ -1823,6 +1855,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             var ticksSinceLastHit = 0
             while (_simState.value.isStarted && !_simState.value.isCompleted) {
                 delay(hintTickDelayMs())
+                if (Pause.frozen()) continue   // paused / counting down: the run stands still
                 val state = _simState.value
                 val assist = assistStrength(tick)
                 val userY = state.userYPos
@@ -2039,7 +2072,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         soundEngine.playTone(220f, 600, "sawtooth")
                         updatedMsg = "CRITICAL WARNING: ZONE BOSS INCOMING!"
                         HullFx.bossTick = tick
-                        bossHealthState = Siege.startHp(); Fleet.onEntry(Siege.entryFresh, Siege.lastRepair, Siege.zone)
+                        bossHealthState = Siege.startHp(); Fleet.onEntry(Siege.entryFresh, Siege.lastRepair, Siege.zone); ShieldLayers.onEntry(Siege.entryFresh, Siege.lastRepair, Siege.zone)
                     }
                     val bossIvTicks = (Upgrades.bossBulletInterval(activeUpgradesCsv, 9) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4).let { BossGuard.iv(it, state.bossHealth) }
                     val eliteNow = EliteBosses.forZone(nextZoneNumber) ?: (if (RealmRules.isRivalZone(nextZoneNumber)) null else EliteBosses.forWorld(worldFamilyFor(state, nextZoneNumber), nextZoneNumber))
@@ -2059,7 +2092,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     bossYState = BossGuard.step(tick, bossHealthState, bossYState)
                     BossGuard.counter(tick, userY, updatedElements)
                     Siege.lastHp = bossHealthState
-                    bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv) * BossGuard.drain() * Siege.timerDrain()
+                    run { val dr = 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv) * BossGuard.drain() * Siege.timerDrain(); if (ShieldLayers.up()) ShieldLayers.absorb(dr * 0.2f, 3, false) else bossHealthState -= dr }   // layers wear down slowly on their own; the hull only drains once they are gone
                     if (bossHealthState <= 0f) {
                         soundEngine.playBossDown(); BossGuard.reset(); Siege.onKill(tick)
                         AirSupport.onRoundDestroyed(appCtx, (RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE) && selectedDifficulty != DifficultyTier.EASY)   // clean round = +1 strike
@@ -2140,7 +2173,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         nextDurationsMap[key] = remaining - 1
                     }
                 }
-                val hasInvincibility = nextDurationsMap.containsKey("PU7") || nextDurationsMap.containsKey("PU12") || LegendMoves.dashing() || AirSupport.covering()
+                val hasInvincibility = nextDurationsMap.containsKey("PU7") || nextDurationsMap.containsKey("PU12") || LegendMoves.dashing() || AirSupport.covering() || Pause.covering()
                 val hasGhostMode = nextDurationsMap.containsKey("PU4") || activeDna.mechanicIds.contains(3)
                 var hasShield = nextDurationsMap.containsKey("PU1")
                 var hitThisTick = false
@@ -2286,7 +2319,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                     } else {
                                         soundEngine.playCollision()
                                         ReactFx.obstacle(elem.subType, "HIT", elem.xOffsetFraction, elem.yMatchPos)
-                                        if (!TESTING_DISABLE_PRO_GATE) fuelLevelState = (fuelLevelState - (if (kidMode || StarterWallet.rookie(activeTotalRuns)) 12 else 20 - (10 * assist).toInt())).coerceAtLeast(0)
+                                        if (!TESTING_DISABLE_PRO_GATE) fuelLevelState = (fuelLevelState - (if (elem.subType == "DRONE_SHOT") 5 else if (kidMode || StarterWallet.rookie(activeTotalRuns)) 12 else 20 - (10 * assist).toInt())).coerceAtLeast(0)
                                         updatedMsg = if (isUnstoppableHazard) "BLINK STRIKE HIT: NO SHIELD CAN STOP IT" else "WARNING: IMPACT DETECTED! HULL INTEGRITY LOST"
                                         hitObstaclesHistory.add(elem.subType)
                                         hitThisTick = true
@@ -2795,6 +2828,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             var tick = currentTick
             while (_simState.value.isStarted && !_simState.value.isCompleted) {
                 delay(hintTickDelayMs())
+                if (Pause.frozen()) continue   // paused / counting down: the run stands still
                 val state = _simState.value
                 val assist = assistStrength(tick)
                 val userY = state.userYPos
@@ -3000,7 +3034,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         soundEngine.playTone(220f, 600, "sawtooth")
                         updatedMsg = "CRITICAL WARNING: ZONE BOSS INCOMING!"
                         HullFx.bossTick = tick
-                        bossHealthState = Siege.startHp(); Fleet.onEntry(Siege.entryFresh, Siege.lastRepair, Siege.zone)
+                        bossHealthState = Siege.startHp(); Fleet.onEntry(Siege.entryFresh, Siege.lastRepair, Siege.zone); ShieldLayers.onEntry(Siege.entryFresh, Siege.lastRepair, Siege.zone)
                     }
                     val bossIvTicks = (Upgrades.bossBulletInterval(activeUpgradesCsv, 6) / ((flavor?.bossAggro ?: 1f) * aggroPressure) * (if (selectedDifficulty == DifficultyTier.EASY) 2.4f else 1f)).toInt().coerceAtLeast(4).let { BossGuard.iv(it, state.bossHealth) }
                     val eliteNow = EliteBosses.forZone(nextZoneNumber) ?: (if (RealmRules.isRivalZone(nextZoneNumber)) null else EliteBosses.forWorld(worldFamilyFor(state, nextZoneNumber), nextZoneNumber))
@@ -3020,7 +3054,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                     bossYState = BossGuard.step(tick, bossHealthState, bossYState)
                     BossGuard.counter(tick, userY, updatedElements)
                     Siege.lastHp = bossHealthState
-                    bossHealthState -= 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv) * BossGuard.drain() * Siege.timerDrain()
+                    run { val dr = 0.028f * Upgrades.bossDrainMultiplier(activeUpgradesCsv) * BossGuard.drain() * Siege.timerDrain(); if (ShieldLayers.up()) ShieldLayers.absorb(dr * 0.2f, 3, false) else bossHealthState -= dr }   // layers wear down slowly on their own; the hull only drains once they are gone
                     if (bossHealthState <= 0f) {
                         soundEngine.playBossDown(); BossGuard.reset(); Siege.onKill(tick)
                         AirSupport.onRoundDestroyed(appCtx, (RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE) && selectedDifficulty != DifficultyTier.EASY)   // clean round = +1 strike
@@ -3081,7 +3115,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         nextDurationsMap[key] = remaining - 1
                     }
                 }
-                val hasInvincibility = nextDurationsMap.containsKey("PU7") || nextDurationsMap.containsKey("PU12") || LegendMoves.dashing() || AirSupport.covering()
+                val hasInvincibility = nextDurationsMap.containsKey("PU7") || nextDurationsMap.containsKey("PU12") || LegendMoves.dashing() || AirSupport.covering() || Pause.covering()
                 val hasGhostMode = nextDurationsMap.containsKey("PU4") || activeDna.mechanicIds.contains(3)
                 var hasShield = nextDurationsMap.containsKey("PU1")
                 var hitThisTick = false
@@ -3221,7 +3255,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                     } else {
                                         soundEngine.playCollision()
                                         ReactFx.obstacle(elem.subType, "HIT", elem.xOffsetFraction, elem.yMatchPos)
-                                        if (!TESTING_DISABLE_PRO_GATE) fuelLevelState = (fuelLevelState - (if (kidMode || StarterWallet.rookie(activeTotalRuns)) 12 else 20 - (10 * assist).toInt())).coerceAtLeast(0)
+                                        if (!TESTING_DISABLE_PRO_GATE) fuelLevelState = (fuelLevelState - (if (elem.subType == "DRONE_SHOT") 5 else if (kidMode || StarterWallet.rookie(activeTotalRuns)) 12 else 20 - (10 * assist).toInt())).coerceAtLeast(0)
                                         updatedMsg = if (isUnstoppableHazard) "BLINK STRIKE HIT: NO SHIELD CAN STOP IT" else "IMPACT IMPACT!"
                                         hitThisTick = true
                                         repeat(10) { i ->
