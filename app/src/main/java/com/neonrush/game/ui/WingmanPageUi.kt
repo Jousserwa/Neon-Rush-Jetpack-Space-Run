@@ -122,7 +122,7 @@ fun WingmanPageDialog(bestZone: Int, testing: Boolean, onClose: () -> Unit, onBu
                 Box(Modifier.fillMaxWidth().height(210.dp).clip(hs).border(2.dp, AMB.copy(alpha = 0.55f), hs)) {
                     Canvas(Modifier.matchParentSize()) {
                         drawRect(Brush.verticalGradient(listOf(Color(0xFF1A2A12), Color(0xFF0E1A2E), Color(0xFF1B1030))))
-                        for (i in 0 until 26) drawCircle(Color.White.copy(alpha = 0.25f + 0.3f * sin(clock * 2f + i)), (0.8f + (i % 3) * 0.6f) * dens, Offset(size.width * ((i * 0.137f) % 1f), size.height * ((i * 0.291f) % 1f)))
+                        for (i in 0 until 26) drawCircle(Color.White.copy(alpha = (0.35f + 0.3f * sin(clock * 2f + i)).coerceIn(0f, 1f)), (0.8f + (i % 3) * 0.6f) * dens, Offset(size.width * ((i * 0.137f) % 1f), size.height * ((i * 0.291f) % 1f)))
                         val c = Offset(size.width * 0.4f, size.height * (0.52f + 0.03f * sin(clock * 1.4f)))
                         // a crate drifts in and a volley of tracers leaves the guns
                         val cp = (clock / 4f) % 1f
