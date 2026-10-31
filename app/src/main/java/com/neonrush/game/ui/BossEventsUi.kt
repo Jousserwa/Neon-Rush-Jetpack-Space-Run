@@ -120,7 +120,7 @@ fun BossEventsOverlay(
             fun near(ex: Float, ey: Float, r: Float) = hypot(ex * w - pxN * w, ey / 100f * h - pyN / 100f * h) < r * dens
             fun hurt(loss: Int, why: String) { if (hitCd > 0f) return; hitCd = 1.2f; hitRef.value(loss, false); say(why, Color(0xFFFF5252), 1.6f) }
             if (boss && !wasBoss) {   // a new boss: decide which surprises it has
-                rollLunge = (legend && Random.nextFloat() < 0.7f) || (hard && com.neonrush.game.Siege.zone >= 50 && Random.nextFloat() < (if (com.neonrush.game.Siege.zone >= 100) 0.8f else 0.5f))
+                rollLunge = (legend && Random.nextFloat() < 0.7f) || (hard && (com.neonrush.game.TESTING_DISABLE_PRO_GATE || com.neonrush.game.Siege.zone >= 50) && Random.nextFloat() < (if (com.neonrush.game.TESTING_DISABLE_PRO_GATE) 0.9f else if (com.neonrush.game.Siege.zone >= 100) 0.8f else 0.5f))
                 broodN = if (legend) (if (Random.nextFloat() < 0.8f) 5 else 0) else (if (Random.nextFloat() < 0.5f) 3 else 0)
                 lungeDone = false; broodDone = false; phase = 0
             }
