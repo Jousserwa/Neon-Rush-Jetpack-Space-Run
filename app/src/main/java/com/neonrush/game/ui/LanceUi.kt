@@ -27,13 +27,13 @@ import com.neonrush.game.Fleet
 import com.neonrush.game.Lance
 import com.neonrush.game.NeonSoundEngine
 import com.neonrush.game.PilotDrift
-import com.neonrush.game.Upgrades
+import com.neonrush.game.NrUpgrades
 import kotlin.math.PI
 import kotlin.math.hypot
 import kotlin.math.sin
 import kotlin.random.Random
 
-private class Cell(var x: Float, var y: Float, var age: Float = 0f, var pulled: Boolean = false)
+private class LanceCell(var x: Float, var y: Float, var age: Float = 0f, var pulled: Boolean = false)
 
 /**
  * PULSE LANCE overlay (Stage 157): lance cells drift in during boss fights and are collected by flying into them. The LANCE button shows ONLY while the boss
@@ -47,7 +47,7 @@ fun LanceOverlay(active: Boolean, bossActive: Boolean, bossY: Int, pilotY: Int, 
     val bossYRef = rememberUpdatedState(bossY)
     val yRef = rememberUpdatedState(pilotY)
     val lanceRef = rememberUpdatedState(onLance)
-    val cells = remember { ArrayList<Cell>() }
+    val cells = remember { ArrayList<LanceCell>() }
     var sz by remember { mutableStateOf(IntSize.Zero) }
     var frame by remember { mutableStateOf(0) }
     var window by remember { mutableStateOf(false) }
@@ -65,7 +65,7 @@ fun LanceOverlay(active: Boolean, bossActive: Boolean, bossY: Int, pilotY: Int, 
         val bx = 0.88f + BossLunge.shift + Fleet.dx
         val gap = (bx - PilotDrift.x).coerceAtLeast(0f)
         val band = Lance.band(gap)
-        val frac = Lance.fraction(Upgrades.lanceLevel(), band)
+        val frac = Lance.fraction(NrUpgrades.lanceLevel(), band)
         beamTo = Offset(bx, bossYRef.value.toFloat())
         banner = "PULSE LANCE · ${Lance.BAND_NAMES[band]} · -${(frac * 100f).toInt()}%"; bannerAge = 0f
         sfx.playNova(); sfx.playAirBoom()
@@ -75,7 +75,7 @@ fun LanceOverlay(active: Boolean, bossActive: Boolean, bossY: Int, pilotY: Int, 
     LaunchedEffect(active) {
         cells.clear(); window = false; used = false; beamAge = -1f; bannerAge = -1f
         if (!active) return@LaunchedEffect
-        Upgrades.refresh(ctx)
+        NrUpgrades.refresh(ctx)
         var last = 0L; var wasBoss = false; var spawnIn = 14f
         while (true) {
             val now = withFrameNanos { it }
@@ -92,7 +92,7 @@ fun LanceOverlay(active: Boolean, bossActive: Boolean, bossY: Int, pilotY: Int, 
             window = w2
             val w = sz.width.toFloat(); val h = sz.height.toFloat()
             if (boss && w > 0f) {
-                if (cells.isEmpty() && Lance.count(ctx) < Lance.max(ctx)) { spawnIn -= dt; if (spawnIn <= 0f) { spawnIn = Random.nextFloat() * 15f + 35f; cells.add(Cell(1.1f, Random.nextFloat() * 50f + 25f)); sfx.playAirLock() } }
+                if (cells.isEmpty() && Lance.count(ctx) < Lance.max(ctx)) { spawnIn -= dt; if (spawnIn <= 0f) { spawnIn = Random.nextFloat() * 15f + 35f; cells.add(LanceCell(1.1f, Random.nextFloat() * 50f + 25f)); sfx.playAirLock() } }
                 val px = PilotDrift.x * w; val py = yRef.value / 100f * h
                 val it = cells.iterator()
                 while (it.hasNext()) {
