@@ -108,6 +108,7 @@ fun ShootingOverlay(
         bolts.add(Bolt(com.neonrush.game.PilotDrift.x + 0.05f, yRef.value.toFloat(), armor))
         muzzle = 0.12f
         sfx.playShot(armor)
+        com.neonrush.game.Wingman.pilotShotSeq += 1   // the combat wingman answers every shot
         if (bossRef.value) BossGuard.noteShot()
         burst(com.neonrush.game.PilotDrift.x + 0.04f, yRef.value.toFloat(), if (armor) goldHot else Color(packRef.value.argb2), if (armor) 6 else 4, 0.25f, 0)
     }
