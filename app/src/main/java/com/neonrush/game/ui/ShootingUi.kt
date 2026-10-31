@@ -36,7 +36,7 @@ import com.neonrush.game.Fleet
 import com.neonrush.game.MagazineBay
 import com.neonrush.game.NeonSoundEngine
 import com.neonrush.game.Shooting
-import com.neonrush.game.Upgrades
+import com.neonrush.game.NrUpgrades
 import com.neonrush.game.VisualTrackElement
 import kotlin.math.abs
 import kotlin.math.cos
@@ -114,7 +114,7 @@ fun ShootingOverlay(
     }
 
     LaunchedEffect(active) {
-        Upgrades.refresh(ctx)
+        NrUpgrades.refresh(ctx)
         if (!active) { bolts.clear(); sparks.clear(); rings.clear(); BossGuard.incomingY = -1f; return@LaunchedEffect }
         var last = 0L
         var seenReload = Shooting.reloadMs
