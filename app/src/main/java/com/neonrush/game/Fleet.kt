@@ -29,6 +29,7 @@ class Body(val idx: Int, var x: Float, var y: Float) {
     @Volatile var hx = 0.86f        // hunters: where it hovers
     @Volatile var hy = 50f
     @Volatile var dived = false
+    @Volatile var sp = 0            // species (see Roster)
 }
 
 object Fleet {
@@ -63,7 +64,8 @@ object Fleet {
         total = totalFor(zone); mech = mechFor(zone)
         if (fresh) {
             bodies.clear()
-            for (i in 1 until total) { val b = Body(i, 1.15f, 50f); b.hx = 0.80f; b.hy = 50f; bodies.add(b) }
+            val crew = Roster.pick(zone, total - 1, Siege.round)
+            for (i in 1 until total) { val b = Body(i, 1.15f, 50f); b.hx = 0.80f; b.hy = 50f; b.sp = crew.getOrElse(i - 1) { 0 }; bodies.add(b) }
             if (total > 1) spawnSeq += 1
         } else {
             for (b in bodies) if (b.alive) { b.hp = (b.hp + repair).coerceAtMost(1f); b.x = 1.15f; b.age = 0f; b.diving = false; b.tel = 0f }
@@ -75,6 +77,7 @@ object Fleet {
 
     /** Once per frame from the overlay: moves every body (all directions) and the main boss's x offset. */
     fun step(dt: Float, pilotX: Float, pilotY: Float) {
+        if (Pause.frozen()) return
         t += dt
         val n = total.coerceAtLeast(1)
         when (mech) {
@@ -86,7 +89,8 @@ object Fleet {
         for (b in bodies) {
             if (!b.alive) continue
             b.age += dt; if (b.flash > 0f) b.flash = (b.flash - dt * 4f).coerceAtLeast(0f)
-            b.shield = ((t * 5f).toInt() + b.idx * 5) % 22 < 5
+            val spc = Roster.of(b.sp)
+            b.shield = ((t * 5f).toInt() + b.idx * 5) % spc.per < spc.duty
             val i = b.idx
             var gx: Float; var gy: Float
             when (mech) {
@@ -105,7 +109,7 @@ object Fleet {
                 else -> { gx = 0.65f + 0.25f * sin(t * 0.5f + i * 1.3f); gy = 14f + 72f * (if (n > 1) i.toFloat() / (n - 1) else 0.5f) + sin(t * 0.7f + i) * 6f }
             }
             if (b.age < 1.0f) { gx = lerp(1.15f, gx, b.age); }   // warp in from the right edge
-            val rate = if (mech == 2 && b.diving) 30f else 4.5f
+            val rate = if (mech == 2 && b.diving) 30f else 4.5f * spc.speed
             b.x = lerp(b.x, gx, dt * rate); b.y = lerp(b.y, gy, dt * rate)
         }
     }
@@ -117,7 +121,7 @@ object Fleet {
         var n = 0; var any = false
         for (b in bodies) {
             if (!b.alive || b.age < 1.2f || b.diving) continue
-            if ((tick + b.idx * 3) % iv != 0) continue
+            if ((tick + b.idx * 3) % (iv * Roster.of(b.sp).fire).toInt().coerceAtLeast(6) != 0) continue
             val y0 = b.y.toInt().coerceIn(8, 92); val bx = (b.x + 0.02f).coerceIn(0.2f, 0.97f)
             fun bullet(y: Int) { out += VisualTrackElement("fl_${tick}_${b.idx}_${n++}", bx, y.coerceIn(8, 92), "bullet"); any = true }
             when (Siege.round) {
@@ -138,7 +142,7 @@ object Fleet {
             if (toX < b.x - 0.05f || fromX > b.x + 0.04f || abs(b.y - y) > 10f) continue
             hitX = b.x; hitY = b.y
             if (b.shield) { b.flash = 0.3f; hitAmt = 0f; hitSeq += 1; return 2 }
-            val d = Siege.scale(Shooting.BOSS_DAMAGE * Siege.dmgMul * (if (armor) 1.5f else 1f)) * ESCORT_DMG
+            val d = Siege.scale(Shooting.BOSS_DAMAGE * Siege.dmgMul * Upgrades.gunMul() * (if (armor) 1.5f else 1f)) * ESCORT_DMG / Roster.of(b.sp).tough
             hurt(b, d)
             hitAmt = d * 0.35f; hitSeq += 1
             return 1
@@ -154,7 +158,7 @@ object Fleet {
     /** Air strikes and bombs: a fraction of the hull to every escort at once. Returns how many escorts were on the field. */
     fun damageAll(frac: Float): Int {
         var c = 0
-        for (b in bodies) if (b.alive) { c += 1; hurt(b, Siege.scale(frac) * 1.2f) }
+        for (b in bodies) if (b.alive) { c += 1; hurt(b, Siege.scale(frac) * 1.2f / Roster.of(b.sp).tough) }
         return c
     }
 }
