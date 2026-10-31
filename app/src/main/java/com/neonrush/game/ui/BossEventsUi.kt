@@ -31,6 +31,7 @@ import com.neonrush.game.Baby
 import com.neonrush.game.BossGuard
 import com.neonrush.game.BroodBomb
 import com.neonrush.game.Shooting
+import com.neonrush.game.Upgrades
 import com.neonrush.game.BossBrood
 import com.neonrush.game.BossLunge
 import com.neonrush.game.Fleet
@@ -94,9 +95,11 @@ fun BossEventsOverlay(
         if (bombAge >= 0f || !BroodBomb.use(ctx)) return
         bombAge = 0f; bombPending = true      // the shell flies for 0.38 s, then the blast does its work (see the frame loop)
         sfx.playAirMissile()
+        if (BroodBomb.count(ctx) > 0) sfx.playBombReload() else sfx.playBombEmpty()   // the next bomb loads in (or the rack runs empty)
     }
 
     LaunchedEffect(active, tierName) {
+        Upgrades.refresh(ctx)
         BossBrood.reset(); BossLunge.reset(); puffs.clear(); arcs.clear(); banner = ""; telegraph = 0f; novaAge = -1f
         if (!active) return@LaunchedEffect
         fun rnd(a: Float, b: Float) = a + Random.nextFloat() * (b - a)
@@ -117,7 +120,7 @@ fun BossEventsOverlay(
             fun near(ex: Float, ey: Float, r: Float) = hypot(ex * w - pxN * w, ey / 100f * h - pyN / 100f * h) < r * dens
             fun hurt(loss: Int, why: String) { if (hitCd > 0f) return; hitCd = 1.2f; hitRef.value(loss, false); say(why, Color(0xFFFF5252), 1.6f) }
             if (boss && !wasBoss) {   // a new boss: decide which surprises it has
-                rollLunge = legend && Random.nextFloat() < 0.7f
+                rollLunge = (legend && Random.nextFloat() < 0.7f) || (hard && com.neonrush.game.Siege.zone >= 50 && Random.nextFloat() < (if (com.neonrush.game.Siege.zone >= 100) 0.8f else 0.5f))
                 broodN = if (legend) (if (Random.nextFloat() < 0.8f) 5 else 0) else (if (Random.nextFloat() < 0.5f) 3 else 0)
                 lungeDone = false; broodDone = false; phase = 0
             }
@@ -288,8 +291,8 @@ fun BossEventsOverlay(
         if (showBomb) {
             val bt = if (legend) Color(0xFFFFC21A) else Color(0xFFFF4DD2)
             @Suppress("UNUSED_VARIABLE") val f = frame
-            GameButton(BtnKind.BOMB, 58.dp, bt, "BOMB", "x$bombCount", 1f, bombAge < 0f, bombAge >= 0f, { detonate() }, art = artBomb,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 28.dp, bottom = 108.dp))
+            GameButton(BtnKind.BOMB, 52.dp, bt, "BOMB", "x$bombCount", 1f, bombAge < 0f, bombAge >= 0f, { detonate() }, art = artBomb,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 25.dp, bottom = 92.dp))
         }
         if (banner.isNotEmpty()) {
             Text(banner, color = bannerCol, fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center,
