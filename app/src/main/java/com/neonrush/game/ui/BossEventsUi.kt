@@ -31,7 +31,7 @@ import com.neonrush.game.Baby
 import com.neonrush.game.BossGuard
 import com.neonrush.game.BroodBomb
 import com.neonrush.game.Shooting
-import com.neonrush.game.Upgrades
+import com.neonrush.game.NrUpgrades
 import com.neonrush.game.BossBrood
 import com.neonrush.game.BossLunge
 import com.neonrush.game.Fleet
@@ -99,7 +99,7 @@ fun BossEventsOverlay(
     }
 
     LaunchedEffect(active, tierName) {
-        Upgrades.refresh(ctx)
+        NrUpgrades.refresh(ctx)
         BossBrood.reset(); BossLunge.reset(); puffs.clear(); arcs.clear(); banner = ""; telegraph = 0f; novaAge = -1f
         if (!active) return@LaunchedEffect
         fun rnd(a: Float, b: Float) = a + Random.nextFloat() * (b - a)
