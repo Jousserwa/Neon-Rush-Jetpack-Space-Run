@@ -1764,9 +1764,9 @@ fun ArcadeHomeView(
             WingmanPageDialog(bestZone = profile.bestZoneReached, testing = TESTING_DISABLE_PRO_GATE, onClose = { showWing = false },
                 onBuy = { track, step, cb ->
                     val act = reviewActivity
-                    if (TESTING_DISABLE_PRO_GATE) { com.neonrush.game.Upgrades.apply(proCtx, track, step); cb(true) }   // testing: free
+                    if (TESTING_DISABLE_PRO_GATE) { com.neonrush.game.NrUpgrades.apply(proCtx, track, step); cb(true) }   // testing: free
                     else if (act == null) cb(false)
-                    else RevenueCatManager.purchaseGemPack(act, com.neonrush.game.Upgrades.productId(track, step)) { ok -> if (ok) com.neonrush.game.Upgrades.apply(proCtx, track, step); cb(ok) }
+                    else RevenueCatManager.purchaseGemPack(act, com.neonrush.game.NrUpgrades.productId(track, step)) { ok -> if (ok) com.neonrush.game.NrUpgrades.apply(proCtx, track, step); cb(ok) }
                 },
                 onBuySkin = { i, cb ->
                     val act = reviewActivity
