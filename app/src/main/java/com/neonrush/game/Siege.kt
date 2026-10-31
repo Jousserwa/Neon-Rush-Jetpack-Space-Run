@@ -10,17 +10,18 @@ import kotlin.random.Random
  *  - While the boss is fighting or backing off the world HOLDS (no distance, no zone change). During the long breaks it flies on, but never past the end of the zone.
  *  - Plan share: free 1 round, Pro MEDIUM 2, Pro HARD 3, Pro LEGENDARY 4 (see [configure]). Rounds past the plan are shown as a locked teaser.
  *  - Safety net: after 4 phases (A,B,A,B, about 1.5-2 min) without a kill the boss WITHDRAWS for about 3 min, then returns, still wounded. Nobody gets stuck.
- * Time unit: the sim tick (about 0.2 s).
+ * Time unit: the sim tick (about 0.12 s, see TPS).
  */
 object Siege {
     const val ROUNDS = 4
-    const val LEAD_IN = 24          // ticks before round 1 of a boss zone
+    const val TPS = 8.33f           // the sim runs one tick every ~120 ms
+    const val LEAD_IN = 40          // ticks before round 1 of a boss zone (about 4.8 s)
     const val MAX_PHASES = 4        // phases fought without a kill before the boss withdraws
-    const val RETREAT_TICKS = 900   // ticks (about 3 min) the boss stays away after withdrawing
+    const val RETREAT_TICKS = 1500  // ticks (about 3 min) the boss stays away after withdrawing
     const val REPAIR = 0.35f        // hull it repairs during a long withdrawal
     const val PHASE_REPAIR = 0.06f  // hull it repairs during the short break between phases
-    private val LEN_A = intArrayOf(50, 60, 75, 85)            // phase A length per round (10 / 12 / 15 / 17 s)
-    private val LEN_B = intArrayOf(60, 70, 85, 100)           // phase B length per round (12 / 14 / 17 / 20 s)
+    private val LEN_A = intArrayOf(83, 100, 125, 142)           // phase A length per round (10 / 12 / 15 / 17 s)
+    private val LEN_B = intArrayOf(100, 117, 142, 167)          // phase B length per round (12 / 14 / 17 / 20 s)
     private val SCALE = floatArrayOf(1f, 1.25f, 1.5f, 1.8f)   // each later round takes more damage to bring down
     val NAMES = arrayOf("PROBE", "BARRAGE", "SIEGE", "WRATH")
     val TIPS = arrayOf("AIMED SHOTS · LEARN ITS RHYTHM", "FAN VOLLEYS · SLIP BETWEEN THE BOLTS", "WALLS OF FIRE · FIND THE GAP", "EVERYTHING AT ONCE · NO MERCY")
@@ -82,12 +83,12 @@ object Siege {
     fun retreating(): Boolean = !special && (state == RETREAT || state == BREATH)
     fun phase(): Int = if (state == FIGHT || state == GAP) ph else 0
     fun roundName(): String = NAMES[(round - 1).coerceIn(0, 3)]
-    fun secondsLeftToNext(): Int = if (state == BREATH || state == WAIT || state == RETREAT || state == GAP) ((nextAt - nowTick) / 5f).toInt().coerceAtLeast(0) else 0
+    fun secondsLeftToNext(): Int = if (state == BREATH || state == WAIT || state == RETREAT || state == GAP) ((nextAt - nowTick) / TPS).toInt().coerceAtLeast(0) else 0
     /** m:ss for the long countdowns. */
     fun clock(): String { val t = secondsLeftToNext(); return "${t / 60}:${(t % 60).toString().padStart(2, '0')}" }
     private fun phaseLen(): Int = (if (ph == 0) LEN_A else LEN_B)[(round - 1).coerceIn(0, 3)]
-    private fun gapLen(): Int = 15 + 3 * ((round + ph) % 3)                 // 3.0 / 3.6 / 4.2 s
-    private fun breakLen(): Int = 900 + 50 * round                          // 3.2 - 3.7 min after a kill
+    private fun gapLen(): Int = 25 + 5 * ((round + ph) % 3)                 // 3.0 / 3.6 / 4.2 s
+    private fun breakLen(): Int = 1600 + 80 * round                         // about 3.4 - 3.7 min after a kill
 
     private fun begin(z: Int, tick: Int) {
         zone = z; round = 1; kills = 0; locked = false; returning = false; fresh = true; afterRetreat = false; ph = 0; phasesFought = 0
