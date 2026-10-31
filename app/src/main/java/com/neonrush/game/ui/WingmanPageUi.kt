@@ -32,7 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.neonrush.game.Upgrades
+import com.neonrush.game.NrUpgrades
 import com.neonrush.game.Wingman
 import kotlin.math.sin
 
@@ -48,7 +48,7 @@ fun WingmanCard(bestZone: Int, testing: Boolean, onOpen: () -> Unit, modifier: M
     val inf = rememberInfiniteTransition(label = "wingCard")
     val clock by inf.animateFloat(0f, 600f, infiniteRepeatable(tween(600_000, easing = LinearEasing)), label = "clock")
     val open = Wingman.canBuy(bestZone, testing)
-    val owned = Upgrades.level(ctx, Upgrades.WING)
+    val owned = NrUpgrades.level(ctx, NrUpgrades.WING)
     val skin = Wingman.SKINS[Wingman.equippedSkin(ctx)]
     val shape = RoundedCornerShape(16.dp)
     Box(modifier.fillMaxWidth().clip(shape).background(Brush.horizontalGradient(listOf(Color(0xFF1B2410), Color(0xFF0B1536)))).border(2.dp, AMB.copy(alpha = if (open) 0.8f else 0.35f), shape).clickable { onOpen() }) {
@@ -88,15 +88,15 @@ fun WingmanPageDialog(bestZone: Int, testing: Boolean, onClose: () -> Unit, onBu
     var busy by remember { mutableStateOf(false) }
     val equipped = Wingman.equippedSkin(ctx)
     val skin = Wingman.SKINS[equipped]
-    val wing = Upgrades.level(ctx, Upgrades.WING); val arms = Upgrades.level(ctx, Upgrades.WARMS)
+    val wing = NrUpgrades.level(ctx, NrUpgrades.WING); val arms = NrUpgrades.level(ctx, NrUpgrades.WARMS)
 
     fun buy(track: Int, step: Int) {
         if (busy) return
         if (!open) { good = false; msg = "Locked: reach zone ${Wingman.UNLOCK_ZONE} to buy (you are at zone $bestZone)"; return }
-        val why = Upgrades.blockReason(ctx, track, step)
+        val why = NrUpgrades.blockReason(ctx, track, step)
         if (why != null) { good = false; msg = why; return }
         busy = true
-        onBuy(track, step) { ok -> busy = false; good = ok; msg = if (ok) "Done: ${Upgrades.TRACKS[track].name} ${Upgrades.TRACKS[track].labels[step - 1]}" else "Purchase cancelled" }
+        onBuy(track, step) { ok -> busy = false; good = ok; msg = if (ok) "Done: ${NrUpgrades.TRACKS[track].name} ${NrUpgrades.TRACKS[track].labels[step - 1]}" else "Purchase cancelled" }
     }
     fun buySkin(i: Int) {
         if (busy) return
@@ -146,13 +146,13 @@ fun WingmanPageDialog(bestZone: Int, testing: Boolean, onClose: () -> Unit, onBu
                     "It collects its own ordnance crates: rocket pod, minigun, ion cannon.", "Call it in a boss fight when the attack gets severe (hull 60% or less, a lunge, a hunter dive).", "Sorties per boss round: \$4.99 gives 1, \$9.99 gives 2. Each sortie lasts ${Wingman.length().toInt()}+ seconds.")) Bullet(l)
                 Section("SORTIES (one-time)")
                 for (s in 1..2) {
-                    val tr = Upgrades.TRACKS[Upgrades.WING]
-                    UpRow(tr.labels[s - 1] + " per boss round", if (s == 1) "Your wingman flies once every boss round." else "Twice every boss round. Replaces the \$4.99 tier, no need to buy both.", tr.prices[s - 1], wing >= s, open, busy) { buy(Upgrades.WING, s) }
+                    val tr = NrUpgrades.TRACKS[NrUpgrades.WING]
+                    UpRow(tr.labels[s - 1] + " per boss round", if (s == 1) "Your wingman flies once every boss round." else "Twice every boss round. Replaces the \$4.99 tier, no need to buy both.", tr.prices[s - 1], wing >= s, open, busy) { buy(NrUpgrades.WING, s) }
                 }
                 Section("WINGMAN ARMS (one-time, in order)")
-                val ar = Upgrades.TRACKS[Upgrades.WARMS]
+                val ar = NrUpgrades.TRACKS[NrUpgrades.WARMS]
                 val armBlurb = listOf("Cannon x1.25 · 15 s sortie", "Cannon x1.5 · SECOND GUNSHIP DRONE", "Cannon x1.8 · 18 s sortie", "Cannon x2.2 · 20 s sortie · fastest fire")
-                for (s in 1..4) UpRow(ar.labels[s - 1], armBlurb[s - 1], ar.prices[s - 1], arms >= s, open, busy) { buy(Upgrades.WARMS, s) }
+                for (s in 1..4) UpRow(ar.labels[s - 1], armBlurb[s - 1], ar.prices[s - 1], arms >= s, open, busy) { buy(NrUpgrades.WARMS, s) }
                 Section("ORDNANCE (picked up in the field)")
                 for (k in 0..2) Row(Modifier.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(12.dp).clip(CircleShape).background(Color(Wingman.ORD_COLS[k]))); Spacer(Modifier.width(8.dp))
