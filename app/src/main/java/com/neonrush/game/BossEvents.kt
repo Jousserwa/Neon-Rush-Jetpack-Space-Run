@@ -42,7 +42,7 @@ object BroodBomb {
     @Volatile var MAX = BASE
     var version by mutableStateOf(0)
     private fun prefs(ctx: Context) = ctx.applicationContext.getSharedPreferences("neonrush_shooting", Context.MODE_PRIVATE)
-    fun rack(ctx: Context): Int { @Suppress("UNUSED_VARIABLE") val v = version; val r = try { prefs(ctx).getInt("rack", 0) } catch (_: Throwable) { 0 }.coerceIn(0, RACK_MAX); MAX = BASE + r; return r }
+    fun rack(ctx: Context): Int { @Suppress("UNUSED_VARIABLE") val v = version; val r = try { prefs(ctx).getInt("rack", 0) } catch (_: Throwable) { 0 }.coerceIn(0, RACK_MAX); MAX = BASE + r + Upgrades.rackBonus(ctx); return r }
     /** Buys the next Bomb Rack level with gems. Returns an error text or null on success. */
     suspend fun upgradeRack(ctx: Context, dao: com.neonrush.game.db.GameDao): String? {
         val r = rack(ctx); if (r >= RACK_MAX) return "Bomb Rack is maxed"
