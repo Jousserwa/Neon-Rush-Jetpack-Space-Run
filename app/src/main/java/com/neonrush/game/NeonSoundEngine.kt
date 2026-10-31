@@ -445,7 +445,7 @@ class NeonSoundEngine {
     }
 
     // ---- Shooting & smashing (Stage 136). Throttled so a held fire button never turns into a buzz. ----
-    private var lastCombatNs = LongArray(16)
+    private var lastCombatNs = LongArray(24)
     private fun combatOk(kind: Int, minMs: Int): Boolean {
         val now = System.nanoTime()
         if (now - lastCombatNs[kind] < minMs * 1_000_000L) return false
@@ -474,6 +474,14 @@ class NeonSoundEngine {
     fun playBirth() { if (combatOk(13, 120)) activeVoices.add(CombatVoice(13)) }
     fun playNova() { activeVoices.add(CombatVoice(14)); triggerHaptic(longArrayOf(0, 40, 20, 90)) }
     /** Boss raises its shield. */
+    /** Magazine swap: the empty one drops out, a fresh one slides in, seats with a chunk and the bolt racks. */
+    fun playMagSwap() { if (combatOk(15, 300)) { activeVoices.add(CombatVoice(15)); triggerHaptic(longArrayOf(0, 12, 70, 25, 60, 12)) } }
+    /** Dry click: the gun is empty. */
+    fun playDryClick() { if (combatOk(16, 180)) activeVoices.add(CombatVoice(16)) }
+    /** Brood Bomb: the shell leaves, then the next bomb loads into the rack (about 0.7 s later). */
+    fun playBombReload() { activeVoices.add(CombatVoice(17)); triggerHaptic(longArrayOf(0, 5, 650, 40, 120, 15)) }
+    /** Brood Bomb: that was the last one, the rack runs empty. */
+    fun playBombEmpty() { activeVoices.add(CombatVoice(18)) }
     fun playShieldUp() { if (combatOk(6, 400)) activeVoices.add(CombatVoice(6)) }
     /** Air Support (see AirVoice). */
     fun playAirRadio(open: Boolean) { activeVoices.add(AirVoice(if (open) 0 else 1)); triggerHaptic(15L) }
@@ -1128,7 +1136,7 @@ class NeonSoundEngine {
     /** One synthesized combat sound. kind: 0 shot, 1 smash, 2 boss hit, 3 deflect, 4 overheat, 5 boss down, 6 shield up, 7 enrage. */
     class CombatVoice(val kind: Int, val p: Float = 0f) : AudioVoice {
         private var idx = 0
-        private val total = (when (kind) { 0 -> if (p > 0.5f) 240 else 150; 1 -> 320; 2 -> 240; 3 -> 200; 4 -> 420; 5 -> 1000; 6 -> 280; 7 -> 450; 8 -> 450; 9 -> 520; 10 -> 850; 11 -> 1100; 12 -> 700; 13 -> 260; 14 -> 650; else -> 150 } * SAMPLE_RATE / 1000f).toInt()
+        private val total = (when (kind) { 0 -> if (p > 0.5f) 240 else 150; 1 -> 320; 2 -> 240; 3 -> 200; 4 -> 420; 5 -> 1000; 6 -> 280; 7 -> 450; 8 -> 450; 9 -> 520; 10 -> 850; 11 -> 1100; 12 -> 700; 13 -> 260; 14 -> 650; 15 -> 560; 16 -> 130; 17 -> 1650; 18 -> 1250; else -> 150 } * SAMPLE_RATE / 1000f).toInt()
         private var ph = 0.0
         private var lp = 0f
         private val pan = Random.nextFloat() * 0.5f - 0.25f
@@ -1239,6 +1247,41 @@ class NeonSoundEngine {
                         v = lp * e(6f) * 1.4f + sin(ph).toFloat() * e(5f) * 0.6f
                         for (q in 0..3) { val s2 = q * 0.05f; if (t > s2) { val t3 = t - s2; v += sin(tau * (1200.0 + 400.0 * q) * t3).toFloat() * kotlin.math.exp(-t3 * 14f) * 0.15f } }
                         v *= 0.7f
+                    }
+                    15 -> {
+                        // empty mag clacks out, fresh mag slides in, seats with a chunk, bolt racks
+                        fun ping(st: Float, f: Double, d: Float, a: Float, nz: Float) { if (t > st) { val tt = t - st; v += n * kotlin.math.exp(-tt * 300f) * nz + sin(tau * f * tt).toFloat() * kotlin.math.exp(-tt * d) * a } }
+                        ping(0.00f, 1250.0, 60f, 0.28f, 0.35f)
+                        if (t in 0.07f..0.2f) { lp += 0.12f * (n - lp); v += lp * 0.22f * sin(Math.PI * (t - 0.07f) / 0.13).toFloat() }
+                        ping(0.20f, 170.0, 38f, 0.55f, 0.2f)
+                        ping(0.28f, 780.0, 80f, 0.4f, 0.55f)
+                        ping(0.40f, 1900.0, 70f, 0.3f, 0.4f)
+                        ping(0.47f, 1100.0, 90f, 0.22f, 0.3f)
+                        v *= 0.7f
+                    }
+                    16 -> {
+                        for (k in 0..1) { val st = k * 0.07f; if (t > st) { val tt = t - st; v += n * kotlin.math.exp(-tt * 500f) * 0.3f + sin(tau * (2400.0 - 500.0 * k) * tt).toFloat() * kotlin.math.exp(-tt * 180f) * 0.22f } }
+                    }
+                    17 -> {
+                        // 0-0.7 s: the shell's gone. Then: rack servo whine, heavy clunk, hydraulic hiss, latch, two arming beeps
+                        val u = t - 0.7f
+                        if (u > 0f) {
+                            if (u < 0.35f) { ph += tau * (110.0 + 260.0 * (u / 0.35f)) / SAMPLE_RATE; v += sin(ph).toFloat() * 0.18f * sin(Math.PI * u / 0.35).toFloat() }
+                            if (u > 0.30f) { val tt = u - 0.30f; v += sin(tau * 62.0 * tt).toFloat() * kotlin.math.exp(-tt * 14f) * 0.75f + n * kotlin.math.exp(-tt * 120f) * 0.3f }
+                            if (u > 0.36f && u < 0.62f) { lp += 0.25f * (n - lp); v += lp * 0.28f * sin(Math.PI * (u - 0.36f) / 0.26).toFloat() }
+                            if (u > 0.62f) { val tt = u - 0.62f; v += sin(tau * 900.0 * tt).toFloat() * kotlin.math.exp(-tt * 70f) * 0.35f + sin(tau * 2300.0 * tt).toFloat() * kotlin.math.exp(-tt * 90f) * 0.2f + n * kotlin.math.exp(-tt * 260f) * 0.3f }
+                            if (u > 0.78f) { val tt = u - 0.78f; v += sin(tau * 1500.0 * tt).toFloat() * kotlin.math.exp(-tt * 22f) * 0.2f }
+                            if (u > 0.88f) { val tt = u - 0.88f; v += sin(tau * 2000.0 * tt).toFloat() * kotlin.math.exp(-tt * 18f) * 0.22f }
+                        }
+                        v *= 0.8f
+                    }
+                    18 -> {
+                        // last bomb gone: a hollow clunk, then a sagging two-note "empty" tone
+                        val u = t - 0.7f
+                        if (u > 0f) {
+                            v += sin(tau * 90.0 * u).toFloat() * kotlin.math.exp(-u * 20f) * 0.6f + n * kotlin.math.exp(-u * 150f) * 0.2f
+                            for (k in 0..1) { val st = 0.14f + k * 0.12f; if (u > st) { val tt = u - st; v += sin(tau * (520.0 - 130.0 * k) * tt).toFloat() * kotlin.math.exp(-tt * 12f) * 0.2f } }
+                        }
                     }
                 }
                 bufferLeft[i] += v * gl
