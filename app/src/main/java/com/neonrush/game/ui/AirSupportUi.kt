@@ -32,6 +32,7 @@ import com.neonrush.game.BossBrood
 import com.neonrush.game.BossGuard
 import com.neonrush.game.BossLunge
 import com.neonrush.game.Fleet
+import com.neonrush.game.Upgrades
 import com.neonrush.game.NeonSoundEngine
 import com.neonrush.game.PilotDrift
 import kotlin.math.PI
@@ -154,9 +155,10 @@ fun AirSupportOverlay(
         val nFl = chain.size.coerceAtLeast(1)
         var wiped = false
         var e0 = false; var e1 = false; var e2 = false; var e3 = false; var e4 = false; var e5 = false
-        var g1 = false; var g2 = false; var m1 = false; var m2 = false; var babies = false; var pend = if (demo) 2 else ct.missiles / nFl + (if (flightIdx < ct.missiles % nFl) 1 else 0); var mCool = 0f; var lastBurst = -1; var flyby2 = false; var sweepT = 0f; var lockPlayed = false; var outro = false
+        Upgrades.refresh(ctx)
+        var g1 = false; var g2 = false; var m1 = false; var m2 = false; var babies = false; var pend = if (demo) 2 else (ct.missiles + Upgrades.airExtraMissile(isJet)) / nFl + (if (flightIdx < (ct.missiles + Upgrades.airExtraMissile(isJet)) % nFl) 1 else 0); var mCool = 0f; var lastBurst = -1; var flyby2 = false; var sweepT = 0f; var lockPlayed = false; var outro = false
         val strength = AirSupport.strength(tierName)
-        val per = if (demo) 0.5f * strength else ct.dmgEach * strength
+        val per = if (demo) 0.5f * strength else ct.dmgEach * strength * Upgrades.airMul(isJet)
                 val line1 = "Control, Neon One. Taking fire. Requesting air support!"
         val reply = if (isJet) "Neon One, Viper One. Inbound hot. Fox three!" else "Copy Neon One. Hawk Six inbound. Heads down!"
         while (true) {
@@ -297,44 +299,21 @@ fun AirSupportOverlay(
             val accent = if (!isPro) Color(0xFFB388FF) else if (ready) Color(0xFF69F0AE) else Color(0xFF8A8A9A)
             val have = stock + (if (free) 1 else 0)
             Column(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, bottom = 20.dp), horizontalAlignment = Alignment.Start) {
-                if (menuOpen && isPro) {
-                    val sur = AirSupport.surcharge()
-                    Column(
-                        Modifier.padding(bottom = 6.dp).widthIn(max = 300.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xF0080620)).border(1.5.dp, accent.copy(alpha = 0.7f), RoundedCornerShape(14.dp)).padding(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("AIR SUPPORT · PICK A CALL", color = accent, fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = MONO, modifier = Modifier.weight(1f))
-                            Text("✕", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp, modifier = Modifier.clickable { menuOpen = false }.padding(horizontal = 4.dp))
-                        }
-                        Text("VAULT $have ⚡ · USED THIS RUN ${AirSupport.usedThisRun}" + (if (sur > 0) " · HEAT +$sur" else "") + (if (free) " · 1 FREE TODAY" else ""), color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp, fontFamily = MONO)
-                        for (c in AirSupport.CALLS) {
-                            val why = AirSupport.lockedReason(c.id, tierName, isPro)
-                            val cost = AirSupport.cost(c.id)
-                            val ok = why == null && ready && (testing || have >= cost)
-                            val special = c.id >= 6
-                            val col = if (special) Color(0xFFFFC21A) else Color(0xFF69F0AE)
-                            Row(
-                                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(if (ok) col.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.05f))
-                                    .border(1.dp, col.copy(alpha = if (ok) 0.8f else 0.2f), RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        if (!ready) android.widget.Toast.makeText(ctx, "The aircraft are still rearming.", android.widget.Toast.LENGTH_SHORT).show()
-                                        else if (AirSupport.pay(ctx, isPro, testing, tierName, c.id)) { menuOpen = false; start(false, c.id) }
-                                        else android.widget.Toast.makeText(ctx, AirSupport.lastFail, android.widget.Toast.LENGTH_LONG).show()
-                                    }.padding(horizontal = 8.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text("${c.id}  ${c.name}", color = if (ok) col else Color.White.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = MONO)
-                                    Text(if (why != null) "🔒 $why" else c.blurb, color = Color.White.copy(alpha = if (why != null) 0.55f else 0.75f), fontSize = 8.sp, fontFamily = MONO)
-                                }
-                                Column(horizontalAlignment = Alignment.End) {
-                                    Text(if (testing) "FREE" else "$cost ⚡", color = if (ok) Color.White else Color.White.copy(alpha = 0.45f), fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = MONO)
-                                    Text(c.tag, color = col.copy(alpha = 0.7f), fontSize = 7.sp, fontFamily = MONO)
-                                }
-                            }
-                        }
-                    }
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = menuOpen && isPro,
+                    enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(160)) + androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(260)) { it / 3 },
+                    exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)) + androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(160)) { it / 3 }
+                ) {
+                    AirCallMenu(
+                        tierName = tierName, isPro = isPro, testing = testing, have = have, free = free, ready = ready, cdMs = cd,
+                        onPick = { id ->
+                            if (AirSupport.pay(ctx, isPro, testing, tierName, id)) { menuOpen = false; start(false, id) }
+                            else android.widget.Toast.makeText(ctx, AirSupport.lastFail, android.widget.Toast.LENGTH_LONG).show()
+                        },
+                        onBlocked = { m -> android.widget.Toast.makeText(ctx, m, android.widget.Toast.LENGTH_SHORT).show() },
+                        onClose = { menuOpen = false },
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
                 }
                 Column(
                     Modifier.clip(RoundedCornerShape(14.dp)).background(Color(0xE6080620))
