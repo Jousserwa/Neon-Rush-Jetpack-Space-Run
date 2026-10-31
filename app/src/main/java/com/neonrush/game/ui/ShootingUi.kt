@@ -36,6 +36,7 @@ import com.neonrush.game.Fleet
 import com.neonrush.game.MagazineBay
 import com.neonrush.game.NeonSoundEngine
 import com.neonrush.game.Shooting
+import com.neonrush.game.Upgrades
 import com.neonrush.game.VisualTrackElement
 import kotlin.math.abs
 import kotlin.math.cos
@@ -100,7 +101,7 @@ fun ShootingOverlay(
     fun fire() {
         if (cooldown > 0f) return
         val kind = Shooting.consume(ctx, mode)
-        if (kind == 0) { cooldown = 0.3f; sfx.playOverheat(); return }
+        if (kind == 0) { cooldown = 0.3f; sfx.playDryClick(); sfx.playOverheat(); return }
         val armor = kind == 2
         val gap = if (mode == 2) (if (armor) Shooting.FIRE_GAP_LEGEND else 0.28f) else Shooting.FIRE_GAP_POWER
         cooldown = gap * (if (com.neonrush.game.LegendMoves.overdriveOn()) 0.5f else 1f)
@@ -112,6 +113,7 @@ fun ShootingOverlay(
     }
 
     LaunchedEffect(active) {
+        Upgrades.refresh(ctx)
         if (!active) { bolts.clear(); sparks.clear(); rings.clear(); BossGuard.incomingY = -1f; return@LaunchedEffect }
         var last = 0L
         var seenReload = Shooting.reloadMs
@@ -120,11 +122,12 @@ fun ShootingOverlay(
             val now = withFrameNanos { it }
             val dt = if (last == 0L) 0.016f else ((now - last) / 1_000_000_000f).coerceAtMost(0.05f)
             last = now
+            if (com.neonrush.game.Pause.frozen()) { frame++; continue }   // paused: no firing, bolts hang
             if (cooldown > 0f) cooldown -= dt
             if (muzzle > 0f) muzzle -= dt
             if (bossFlash > 0f) bossFlash -= dt
             if (reloadFx > 0f) reloadFx -= dt
-            if (Shooting.reloadMs != seenReload) { seenReload = Shooting.reloadMs; reloadFx = 1.4f; sfx.playArmorPickup() }
+            if (Shooting.reloadMs != seenReload) { seenReload = Shooting.reloadMs; reloadFx = 1.4f; sfx.playMagSwap() }
             run {
                 val bi = booms.iterator(); while (bi.hasNext()) { val bm = bi.next(); bm.age += dt; if (bm.age > 0.36f) bi.remove() }
                 val si = sparks.iterator()
