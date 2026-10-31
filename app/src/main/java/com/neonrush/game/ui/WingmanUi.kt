@@ -111,7 +111,7 @@ fun WingmanOverlay(
     LaunchedEffect(active) {
         Wingman.reset(); tracers.clear(); crates.clear(); weapon = -1
         if (!active) return@LaunchedEffect
-        com.neonrush.game.Upgrades.refresh(ctx)
+        com.neonrush.game.NrUpgrades.refresh(ctx)
         var last = 0L; var fireCd = 0f; var clearCd = 0f; var crateIn = 5f; var seenPilotShot = Wingman.pilotShotSeq
         while (true) {
             val now = withFrameNanos { it }
