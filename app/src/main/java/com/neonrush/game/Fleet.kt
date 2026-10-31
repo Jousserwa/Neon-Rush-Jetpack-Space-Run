@@ -142,7 +142,7 @@ object Fleet {
             if (toX < b.x - 0.05f || fromX > b.x + 0.04f || abs(b.y - y) > 10f) continue
             hitX = b.x; hitY = b.y
             if (b.shield) { b.flash = 0.3f; hitAmt = 0f; hitSeq += 1; return 2 }
-            val d = Siege.scale(Shooting.BOSS_DAMAGE * Siege.dmgMul * Upgrades.gunMul() * (if (armor) 1.5f else 1f)) * ESCORT_DMG / Roster.of(b.sp).tough
+            val d = Siege.scale(Shooting.BOSS_DAMAGE * Siege.dmgMul * NrUpgrades.gunMul() * (if (armor) 1.5f else 1f)) * ESCORT_DMG / Roster.of(b.sp).tough
             hurt(b, d)
             hitAmt = d * 0.35f; hitSeq += 1
             return 1
