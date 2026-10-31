@@ -9,8 +9,8 @@ import androidx.compose.runtime.setValue
  * COMBAT WINGMAN (Stage 159, v2). A full copy of YOUR pilot in a military suit (the same run frames, graded and armed, with a rifle, a jet-pack and two gunship drones)
  * that mirrors your flying beside you, shoots on its own and every time you shoot, and collects its own ordnance crates while it is out.
  *   Locked below zone 30: the page advertises it (animated) but nothing can be bought. From zone 30 (best zone reached) it can be bought.
- *   Real money (one-time): $4.99 = 1 sortie per boss round, $9.99 = 2 sorties per boss round (Upgrades.WING, neonrush_wing_1 / _2; the $9.99 tier can be bought directly).
- *   WINGMAN ARMS Mk II-V (Upgrades.WARMS, neonrush_warms_1..4): cannon damage, sortie length, fire rate, and the second gunship drone from Mk III.
+ *   Real money (one-time): $4.99 = 1 sortie per boss round, $9.99 = 2 sorties per boss round (NrUpgrades.WING, neonrush_wing_1 / _2; the $9.99 tier can be bought directly).
+ *   WINGMAN ARMS Mk II-V (NrUpgrades.WARMS, neonrush_warms_1..4): cannon damage, sortie length, fire rate, and the second gunship drone from Mk III.
  *   SKINS (one-time, $1.99 each): DESERT OPS, ARCTIC, BLACKOUT (neonrush_wskin_1..3). OLIVE is free.
  *   ORDNANCE (picked up by the wingman during a sortie): ROCKET POD, MINIGUN, ION CANNON.
  * The call button shows only in a boss fight under severe attack (hull 60% or less, a lunge, a hunter dive). With TESTING_DISABLE_PRO_GATE on, everything is open and free.
@@ -25,8 +25,8 @@ object Wingman {
     private val MUL = floatArrayOf(1.0f, 1.25f, 1.5f, 1.8f, 2.2f)
     private val LEN = floatArrayOf(14f, 15f, 16f, 18f, 20f)
     private val GAP = floatArrayOf(0.36f, 0.34f, 0.32f, 0.30f, 0.27f)
-    fun sorties(ctx: Context, testing: Boolean): Int = if (testing) 2 else Upgrades.level(ctx, Upgrades.WING)
-    fun arms(): Int = Upgrades.wingArms()
+    fun sorties(ctx: Context, testing: Boolean): Int = if (testing) 2 else NrUpgrades.level(ctx, NrUpgrades.WING)
+    fun arms(): Int = NrUpgrades.wingArms()
     fun damageMul(): Float = MUL[arms().coerceIn(0, 4)]
     fun length(): Float = LEN[arms().coerceIn(0, 4)]
     fun gap(): Float = GAP[arms().coerceIn(0, 4)]
