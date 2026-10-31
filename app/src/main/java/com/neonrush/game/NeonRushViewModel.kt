@@ -1697,7 +1697,7 @@ fun bombSweep(): List<androidx.compose.ui.geometry.Offset> {
 /** BROOD BOMB on a boss: breaks the shield and takes a visible chunk of its hull. */
 fun bombBoss(dmgRaw: Float) {
     if (Pause.frozen()) return
-    val dmgIn = dmgRaw * Upgrades.bombMul()
+    val dmgIn = dmgRaw * NrUpgrades.bombMul()
     val dmg = Siege.scale(dmgIn)
     val st = _simState.value
     if (!st.bossActive) return
@@ -1745,7 +1745,7 @@ fun damageBoss(amount: Float) {
     val st = _simState.value
     if (!st.bossActive) return
     if (Fleet.alive() > 0) { BossGuard.lastDeflect = true; BossDamageFx.block(); return }   // the escorts shield the main boss
-    val dmg = Siege.scale(BossGuard.hit(amount * Upgrades.gunMul()) * Siege.dmgMul) // shield bounce / armor / rage (BossGuard.kt)
+    val dmg = Siege.scale(BossGuard.hit(amount * NrUpgrades.gunMul()) * Siege.dmgMul) // shield bounce / armor / rage (BossGuard.kt)
     if (dmg <= 0f) { BossDamageFx.block(); return }
     val pass = ShieldLayers.absorb(dmg, if (Shooting.lastArmor) 2 else 1)   // the visible shield layers take it first
     if (pass <= 0f) { LegendMoves.charge(0.02f); return }
