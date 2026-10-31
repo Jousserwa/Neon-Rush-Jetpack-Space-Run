@@ -9,15 +9,15 @@ import androidx.compose.runtime.setValue
  * PULSE LANCE (Stage 157). A collectible point-blank weapon: LANCE CELLS drift in during boss fights, you collect one by flying into it, and the LANCE button
  * appears ONLY while the boss (or a hunter escort) is charging at the pilot - from the start of the charge until it is back in its lane. Fire it and a beam of
  * pulse energy hits the boss for a percentage of its hull that depends on how close it is: POINT BLANK x1.5, CLOSE x1.0, LONG x0.5.
- * Strength by Mk (hull fraction at CLOSE): base 6%, Mk II 8%, Mk III 11%, Mk IV 15%, Mk V 20% (see Upgrades.LANCE).
- * Storage: you carry 1 cell; real money adds slots (Upgrades.STORE: +1, +2, +3 = up to 4 cells).
+ * Strength by Mk (hull fraction at CLOSE): base 6%, Mk II 8%, Mk III 11%, Mk IV 15%, Mk V 20% (see NrUpgrades.LANCE).
+ * Storage: you carry 1 cell; real money adds slots (NrUpgrades.STORE: +1, +2, +3 = up to 4 cells).
  */
 object Lance {
     private val PCT = floatArrayOf(0.06f, 0.08f, 0.11f, 0.15f, 0.20f)
     var version by mutableStateOf(0)
     @Volatile var MAX = 1
     private fun prefs(ctx: Context) = ctx.applicationContext.getSharedPreferences("neonrush_lance", Context.MODE_PRIVATE)
-    fun max(ctx: Context): Int { MAX = 1 + Upgrades.level(ctx, Upgrades.STORE); return MAX }
+    fun max(ctx: Context): Int { MAX = 1 + NrUpgrades.level(ctx, NrUpgrades.STORE); return MAX }
     fun count(ctx: Context): Int { @Suppress("UNUSED_VARIABLE") val v = version; return try { prefs(ctx).getInt("cells", 0) } catch (_: Throwable) { 0 }.coerceAtMost(max(ctx)) }
     fun add(ctx: Context): Boolean {
         val n = count(ctx); if (n >= max(ctx)) return false
