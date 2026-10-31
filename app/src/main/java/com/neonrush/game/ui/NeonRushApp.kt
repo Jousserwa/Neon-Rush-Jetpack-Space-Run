@@ -1462,6 +1462,7 @@ fun ArcadeHomeView(
     val proCtx = LocalContext.current
     var showBay by remember { mutableStateOf(false) }
     var showAirBay by remember { mutableStateOf(false) }
+    var showWing by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         delay(2500)
         val act = reviewActivity
@@ -1755,6 +1756,24 @@ fun ArcadeHomeView(
                     if (TESTING_DISABLE_PRO_GATE) { com.neonrush.game.AirSupport.addCalls(proCtx, pack.calls); cb(true) }   // testing: packs are free
                     else if (act == null) cb(false)
                     else RevenueCatManager.purchaseGemPack(act, pack.id) { ok -> if (ok) com.neonrush.game.AirSupport.addCalls(proCtx, pack.calls); cb(ok) }
+                })
+        }
+        // Combat Wingman: animated card, locked (advertised) until zone 30
+        WingmanCard(bestZone = profile.bestZoneReached, testing = TESTING_DISABLE_PRO_GATE, onOpen = { showWing = true }, modifier = Modifier.padding(vertical = 4.dp))
+        if (showWing) {
+            WingmanPageDialog(bestZone = profile.bestZoneReached, testing = TESTING_DISABLE_PRO_GATE, onClose = { showWing = false },
+                onBuy = { track, step, cb ->
+                    val act = reviewActivity
+                    if (TESTING_DISABLE_PRO_GATE) { com.neonrush.game.Upgrades.apply(proCtx, track, step); cb(true) }   // testing: free
+                    else if (act == null) cb(false)
+                    else RevenueCatManager.purchaseGemPack(act, com.neonrush.game.Upgrades.productId(track, step)) { ok -> if (ok) com.neonrush.game.Upgrades.apply(proCtx, track, step); cb(ok) }
+                },
+                onBuySkin = { i, cb ->
+                    val act = reviewActivity
+                    val pid = com.neonrush.game.Wingman.SKINS[i].id
+                    if (TESTING_DISABLE_PRO_GATE || pid == null) { com.neonrush.game.Wingman.applySkinPurchase(proCtx, i); cb(true) }
+                    else if (act == null) cb(false)
+                    else RevenueCatManager.purchaseGemPack(act, pid) { ok -> if (ok) com.neonrush.game.Wingman.applySkinPurchase(proCtx, i); cb(ok) }
                 })
         }
         // World Echo Boss: this week's returning boss + twist
