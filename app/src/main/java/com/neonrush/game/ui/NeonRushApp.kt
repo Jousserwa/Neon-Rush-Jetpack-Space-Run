@@ -4848,6 +4848,11 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                     onHit = { l, soft -> viewModel.worldHit(l, soft) }, onScore = { n -> viewModel.addBonusScore(n) },
                     onBossDamage = { viewModel.damageBoss(Shooting.BOSS_DAMAGE) },
                     onBombSweep = { viewModel.bombSweep() }, onBombBoss = { d -> viewModel.bombBoss(d) }) // boss lunge + brood + brood bomb
+                com.neonrush.game.ui.WingmanOverlay(active = simState.isStarted && !simState.isCompleted, bossActive = simState.bossActive, bossY = simState.bossY, pilotY = simState.userYPos,
+                    hullPct = simState.fuelLevelPercent, testing = TESTING_DISABLE_PRO_GATE, bossZoneOk = com.neonrush.game.Wingman.unlocked(simState.currentZoneNumber),
+                    onShot = { m -> viewModel.damageBoss(Shooting.BOSS_DAMAGE * m) }, onClear = { y -> viewModel.wingClear(y) }) // combat wingman
+                com.neonrush.game.ui.LanceOverlay(active = simState.isStarted && !simState.isCompleted, bossActive = simState.bossActive, bossY = simState.bossY, pilotY = simState.userYPos,
+                    onLance = { f -> viewModel.lanceBoss(f) }) // pulse lance: cells + point-blank button
                 ShootingOverlay(elements = simState.activeTrackElements, pilotY = simState.userYPos, bossActive = simState.bossActive, bossY = simState.bossY,
             active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, isPro = isPro || TESTING_DISABLE_PRO_GATE,
             onDestroy = { id -> viewModel.shootDown(id) }, onBossHit = { viewModel.damageBoss(Shooting.BOSS_DAMAGE) }) // Shooting: fire button + bolts
@@ -4857,6 +4862,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                     bossActive = simState.bossActive, bossY = simState.bossY, pilotY = simState.userYPos, fuel = simState.fuelLevelPercent, shields = simState.shieldLayers,
                     onGoPro = { airPaywall = true }, onBossStrike = { d -> viewModel.airBossStrike(d) }, onSweep = { x -> viewModel.airSweep(x) },
                     onScore = { n -> viewModel.addBonusScore(n) }) // Air Support: radio call, gunship / jet sortie, missiles
+                PauseOverlay(active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, isPro = isPro || TESTING_DISABLE_PRO_GATE, bossActive = simState.bossActive) // limited pause + 3-2-1 + auto-pause when the app is left
 
                 // Invisible onboarding: non-blocking contextual prompts.
                 HintOverlay(hint = simState.hint, userYPos = simState.userYPos)
