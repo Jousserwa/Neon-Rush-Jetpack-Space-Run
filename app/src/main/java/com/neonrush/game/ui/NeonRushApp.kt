@@ -1761,6 +1761,17 @@ fun ArcadeHomeView(
                     else RevenueCatManager.purchaseGemPack(act, pack.id) { ok -> if (ok) com.neonrush.game.AirSupport.addCalls(proCtx, pack.calls); cb(ok) }
                 })
         }
+         // Boss Themes: opt-in challenge skins (tougher boss, +40% gems)
+        BossThemeCard(onOpen = { showBossTheme = true }, modifier = Modifier.padding(vertical = 4.dp))
+        if (showBossTheme) {
+            BossThemeDialog(testing = TESTING_DISABLE_PRO_GATE, onClose = { showBossTheme = false },
+                onBuy = { i, cb ->
+                    val act = reviewActivity
+                    if (TESTING_DISABLE_PRO_GATE) { com.neonrush.game.BossSkins.applyPurchase(proCtx, i); cb(true) }   // testing: free
+                    else if (act == null) cb(false)
+                    else RevenueCatManager.purchaseGemPack(act, com.neonrush.game.BossSkins.THEMES[i].id) { ok -> if (ok) com.neonrush.game.BossSkins.applyPurchase(proCtx, i); cb(ok) }
+                })
+        }
          // Species Codex: the ten escort species
         SpeciesCodexCard(onOpen = { showSpCodex = true }, modifier = Modifier.padding(vertical = 4.dp))
         if (showSpCodex) SpeciesCodexDialog(onClose = { showSpCodex = false })
