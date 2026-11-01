@@ -34,6 +34,7 @@ internal fun DrawScope.drawThreat(
     time: Float = tick * 0.12f
 ): Boolean {
     val t = time / 0.12f           // same speeds as before, but continuous
+    if (drawHazard(elem, x, y, cw, ch, tick, time)) return true
     when (elem.subType) {
         "WARN" -> { drawWarn(elem, y, cw, ch, tick, time); return true }
         "BOSS_CHARGE" -> {
