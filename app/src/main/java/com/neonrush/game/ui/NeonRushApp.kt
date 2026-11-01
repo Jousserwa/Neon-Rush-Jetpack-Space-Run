@@ -1760,7 +1760,7 @@ fun ArcadeHomeView(
                 })
         }
         // Upgrade Bay: weapon + aircraft upgrades (one-time purchases)
-        UpgradeBayCard(onOpen = { showBay = true }, modifier = Modifier.padding(vertical = 4.dp))
+        UpgradeBayCard(onOpen = { showUpgBay = true }, modifier = Modifier.padding(vertical = 4.dp))
         if (showBay) {
             UpgradeBayDialog(testing = TESTING_DISABLE_PRO_GATE, onClose = { showBay = false },
                 onBuy = { track, step, cb ->
