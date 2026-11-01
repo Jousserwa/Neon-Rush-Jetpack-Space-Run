@@ -3028,6 +3028,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 val hasBossZone = nextZoneNumber % 5 == 0 && Siege.allow(nextZoneNumber, tick)
                 if (state.specialWorldId == null && hasBossZone && !state.bossActive) checkStoryBeats(nextZoneNumber, true)
                 updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, (flavor?.spacingMul ?: 1f) * aggroPressure, assistStrength(tick), selectedDifficulty.warnDelta))
+                updatedElements.addAll(Hazards.spawn(tick, nextZoneNumber, (zoneM - kotlin.math.floor(zoneM)).toFloat(), userY, random, hasBossZone, assistStrength(tick), selectedDifficulty.warnDelta))
                 var bossHealthState = state.bossHealth
                 var bossYState = state.bossY
                 if (hasBossZone) {
