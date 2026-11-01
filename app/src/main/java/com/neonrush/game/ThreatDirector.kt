@@ -152,6 +152,7 @@ object ThreatDirector {
      * Special motion for the new kinds. [nextX]/[actualY] are the normal scroll result for this tick.
      * Returns the final (x, y). May append bullets to [out].
      */
+    fun advance(elem: VisualTrackElement, nextX: Float, actualY: Int, userY: Int, tick: Int, out: MutableList<VisualTrackElement>): Pair<Float, Int> {
         Hazards.advance(elem, nextX, actualY, userY, tick, out)?.let { return it }
         when (elem.type) {
             "fx" -> {
