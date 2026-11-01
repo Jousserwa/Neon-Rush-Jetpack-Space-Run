@@ -4718,6 +4718,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                             }
                             }
 
+                              com.neonrush.game.BossSkins.active()?.let { drawBossTheme(com.neonrush.game.BossSkins.THEMES.indexOf(it), bossPos, bossDisplayHeight, fxClock.value, bossFlicker) }
                             // Boss health bar, top-center of the screen —
                             // color shifts green->amber->red as it depletes,
                             // with a glowing border for a more premium feel.
