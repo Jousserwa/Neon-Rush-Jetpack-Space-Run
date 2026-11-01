@@ -1762,7 +1762,7 @@ fun ArcadeHomeView(
         // Upgrade Bay: weapon + aircraft upgrades (one-time purchases)
         UpgradeBayCard(onOpen = { showUpgBay = true }, modifier = Modifier.padding(vertical = 4.dp))
         if (showUpgBay) {
-            UpgradeBayDialog(testing = TESTING_DISABLE_PRO_GATE, onClose = { showBay = false },
+            UpgradeBayDialog(testing = TESTING_DISABLE_PRO_GATE, onClose = { showUpgBay = false },
                 onBuy = { track, step, cb ->
                     val act = reviewActivity
                     if (TESTING_DISABLE_PRO_GATE) { com.neonrush.game.NrUpgrades.apply(proCtx, track, step); cb(true) }   // testing: free
