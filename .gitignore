@@ -15,7 +15,10 @@ app/build/
 .DS_Store
 Thumbs.db
 
-# Ensure release keystore is tracked since you requested it in the repository
-!release.keystore
-!app/release.keystore
+# Signing keys and build outputs - never commit these
+*.keystore
+*.jks
+*.aab
+*.apk
+
 !gradle-wrapper.jar
