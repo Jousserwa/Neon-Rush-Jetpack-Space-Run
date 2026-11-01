@@ -1759,6 +1759,17 @@ fun ArcadeHomeView(
                     else RevenueCatManager.purchaseGemPack(act, pack.id) { ok -> if (ok) com.neonrush.game.AirSupport.addCalls(proCtx, pack.calls); cb(ok) }
                 })
         }
+                // Upgrade Bay: weapon + aircraft upgrades (one-time purchases)
+        UpgradeBayCard(onOpen = { showBay = true }, modifier = Modifier.padding(vertical = 4.dp))
+        if (showBay) {
+            UpgradeBayDialog(testing = TESTING_DISABLE_PRO_GATE, onClose = { showBay = false },
+                onBuy = { track, step, cb ->
+                    val act = reviewActivity
+                    if (TESTING_DISABLE_PRO_GATE) { com.neonrush.game.NrUpgrades.apply(proCtx, track, step); cb(true) }   // testing: free
+                    else if (act == null) cb(false)
+                    else RevenueCatManager.purchaseGemPack(act, com.neonrush.game.NrUpgrades.productId(track, step)) { ok -> if (ok) com.neonrush.game.NrUpgrades.apply(proCtx, track, step); cb(ok) }
+                })
+        }
         // Combat Wingman: animated card, locked (advertised) until zone 30
         WingmanCard(bestZone = profile.bestZoneReached, testing = TESTING_DISABLE_PRO_GATE, onOpen = { showWing = true }, modifier = Modifier.padding(vertical = 4.dp))
         if (showWing) {
