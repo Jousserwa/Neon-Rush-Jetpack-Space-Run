@@ -140,8 +140,7 @@ object Siege {
     }
 
     /** Bigger bodies in later rounds: damage taken is divided by this. */
-    fun scale(d: Float): Float = d / SCALE[(round - 1).coerceIn(0, 3)] / BossSkins.hullMul()/ BossSkins.hullMul()
-
+    fun scale(d: Float): Float = d / SCALE[(round - 1).coerceIn(0, 3)] / BossSkins.hullMul()
     /** Floor for the boss's anger: phase B is always angry, round 4 from the first second. */
     fun enrageFloor(): Int {
         if (state != FIGHT) return 0
