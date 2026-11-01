@@ -2113,7 +2113,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                             val rewardedZones = current.currentRunBossZonesRewarded.split(",").filter { it.isNotEmpty() }
                             if (nextZoneNumber.toString() !in rewardedZones) {
                                 wasNewlyRewarded = true
-                                bossReward = nextZoneNumber * 12
+                                bossReward = (nextZoneNumber * 12 * BossSkins.gemMul()).toInt()
                                 current.copy(
                                     gems = current.gems + bossReward,
                                     currentRunBossZonesRewarded = (rewardedZones + nextZoneNumber.toString()).joinToString(",")
