@@ -27,8 +27,7 @@ object ThreatDirector {
     private class Pending(val atTick: Int, val elems: List<VisualTrackElement>)
     private val pending = mutableListOf<Pending>()
 
-    fun reset() { lastThreatTick = 0; lastZone = 0; setPieceAt = Int.MAX_VALUE; setPieceDone = true; counter = 0; pending.clear(); BossSfx.init() }
-
+    fun reset() { lastThreatTick = 0; lastZone = 0; setPieceAt = Int.MAX_VALUE; setPieceDone = true; counter = 0; pending.clear(); Hazards.reset(); BossSfx.init() }
     private fun spawnedAt(id: String, tick: Int): Boolean {
         val parts = id.split("_")
         return parts.size >= 2 && parts[0] in setOf("obs", "bullet", "blink") && parts[1].toIntOrNull() == tick
