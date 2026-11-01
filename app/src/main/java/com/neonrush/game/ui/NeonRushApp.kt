@@ -1759,7 +1759,7 @@ fun ArcadeHomeView(
                     else RevenueCatManager.purchaseGemPack(act, pack.id) { ok -> if (ok) com.neonrush.game.AirSupport.addCalls(proCtx, pack.calls); cb(ok) }
                 })
         }
-                // Upgrade Bay: weapon + aircraft upgrades (one-time purchases)
+        // Upgrade Bay: weapon + aircraft upgrades (one-time purchases)
         UpgradeBayCard(onOpen = { showBay = true }, modifier = Modifier.padding(vertical = 4.dp))
         if (showBay) {
             UpgradeBayDialog(testing = TESTING_DISABLE_PRO_GATE, onClose = { showBay = false },
