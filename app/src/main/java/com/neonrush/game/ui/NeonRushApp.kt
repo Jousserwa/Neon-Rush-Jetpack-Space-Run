@@ -1760,6 +1760,9 @@ fun ArcadeHomeView(
                     else RevenueCatManager.purchaseGemPack(act, pack.id) { ok -> if (ok) com.neonrush.game.AirSupport.addCalls(proCtx, pack.calls); cb(ok) }
                 })
         }
+         // Species Codex: the ten escort species
+        SpeciesCodexCard(onOpen = { showSpCodex = true }, modifier = Modifier.padding(vertical = 4.dp))
+        if (showSpCodex) SpeciesCodexDialog(onClose = { showSpCodex = false })
         // Upgrade Bay: weapon + aircraft upgrades (one-time purchases)
         UpgradeBayCard(onOpen = { showUpgBay = true }, modifier = Modifier.padding(vertical = 4.dp))
         if (showUpgBay) {
