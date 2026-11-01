@@ -4556,6 +4556,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
             else -> 0f
         }
         val shotSize = when { elem.subType == "SNIPE" -> 1.35f; elem.subType == "CURT" -> 0.8f; elem.subType == "ECHO" -> 1.15f; elem.subType.startsWith("FAN") -> 0.9f; else -> 1f }
+        com.neonrush.game.BossSkins.active()?.let { drawBossThemeShot(com.neonrush.game.BossSkins.THEMES.indexOf(it), x, y, ch, fxClock.value) }
         withTransform({ rotate(aimDeg, Offset(x, y)) }) {
             if (RealmRules.isKnightZone(simState.currentZoneNumber) && elem.subType != "ECHO") drawKnightSword(knightSword, x, y, ch, fxClock.value, shotSize)
             else drawBossShot(if (elem.subType == "ECHO") 1 else (eliteShot?.base ?: (variant?.baseFamily ?: currentWorld.worldFamily)), x, y, ch, fxClock.value, elem.id.hashCode(), bulletImg, shotSize)
