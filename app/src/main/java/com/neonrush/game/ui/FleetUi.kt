@@ -177,7 +177,7 @@ fun FleetOverlay(
 }
 
 /** Five hull silhouettes: 0 dart · 1 heavy wedge · 2 swept wings · 3 twin pods · 4 round saucer. */
-private fun hullPath(kind: Int, c: Offset, s: Float): Path = Path().apply {
+internal fun hullPath(kind: Int, c: Offset, s: Float): Path = Path().apply {
     when (kind) {
         1 -> { moveTo(c.x - s * 1.2f, c.y - s * 0.3f); lineTo(c.x + s * 0.2f, c.y - s * 0.95f); lineTo(c.x + s * 1.05f, c.y - s * 0.8f); lineTo(c.x + s * 1.05f, c.y + s * 0.8f); lineTo(c.x + s * 0.2f, c.y + s * 0.95f); lineTo(c.x - s * 1.2f, c.y + s * 0.3f); close() }
         2 -> { moveTo(c.x - s * 1.5f, c.y); lineTo(c.x + s * 0.1f, c.y - s * 0.25f); lineTo(c.x + s * 1.0f, c.y - s * 1.2f); lineTo(c.x + s * 0.7f, c.y); lineTo(c.x + s * 1.0f, c.y + s * 1.2f); lineTo(c.x + s * 0.1f, c.y + s * 0.25f); close() }
