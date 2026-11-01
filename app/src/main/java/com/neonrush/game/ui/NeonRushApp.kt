@@ -1465,6 +1465,7 @@ fun ArcadeHomeView(
     var showWing by remember { mutableStateOf(false) }
     var showUpgBay  by remember { mutableStateOf(false) }
     var showSpCodex by remember { mutableStateOf(false) }
+    var showBossTheme by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         delay(2500)
         val act = reviewActivity
