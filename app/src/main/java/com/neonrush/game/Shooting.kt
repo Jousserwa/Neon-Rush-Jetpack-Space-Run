@@ -45,7 +45,7 @@ object Shooting {
 
     /** Obstacle kinds a bolt may destroy. Everything else (glass walls, tunnels, pillars, blink hazards) is solid. */
     private val SHOOTABLE = setOf("STANDARD", "LASER", "BLADE", "STALACTITE", "STALAGMITE", "BARRIER", "ZAP_FIELD", "SPLITTER", "DRONE", "PHANTOM", "")
-    fun canShoot(type: String, sub: String): Boolean = (type == "obstacle" && sub in SHOOTABLE) || (type == "bullet" && sub != "ECHO" && sub != "STRIKE")
+    fun canShoot(type: String, sub: String): Boolean = (type == "obstacle" && (sub in SHOOTABLE || Hazards.isHazard(sub))) || (type == "bullet" && sub != "ECHO" && sub != "STRIKE")
 
     var version by mutableStateOf(0)
     var heat by mutableStateOf(0f)
