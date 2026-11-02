@@ -1761,6 +1761,8 @@ fun ArcadeHomeView(
                     else RevenueCatManager.purchaseGemPack(act, pack.id) { ok -> if (ok) com.neonrush.game.AirSupport.addCalls(proCtx, pack.calls); cb(ok) }
                 })
         }
+          // Auto-Refill (Pro): refuels for you at 20% fuel when you hold 300+ gems
+        AutoRefillCard(isPro = isPro, gems = profile.gems, onUpgrade = { showPlanPaywall = true }, modifier = Modifier.padding(vertical = 4.dp))
          // Boss Themes: opt-in challenge skins (tougher boss, +40% gems)
         BossThemeCard(onOpen = { showBossTheme = true }, modifier = Modifier.padding(vertical = 4.dp))
         if (showBossTheme) {
