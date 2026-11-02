@@ -12,7 +12,7 @@ import androidx.compose.runtime.setValue
  * manual button still works) · it never revives: a revive after a boss or a crash is always your own tap.
  */
 object AutoRefill {
-    const val MIN_GEMS = 300
+    const val MIN_GEMS = 100
     const val TRIGGER = 20          // refuel when fuel is at or below this percent
     var version by mutableStateOf(0)
     @Volatile private var cached = false
