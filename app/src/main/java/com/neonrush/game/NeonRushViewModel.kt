@@ -832,6 +832,7 @@ fun refuelWithGems(isPro: Boolean, auto: Boolean = false) {
             )
             if (easyKid) PilotShieldFx.onGain(EASY_SHIELD_LAYERS)
             soundEngine.playUnlockSkin()
+            if (auto) _simState.value = _simState.value.copy(feedbackMessage = "⛽ AUTO-REFILL  -$cost 💎")
         }
     }
 }
