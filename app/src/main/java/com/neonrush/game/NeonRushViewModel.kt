@@ -806,8 +806,8 @@ fun onFuelTierChanged(tier: String) {
     }
 }
 
-fun refuelWithGems(isPro: Boolean) {
-    hintRefuelTapped = true
+fun refuelWithGems(isPro: Boolean, auto: Boolean = false) {
+    if (!auto) hintRefuelTapped = true
     viewModelScope.launch {
         val current = _simState.value
         // Free players: 5 refuels per run (Pro: unlimited).
