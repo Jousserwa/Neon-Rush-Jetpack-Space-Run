@@ -2086,6 +2086,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                 if (state.specialWorldId == null && hasBossZone && !state.bossActive) checkStoryBeats(nextZoneNumber, true)
                 updatedElements.addAll(ThreatDirector.spawn(tick, nextZoneNumber, userY, random, updatedElements, hasBossZone, (flavor?.spacingMul ?: 1f) * aggroPressure, assistStrength(tick), selectedDifficulty.warnDelta))
                 updatedElements.addAll(Hazards.spawn(tick, nextZoneNumber, (zoneM - kotlin.math.floor(zoneM)).toFloat(), userY, random, hasBossZone, assistStrength(tick), selectedDifficulty.warnDelta))
+                autoRefuelCheck(state.fuelLevelPercent)
                 var bossHealthState = state.bossHealth
                 var bossYState = state.bossY
                 if (hasBossZone) {
