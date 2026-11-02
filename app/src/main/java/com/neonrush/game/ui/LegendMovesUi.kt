@@ -199,7 +199,7 @@ fun LegendMovesOverlay(
         }
         if (legend) {
             @Suppress("UNUSED_VARIABLE") val f = frame
-            Row(Modifier.align(Alignment.BottomEnd).padding(end = 94.dp, bottom = 3.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
+            Row(Modifier.align(Alignment.BottomEnd).padding(end = 98.dp, bottom = 3.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
                 val dc = LegendMoves.dashCd(); val pc = LegendMoves.pulseCd(); val on = LegendMoves.overdriveOn()
                 GameButton(BtnKind.DASH, 52.dp, Color(0xFF80F0FF), "DASH", if (LegendMoves.dashing()) "GO!" else if (dc > 0f) "${kotlin.math.ceil(dc * LegendMoves.DASH_CD / 1000f).toInt()}" else "SMASH", 1f - dc, dc <= 0f, LegendMoves.dashing(), { dashHeld = true; dashJob?.cancel(); dashJob = dashScope.launch { kotlinx.coroutines.delay(150); if (dashHeld) tryDash() } }, { dashHeld = false; dashJob?.cancel() })
                 GameButton(BtnKind.PULSE, 52.dp, Color(0xFFFF4DD2), "PULSE", if (pc > 0f) "${kotlin.math.ceil(pc * LegendMoves.PULSE_CD / 1000f).toInt()}" else "MAGNET", 1f - pc, pc <= 0f, false, { tryPulse() })
