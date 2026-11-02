@@ -204,7 +204,7 @@ fun LegendMovesOverlay(
                 GameButton(BtnKind.DASH, 52.dp, Color(0xFF80F0FF), "DASH", if (LegendMoves.dashing()) "GO!" else if (dc > 0f) "${kotlin.math.ceil(dc * LegendMoves.DASH_CD / 1000f).toInt()}" else "SMASH", 1f - dc, dc <= 0f, LegendMoves.dashing(), { dashHeld = true; dashJob?.cancel(); dashJob = dashScope.launch { kotlinx.coroutines.delay(150); if (dashHeld) tryDash() } }, { dashHeld = false; dashJob?.cancel() })
                 GameButton(BtnKind.PULSE, 52.dp, Color(0xFFFF4DD2), "PULSE", if (pc > 0f) "${kotlin.math.ceil(pc * LegendMoves.PULSE_CD / 1000f).toInt()}" else "MAGNET", 1f - pc, pc <= 0f, false, { tryPulse() }, tapOnRelease = true)
                 GameButton(BtnKind.OVER, 54.dp, Color(0xFFFFC21A), "OVERDRIVE", if (on) "${kotlin.math.ceil(LegendMoves.overLeft() * LegendMoves.OVER_MS / 1000f).toInt()}s" else if (LegendMoves.meter >= 1f) "READY" else "${(LegendMoves.meter * 100).toInt()}%",
-                    if (on) LegendMoves.overLeft() else LegendMoves.meter, LegendMoves.meter >= 1f && !on, on, { tryOver() })
+         if (on) LegendMoves.overLeft() else LegendMoves.meter, LegendMoves.meter >= 1f && !on, on, { tryOver() }, tapOnRelease = true)
             }
         }
     }
