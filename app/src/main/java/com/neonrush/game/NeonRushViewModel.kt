@@ -806,6 +806,18 @@ fun onFuelTierChanged(tier: String) {
     }
 }
 
+@Volatile private var autoRefuelBusy = false
+/** Pro Auto-Refill (Stage 165): called every sim tick. Presses the refuel for the player when the fuel is low and they have 300+ gems. Never revives. */
+fun autoRefuelCheck(fuel: Int) {
+    if (fuel > AutoRefill.TRIGGER) { autoRefuelBusy = false; return }
+    if (autoRefuelBusy || !AutoRefill.isOn() || Pause.frozen()) return
+    if (!(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE)) return
+    val gems = profile.value?.gems ?: return
+    if (gems < AutoRefill.MIN_GEMS || gems < fuelRefillCostForCurrentRun()) return
+    autoRefuelBusy = true
+    refuelWithGems(true, true)
+}
+
 fun refuelWithGems(isPro: Boolean, auto: Boolean = false) {
     if (!auto) hintRefuelTapped = true
     viewModelScope.launch {
