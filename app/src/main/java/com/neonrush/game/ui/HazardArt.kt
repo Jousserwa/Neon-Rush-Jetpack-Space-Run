@@ -1,13 +1,22 @@
 package com.neonrush.game.ui
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import com.neonrush.game.Hazards
 import com.neonrush.game.VisualTrackElement
 import kotlin.math.cos
 import kotlin.math.sin
@@ -16,7 +25,7 @@ import kotlin.math.sin
  * Code-drawn art for the hazard emplacements and their shots (Hazards.kt): flame spitter, spear thrower, acid sprayer, rock catapult.
  * Returns true when it drew [elem]; the caller then skips its normal drawing. [time] is the smooth seconds clock.
  */
-internal fun DrawScope.drawHazard(elem: VisualTrackElement, x: Float, y: Float, cw: Float, ch: Float, tick: Int, time: Float): Boolean {
+private fun DrawScope.drawHazardCode(elem: VisualTrackElement, x: Float, y: Float, cw: Float, ch: Float, tick: Int, time: Float): Boolean {
     val sub = elem.subType
     if (!sub.startsWith("HZ_")) return false
     val u = ch * 0.075f
@@ -114,4 +123,86 @@ internal fun DrawScope.drawHazard(elem: VisualTrackElement, x: Float, y: Float, 
         }
     }
     return false
+}
+
+/**
+ * REAL ART HOOK. Drop the sprites below into res/drawable-nodpi (any missing one falls back to the code-drawn version above).
+ * Emplacements face LEFT (toward the pilot). *_idle = resting frame, *_fire = charging / firing frame (same canvas, same position).
+ * Shots: hz_shot_fire, hz_shot_spear, hz_shot_acid, hz_shot_rock.
+ */
+object HazardSprites {
+    var flamerIdle: ImageBitmap? = null; var flamerFire: ImageBitmap? = null
+    var spearIdle: ImageBitmap? = null; var spearFire: ImageBitmap? = null
+    var acidIdle: ImageBitmap? = null; var acidFire: ImageBitmap? = null
+    var rockIdle: ImageBitmap? = null; var rockFire: ImageBitmap? = null
+    var shotFire: ImageBitmap? = null; var shotSpear: ImageBitmap? = null; var shotAcid: ImageBitmap? = null; var shotRock: ImageBitmap? = null
+}
+
+/** Call once inside the game composable: loads whichever hazard sprites exist. */
+@Composable
+fun HazardSpriteLoader() {
+    val a0 = rememberArt("hz_flamer_idle"); val a1 = rememberArt("hz_flamer_fire")
+    val b0 = rememberArt("hz_spear_idle"); val b1 = rememberArt("hz_spear_fire")
+    val c0 = rememberArt("hz_acid_idle"); val c1 = rememberArt("hz_acid_fire")
+    val d0 = rememberArt("hz_rock_idle"); val d1 = rememberArt("hz_rock_fire")
+    val s0 = rememberArt("hz_shot_fire"); val s1 = rememberArt("hz_shot_spear"); val s2 = rememberArt("hz_shot_acid"); val s3 = rememberArt("hz_shot_rock")
+    SideEffect {
+        HazardSprites.flamerIdle = a0; HazardSprites.flamerFire = a1; HazardSprites.spearIdle = b0; HazardSprites.spearFire = b1
+        HazardSprites.acidIdle = c0; HazardSprites.acidFire = c1; HazardSprites.rockIdle = d0; HazardSprites.rockFire = d1
+        HazardSprites.shotFire = s0; HazardSprites.shotSpear = s1; HazardSprites.shotAcid = s2; HazardSprites.shotRock = s3
+    }
+}
+
+private fun DrawScope.hzSprite(img: ImageBitmap, cx: Float, cy: Float, h: Float, flash: Boolean, angle: Float = 0f) {
+    val w = h * img.width / img.height
+    val off = IntOffset((cx - w / 2f).toInt(), (cy - h / 2f).toInt()); val sz = IntSize(w.toInt(), h.toInt())
+    rotate(angle, Offset(cx, cy)) {
+        drawImage(img, dstOffset = off, dstSize = sz)
+        if (flash) drawImage(img, dstOffset = off, dstSize = sz, alpha = 0.55f, colorFilter = ColorFilter.tint(Color.White, BlendMode.SrcIn))
+    }
+}
+
+/** Damage read-out on every emplacement: a small hull bar once it is hurt, smoke below half, sparks below a quarter. */
+private fun DrawScope.hzDamage(id: String, x: Float, y: Float, ch: Float, time: Float) {
+    val hf = Hazards.hpFrac(id)
+    if (hf >= 0.999f) return
+    val u = ch * 0.075f
+    val bw = u * 3f; val bx = x - bw / 2f; val by = y - u * 2.3f
+    drawRect(Color.Black.copy(alpha = 0.6f), Offset(bx, by), Size(bw, 5f))
+    drawRect(if (hf > 0.5f) Color(0xFF69F0AE) else if (hf > 0.25f) Color(0xFFFFD54F) else Color(0xFFFF5252), Offset(bx, by), Size(bw * hf, 5f))
+    if (hf < 0.5f) for (k in 0 until 3) { val p = ((time * 1.2f + k * 0.33f) % 1f); drawCircle(Color(0xFF455A64).copy(alpha = 0.5f * (1f - p)), u * (0.25f + 0.5f * p), Offset(x + u * (0.2f + 0.8f * p), y - u * (0.4f + 1.4f * p))) }
+    if (hf < 0.25f && ((time * 14f).toInt() % 3) == 0) drawCircle(Color(0xFFFFD54F), u * 0.12f, Offset(x + sin(time * 20f) * u * 0.8f, y + cos(time * 17f) * u * 0.6f))
+}
+
+/** Entry point called by ThreatArt: real sprites when present, code-drawn art otherwise. Returns true when it drew [elem]. */
+internal fun DrawScope.drawHazard(elem: VisualTrackElement, x: Float, y: Float, cw: Float, ch: Float, tick: Int, time: Float): Boolean {
+    val sub = elem.subType
+    if (!sub.startsWith("HZ_")) return false
+    val S = HazardSprites
+    if (Hazards.isHazard(sub)) {
+        val st = Hazards.state(elem.id, tick)
+        val idle: ImageBitmap?; val fire: ImageBitmap?
+        when (sub) {
+            "HZ_FLAMER" -> { idle = S.flamerIdle; fire = S.flamerFire }
+            "HZ_SPEAR" -> { idle = S.spearIdle; fire = S.spearFire }
+            "HZ_ACID" -> { idle = S.acidIdle; fire = S.acidFire }
+            else -> { idle = S.rockIdle; fire = S.rockFire }
+        }
+        val img = if (st >= 1 && fire != null) fire else idle
+        if (img != null) {
+            val h = ch * 0.30f
+            val bob = sin(time * 3f + elem.id.hashCode() % 7) * h * 0.02f
+            val recoil = if (st == 2) h * 0.035f else 0f
+            hzSprite(img, x + recoil, y + bob, h, Hazards.flashing(elem.id))
+        } else if (!drawHazardCode(elem, x, y, cw, ch, tick, time)) return false
+        hzDamage(elem.id, x, y, ch, time)
+        return true
+    }
+    val shot: ImageBitmap? = when (sub) { "HZ_FIREBALL" -> S.shotFire; "HZ_SPEARSHOT" -> S.shotSpear; "HZ_ACIDDROP" -> S.shotAcid; "HZ_BOULDER" -> S.shotRock; else -> null }
+    if (shot != null) {
+        val h = when (sub) { "HZ_SPEARSHOT" -> ch * 0.09f; "HZ_BOULDER" -> ch * 0.13f; else -> ch * 0.10f }
+        hzSprite(shot, x, y, h, false, if (sub == "HZ_BOULDER") time * 200f else 0f)
+        return true
+    }
+    return drawHazardCode(elem, x, y, cw, ch, tick, time)
 }
