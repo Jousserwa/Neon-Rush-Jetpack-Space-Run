@@ -56,7 +56,7 @@ enum class BtnKind { DASH, PULSE, OVER, FIRE, BOMB }
 @Composable
 fun GameButton(
     kind: BtnKind, size: Dp, col: Color, label: String, sub: String, fill: Float, ready: Boolean, active: Boolean,
-    onPressStart: () -> Unit, onRelease: () -> Unit = {}, extra: Float = 0f, hot: Boolean = false, art: ImageBitmap? = null, modifier: Modifier = Modifier
+    onPressStart: () -> Unit, onRelease: () -> Unit = {}, extra: Float = 0f, hot: Boolean = false, art: ImageBitmap? = null, tapOnRelease: Boolean = false, modifier: Modifier = Modifier
 ) {
     val inf = rememberInfiniteTransition(label = "gbtn")
     val t by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Restart), label = "t")
