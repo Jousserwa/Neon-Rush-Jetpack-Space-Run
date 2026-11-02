@@ -4920,7 +4920,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                 HintOverlay(hint = simState.hint, userYPos = simState.userYPos)
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             if (!isPro && !profile.adsRemoved) {
                 AdMobBannerView(
