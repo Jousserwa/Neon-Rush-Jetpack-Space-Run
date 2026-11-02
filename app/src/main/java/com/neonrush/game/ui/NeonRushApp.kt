@@ -3860,6 +3860,7 @@ val shatterBurst = ImageBitmap.imageResource(id = R.drawable.shatter_burst)
 val dunesSide = ImageBitmap.imageResource(id = R.drawable.dunes_scarab_side)
 val dunesFront = ImageBitmap.imageResource(id = R.drawable.dunes_scarab_front)
 val knightBody = ImageBitmap.imageResource(id = R.drawable.darkages_body)
+HazardSpriteLoader()
 val knightWing = ImageBitmap.imageResource(id = R.drawable.darkages_wing)
 val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
     
