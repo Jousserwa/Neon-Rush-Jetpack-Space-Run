@@ -66,18 +66,28 @@ fun GameButton(
     val sc by animateFloatAsState(if (pressed) 0.9f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium), label = "sc")
     val cooling = !ready && !active
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            Modifier.size(size).graphicsLayer { scaleX = sc; scaleY = sc }
-                .pointerInput(Unit) {
-                    detectTapGestures(onPress = {
-                        pressed = true; scope.launch { pop.snapTo(0f); pop.animateTo(1f, tween(420)) }
-                        onPressStart(); tryAwaitRelease(); pressed = false; onRelease()
-                    })
-                },
+       Box(
+            Modifier.size(size).graphicsLayer { scaleX = sc; scaleY = sc },
             contentAlignment = Alignment.Center
         ) {
             Canvas(Modifier.fillMaxSize()) { drawGameButton(kind, col, fill, ready, active, t, pop.value, extra, hot, pressed, art) }
             if (cooling && sub.isNotEmpty()) Text(sub, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+            // touch target: only the round button itself reacts, so the corners and gaps never trigger it
+            Box(
+                Modifier.fillMaxSize().clip(CircleShape).pointerInput(Unit) {
+                    detectTapGestures(onPress = {
+                        pressed = true
+                        if (tapOnRelease) {
+                            // clean tap only: fires on lift, and a finger that slides off does nothing
+                            val clean = tryAwaitRelease(); pressed = false
+                            if (clean) { scope.launch { pop.snapTo(0f); pop.animateTo(1f, tween(420)) }; onPressStart(); onRelease() }
+                        } else {
+                            scope.launch { pop.snapTo(0f); pop.animateTo(1f, tween(420)) }
+                            onPressStart(); tryAwaitRelease(); pressed = false; onRelease()
+                        }
+                    })
+                }
+            )
         }
         Text(label, color = if (ready || active) col else Color.White.copy(alpha = 0.55f), fontSize = 9.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(top = 2.dp))
         if (!cooling && sub.isNotEmpty()) Text(sub, color = Color.White.copy(alpha = 0.8f), fontSize = 8.sp, fontFamily = FontFamily.Monospace)
