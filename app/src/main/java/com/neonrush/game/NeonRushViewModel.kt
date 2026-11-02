@@ -1634,6 +1634,13 @@ fun addBonusScore(n: Int) { val st = _simState.value; _simState.value = st.copy(
 fun shootDown(id: String) {
     val st = _simState.value
     val e = st.activeTrackElements.firstOrNull { it.id == id } ?: return
+        if (Hazards.isHazard(e.subType)) {   // hazard emplacements have hit points; a bolt chips them, the last one destroys and scores
+        if (!Hazards.hit(id)) { LegendMoves.charge(0.01f); return }
+        ReactFx.obstacle(e.subType, "BOOM", e.xOffsetFraction, e.yMatchPos)
+        LegendMoves.charge(0.25f)
+        _simState.value = st.copy(activeTrackElements = st.activeTrackElements.filter { it.id != id }, score = st.score + 150)
+        return
+    }
     ReactFx.obstacle(e.subType, "BOOM", e.xOffsetFraction, e.yMatchPos)
     LegendMoves.charge(0.08f)
     _simState.value = st.copy(activeTrackElements = st.activeTrackElements.filter { it.id != id }, score = st.score + 3)
