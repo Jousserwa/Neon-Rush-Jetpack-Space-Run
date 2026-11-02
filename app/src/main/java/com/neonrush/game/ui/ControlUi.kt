@@ -42,6 +42,8 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
 
 enum class BtnKind { DASH, PULSE, OVER, FIRE, BOMB }
 
