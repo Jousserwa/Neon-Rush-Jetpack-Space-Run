@@ -47,7 +47,8 @@ fun UpgradeBayCard(onOpen: () -> Unit, modifier: Modifier = Modifier) {
     var owned = 0; var total = 0
     for (t in UB_ORDER) { owned += NrUpgrades.level(ctx, t); total += NrUpgrades.TRACKS[t].steps }
     val shape = RoundedCornerShape(16.dp)
-    Row(modifier.fillMaxWidth().clip(shape).background(Brush.horizontalGradient(listOf(Color(0xFF0B2A33), Color(0xFF0B1536)))).border(2.dp, UB_CYAN.copy(alpha = 0.7f), shape).clickable { onOpen() }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.fillMaxWidth().clip(shape).background(Brush.horizontalGradient(listOf(Color(0xFF0B2A33), Color(0xFF0B1536)))).border(2.dp, UB_CYAN.copy(alpha = 0.7f), shape).barFx(UB_CYAN, phase = 0).clickable { onOpen() }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        BarGlyph("⚙", UB_CYAN, spin = true)
         Column(Modifier.weight(1f)) {
             Text("UPGRADE BAY", color = UB_CYAN, fontSize = 13.sp, fontWeight = FontWeight.Black, fontFamily = UB_MONO)
             Text("Gun · Bomb · Helicopter · Jet · Lance · Storage   ($owned / $total owned)", color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp, fontFamily = UB_MONO)
