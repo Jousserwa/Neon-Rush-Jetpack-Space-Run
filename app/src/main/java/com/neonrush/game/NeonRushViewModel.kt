@@ -1346,7 +1346,6 @@ fun freezeStreak() {
                 // the drone's body and dodging its shot are two separate
                 // reads, not the same dodge twice.
                 // Stage 159: every drone fires an aimed shot at the pilot's lane; a hit costs 5% hull (see the collision handler)
-                elements.add(VisualTrackElement("${baseId}drb", 1.35f, ghostY.coerceIn(4, 96), "bullet", "DRONE_SHOT"))
             }
             else -> elements.add(VisualTrackElement("${baseId}st", 1.2f, offLine(rand, ghostY, 16, 40), "obstacle", "STANDARD"))
         }
