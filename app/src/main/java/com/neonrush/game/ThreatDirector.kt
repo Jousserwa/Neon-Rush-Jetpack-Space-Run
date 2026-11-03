@@ -27,7 +27,8 @@ object ThreatDirector {
     private class Pending(val atTick: Int, val elems: List<VisualTrackElement>)
     private val pending = mutableListOf<Pending>()
 
-    fun reset() { lastThreatTick = 0; lastZone = 0; setPieceAt = Int.MAX_VALUE; setPieceDone = true; counter = 0; pending.clear(); Hazards.reset(); BossSfx.init() }
+    private val droneFired = HashSet<String>()
+    fun reset() { droneFired.clear(); lastThreatTick = 0; lastZone = 0; setPieceAt = Int.MAX_VALUE; setPieceDone = true; counter = 0; pending.clear(); Hazards.reset(); BossSfx.init() }
     private fun spawnedAt(id: String, tick: Int): Boolean {
         val parts = id.split("_")
         return parts.size >= 2 && parts[0] in setOf("obs", "bullet", "blink") && parts[1].toIntOrNull() == tick
@@ -165,6 +166,18 @@ object ThreatDirector {
             val eliteLane = EliteBosses.shotLane(elem.subType, nextX, actualY, userY)
             if (eliteLane != null) return nextX to eliteLane
         }
+        // DRONE_SHOT (Stage 168): the small drone's bolt is fired FROM the drone (see the DRONE case below). It leaves faster than the scroll and
+        // steers toward the pilot's lane early in the flight, then locks so it can still be dodged.
+        if (elem.type == "bullet" && elem.subType == "DRONE_SHOT") {
+            val scroll = (elem.xOffsetFraction - nextX).coerceAtLeast(0f)
+            val bx = nextX - scroll * 0.9f
+            if (bx > 0.40f) {
+                val d = userY - actualY
+                val step = if (d == 0) 0 else (d * 0.30f).toInt().coerceIn(-4, 4).let { if (it == 0) (if (d > 0) 1 else -1) else it }
+                return bx to (actualY + step).coerceIn(4, 96)
+            }
+            return bx to actualY
+        }
         // Boss shots fly TOWARD the pilot: they steer in the first part of the flight, then lock their lane so they can still be dodged.
         if (elem.type == "bullet" && elem.subType == "") {
             if (nextX > 0.42f) {
@@ -184,6 +197,15 @@ object ThreatDirector {
                 val amp = if (elem.subType == "LAVA_BALL") 20f else 24f
                 val spd = if (elem.subType == "LAVA_BALL") 0.45f else 0.35f
                 return nextX to (base + (sin((tick - spawnT) * spd + phase) * amp).toInt()).coerceIn(8, 92)
+            }
+            "DRONE" -> {
+                // fires once, the moment it is comfortably on screen, straight out of its own position
+                if (nextX in 0.50f..0.82f && droneFired.add(elem.id)) {
+                    if (droneFired.size > 200) { droneFired.clear(); droneFired.add(elem.id) }
+                    out += VisualTrackElement("bullet_${tick}_dr${elem.id.hashCode() and 0xfff}", nextX - 0.04f, actualY, "bullet", "DRONE_SHOT")
+                    BossSfx.zap()
+                }
+                return nextX to actualY
             }
             "SHADOW_MIRROR" -> {
                 // homes on your lane until it is close, then locks so you can dodge at the last moment
