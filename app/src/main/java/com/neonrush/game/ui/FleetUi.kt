@@ -11,7 +11,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -24,6 +28,7 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,6 +48,24 @@ private class FxDeath(val x: Float, val y: Float, var age: Float = 0f)
 private class FxRing(val x: Float, val y: Float, val col: Color, var age: Float = 0f)
 private class FxFloat(val x: Float, val y: Float, val text: String, val col: Color, var age: Float = 0f)
 
+/** The ten escort pictures (res/drawable esc_0_wasp ... esc_9_kraken), decoded once on a background thread. A missing picture means the code-drawn hull is used. */
+internal object EscortArt {
+    private val cache = java.util.concurrent.ConcurrentHashMap<Int, ImageBitmap>()
+    @Volatile private var started = false
+    fun preload(ctx: android.content.Context) {
+        if (started) return
+        started = true
+        val app = ctx.applicationContext
+        Thread {
+            for (sp in Roster.ALL) try {
+                val id = app.resources.getIdentifier(Roster.artName(sp.id), "drawable", app.packageName)
+                if (id != 0) { val o = android.graphics.BitmapFactory.Options().apply { inScaled = false }; android.graphics.BitmapFactory.decodeResource(app.resources, id, o)?.let { cache[sp.id] = it.asImageBitmap() } }
+            } catch (_: Throwable) { }
+        }.start()
+    }
+    fun get(id: Int): ImageBitmap? = cache[id]
+}
+
 private val ESCORT_COLS = longArrayOf(0xFF00E5FF, 0xFFFF4DD2, 0xFFFFC21A, 0xFF69F0AE, 0xFFFF7043)
 
 /**
@@ -56,6 +79,7 @@ fun FleetOverlay(
 ) {
     val sfx = remember { NeonSoundEngine() }
     val ctx = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(Unit) { EscortArt.preload(ctx) }
     val bossRef = rememberUpdatedState(bossActive)
     val yRef = rememberUpdatedState(pilotY)
     val bossYRef = rememberUpdatedState(bossY)
@@ -202,17 +226,25 @@ private fun DrawScope.drawEscort(b: Body, w: Float, h: Float, t: Float) {
     }
     // glow + engine flame
     drawCircle(Brush.radialGradient(listOf(col.copy(alpha = 0.35f), Color.Transparent), c, s * 2.4f), s * 2.4f, c)
+    val art = EscortArt.get(b.sp)
     val fl = 0.7f + 0.3f * sin(t * 40f + b.idx)
     val fp = Path().apply { moveTo(c.x + s * 0.7f, c.y - s * 0.22f); lineTo(c.x + s * (1.5f + 0.6f * fl), c.y); lineTo(c.x + s * 0.7f, c.y + s * 0.22f); close() }
-    drawPath(fp, Brush.horizontalGradient(listOf(Color(0xFFFFF59D), Color(0xFFFF6F00).copy(alpha = 0.0f)), c.x + s * 0.7f, c.x + s * 2.1f))
+    if (art == null) drawPath(fp, Brush.horizontalGradient(listOf(Color(0xFFFFF59D), Color(0xFFFF6F00).copy(alpha = 0.0f)), c.x + s * 0.7f, c.x + s * 2.1f))
     // hull
     val hull = hullPath(spc.hull, c, s)
+    if (art != null) {
+        val sw = minOf(s * 3.4f, s * 2.6f * art.width / art.height); val shh = sw * art.height / art.width
+        val off = IntOffset((c.x - sw * 0.5f + s * 0.15f).toInt(), (c.y - shh / 2f).toInt()); val dsz = IntSize(sw.toInt().coerceAtLeast(1), shh.toInt().coerceAtLeast(1))
+        drawImage(art, dstOffset = off, dstSize = dsz)
+        if (b.flash > 0f) drawImage(art, dstOffset = off, dstSize = dsz, alpha = (b.flash * 2f).coerceAtMost(0.8f), colorFilter = ColorFilter.tint(Color.White, BlendMode.SrcIn))
+    } else {
     drawPath(hull, Brush.verticalGradient(listOf(col.copy(alpha = 0.85f), Color(0xFF14102E), col.copy(alpha = 0.7f)), c.y - s, c.y + s))
     drawPath(hull, col, style = Stroke(2.dp.toPx()))
     drawCircle(Color.White.copy(alpha = 0.9f), s * 0.22f, Offset(c.x - s * 0.35f, c.y))
     drawCircle(col.copy(alpha = 0.8f), s * 0.34f, Offset(c.x - s * 0.35f, c.y), style = Stroke(1.5.dp.toPx()))
     drawLine(Color(0xFFB0BEC5), Offset(c.x - s * 0.9f, c.y - s * 0.16f), Offset(c.x - s * 1.5f, c.y - s * 0.16f), 3.dp.toPx(), StrokeCap.Round)
     drawLine(Color(0xFFB0BEC5), Offset(c.x - s * 0.9f, c.y + s * 0.16f), Offset(c.x - s * 1.5f, c.y + s * 0.16f), 3.dp.toPx(), StrokeCap.Round)
+    }
     // damage: smoke and sparks
     if (b.hp < 0.55f) { for (k in 0 until 3) { val p = ((t * 1.3f + k * 0.33f) % 1f); drawCircle(Color(0xFF455A64).copy(alpha = 0.5f * (1f - p)), s * (0.15f + 0.3f * p), Offset(c.x + s * (0.3f + 0.9f * p), c.y - s * (0.2f + 0.8f * p))) } }
     if (b.hp < 0.3f && ((t * 12f).toInt() + b.idx) % 3 == 0) drawCircle(Color(0xFFFFD54F), s * 0.1f, Offset(c.x + sin(t * 20f) * s * 0.6f, c.y + cos(t * 17f) * s * 0.5f))
@@ -221,7 +253,7 @@ private fun DrawScope.drawEscort(b: Body, w: Float, h: Float, t: Float) {
         drawCircle(Color(0xFF80D8FF).copy(alpha = 0.18f), s * 1.6f, c)
         drawCircle(Color(0xFF80D8FF).copy(alpha = 0.85f), s * 1.6f, c, style = Stroke(2.5.dp.toPx()))
     }
-    if (b.flash > 0f) drawPath(hull, Color.White.copy(alpha = (b.flash * 2f).coerceAtMost(0.8f)))
+    if (art == null && b.flash > 0f) drawPath(hull, Color.White.copy(alpha = (b.flash * 2f).coerceAtMost(0.8f)))
     // hull bar
     val bw = s * 2.6f; val bx = c.x - bw / 2f + s * 0.1f; val by = c.y - s * 1.55f
     drawRect(Color.Black.copy(alpha = 0.6f), Offset(bx, by), Size(bw, 4.dp.toPx()))
