@@ -5,7 +5,10 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * HAZARD EMPLACEMENTS (Stage 163). No zone is ever just dodging: every zone gets FOUR hazard waves, one in each quarter of the zone (on every difficulty).
+ * HAZARD EMPLACEMENTS (Stage 163, ladder in Stage 168). Waves keep coming with a short calm between them (4 / 3 / 2 / 1.5 s on EASY / MEDIUM / HARD / LEGENDARY).
+ * THE LADDER: each hazard has 10 LEVELS and the next hazard arrives only after the one before it has had them all. Levels 1-4 sharpen it (bigger bursts, shorter gaps),
+ * levels 5-9 make REAL COPIES of it (2, then 3 at once, staggered), level 10 is its apex form (gold glow, +36% hull, one extra move). How many kinds are active at once: EASY 1, MEDIUM 2, HARD 3, LEGENDARY 4.
+ * (old text) No zone is ever just dodging.
  * An emplacement slides in from the right behind a WARN marker, holds its post for about four seconds shooting at you, then leaves.
  *   HZ_FLAMER  flame spitter     : bursts of fireballs in a fan (zone 2+)
  *   HZ_SPEAR   spear thrower     : a glowing charge, then a fast spear down your lane (zone 2+)
@@ -23,11 +26,10 @@ object Hazards {
     private const val ENTER_X = 1.2f
     private const val WARN_TICKS = 8
     private const val HOLD = 44                       // ticks from spawn until it leaves (the slide-in is part of this)
-    private val THRESH = floatArrayOf(0.04f, 0.29f, 0.54f, 0.79f)   // one wave per quarter of the zone
     val KINDS = arrayOf("HZ_FLAMER", "HZ_SPEAR", "HZ_ACID", "HZ_ROCK")
 
-    private val done = BooleanArray(4)
-    private var lastZone = 0
+    private const val MAX_LV = 10
+    private const val STAGGER = 5                     // ticks between the copies of one wave
     private var lastKind = -1
     private var counter = 0
     private var busyUntil = 0
@@ -42,7 +44,7 @@ object Hazards {
     private class Pending(val atTick: Int, val elem: VisualTrackElement)
     private val pending = mutableListOf<Pending>()
 
-    fun reset() { done.fill(false); lastZone = 0; lastKind = -1; counter = 0; busyUntil = 0; pending.clear(); hp.clear(); hpMax.clear(); flashUntil.clear(); chargeAt.clear(); shotAt.clear(); lastUserY = 50; userVy = 0 }
+    fun reset() { lastKind = -1; counter = 0; busyUntil = 0; pending.clear(); hp.clear(); hpMax.clear(); flashUntil.clear(); chargeAt.clear(); shotAt.clear(); lastUserY = 50; userVy = 0 }
 
     private fun idTick(id: String): Int = id.split("_").getOrNull(1)?.toIntOrNull() ?: 0
 
@@ -52,28 +54,49 @@ object Hazards {
         userVy = (userY - lastUserY).coerceIn(-6, 6); lastUserY = userY
         val out = mutableListOf<VisualTrackElement>()
         val it = pending.iterator()
-        while (it.hasNext()) { val p = it.next(); if (p.atTick <= tick) { out += p.elem; it.remove(); val m = (6 + zone / 8).coerceAtMost(12).toFloat(); hpMax[p.elem.id] = m; hp[p.elem.id] = m } }
-        if (zone != lastZone) { lastZone = zone; done.fill(false) }
+        while (it.hasNext()) { val p = it.next(); if (p.atTick <= tick) { out += p.elem; it.remove(); val lvl = levelOfId(p.elem.id); val m = (6 + zone / 8).coerceAtMost(12) * (1f + 0.04f * (lvl - 1)); hpMax[p.elem.id] = m; hp[p.elem.id] = m } }
         if (zone < 2 || suppress || assist > 0.2f || pending.isNotEmpty() || tick < busyUntil) return out
-        for (q in 0..3) {
-            if (done[q] || frac < THRESH[q]) continue
-            done[q] = true
-            if (frac < THRESH[q] + 0.2f) { schedule(tick, zone, userY, rand, warnDelta, out); break }
-        }
+        schedule(tick, zone, userY, rand, warnDelta, out)
         return out
     }
 
+    // ---- the ladder (Stage 168) ----
+    private fun diff(w: Int): Int = if (w >= 2) 0 else if (w >= 0) 1 else if (w == -1) 2 else 3    // 0 EASY, 1 MEDIUM, 2 HARD, 3 LEGENDARY (from the tier's telegraph time)
+    /** 0 EASY .. 3 LEGENDARY, from the last spawn call (other systems, such as the Roster, read it). */
+    fun diffIdx(): Int = diff(tierWarn)
+    private fun perLevel(d: Int): Int = if (d <= 1) 2 else 1                    // zones it takes a hazard to gain one level
+    private fun introZone(k: Int, d: Int): Int = 2 + k * 10 * perLevel(d)       // a hazard arrives only after the one before it has had its ten levels
+    fun levelFor(k: Int, zone: Int, d: Int): Int = ((zone - introZone(k, d)) / perLevel(d) + 1).coerceIn(1, MAX_LV)
+    private fun eligible(zone: Int, d: Int): List<Int> = (0..3).filter { zone >= introZone(it, d) }.takeLast(d + 1)   // EASY 1 hazard at a time ... LEGENDARY all 4
+    private fun restTicks(d: Int): Int = intArrayOf(33, 25, 17, 12)[d.coerceIn(0, 3)]            // calm between two waves: 4 s, 3 s, 2 s, 1.5 s (the classic threats fill it)
+    /** Level 1..10 of an emplacement (stored at the end of its id). */
+    fun levelOfId(id: String): Int = id.substringAfterLast('_').toIntOrNull()?.coerceIn(1, MAX_LV) ?: 1
+    fun level(id: String): Int = levelOfId(id)
+
     private fun schedule(tick: Int, zone: Int, userY: Int, rand: Random, warnDelta: Int, out: MutableList<VisualTrackElement>) {
-        val avail = if (zone >= 10) 4 else if (zone >= 6) 3 else 2
-        var k = rand.nextInt(avail)
-        if (k == lastKind && avail > 1) k = (k + 1 + rand.nextInt(avail - 1)) % avail
+        val d = diff(warnDelta)
+        val el = eligible(zone, d)
+        if (el.isEmpty()) return
+        val bag = ArrayList<Int>(el); bag.add(el.last())            // the newest hazard shows up a little more often
+        var k = bag[rand.nextInt(bag.size)]
+        if (k == lastKind && el.size > 1) { val others = el.filter { it != lastKind }; k = others[rand.nextInt(others.size)] }
         lastKind = k
+        val lv = levelFor(k, zone, d)
+        val copies = (if (lv >= 8) 3 else if (lv >= 5) 2 else 1).coerceAtMost(if (d == 0) 2 else 3)   // levels 5-9: it makes real copies of itself
         val n = ++counter
         val delay = (WARN_TICKS + warnDelta).coerceIn(5, 12)
-        val y = when (k) { 2 -> 24; 3 -> 78; else -> userY.coerceIn(26, 74) }
-        pending += Pending(tick + delay, VisualTrackElement("obs_${tick + delay}_hz${n}_$k", ENTER_X, y, "obstacle", KINDS[k]))
-        out += VisualTrackElement("wrn_${tick}_${n}_hz_$delay", 0.96f, y, "fx", "WARN")
-        busyUntil = tick + delay + HOLD + 6
+        val base = when (k) { 2 -> 24; 3 -> 78; else -> userY.coerceIn(26, 74) }
+        for (i in 0 until copies) {
+            val y = when (k) {
+                2 -> (24 + i * 4).coerceIn(10, 60)
+                3 -> if (i == 0) 78 else if (i == 1) 24 else 51
+                else -> { val off = if (i == 0) 0 else (if (i % 2 == 1) -26 else 26); val yy = base + off; (if (yy in 14..86) yy else base - off).coerceIn(14, 86) }
+            }
+            val at = tick + delay + i * STAGGER
+            pending += Pending(at, VisualTrackElement("obs_${at}_hz${n}${'a' + i}_${k}_$lv", ENTER_X, y, "obstacle", KINDS[k]))
+        }
+        out += VisualTrackElement("wrn_${tick}_${n}_hz_$delay", 0.96f, base, "fx", "WARN")
+        busyUntil = tick + delay + (copies - 1) * STAGGER + HOLD + 6 + restTicks(d)
         BossSfx.warn()
     }
 
@@ -110,6 +133,7 @@ object Hazards {
         val parts = elem.id.split("_")
         val age = tick - idTick(elem.id)
         val w = tierWarn
+        val lv = levelOfId(elem.id)
         when (sub) {
             // ---------------- emplacements ----------------
             "HZ_FLAMER", "HZ_SPEAR", "HZ_ACID", "HZ_ROCK" -> {
@@ -122,13 +146,13 @@ object Hazards {
                 when (sub) {
                     "HZ_FLAMER" -> {
                         y = (actualY + ((pred - actualY) * 0.08f).toInt()).coerceIn(14, 86)
-                        val cy = cycle(16, w, hf); val ph = age % cy
+                        val cy = cycle(16 - (lv - 1) / 2, w, hf); val ph = age % cy
                         if (ph >= cy - 4) { chargeAt[elem.id] = tick; out += VisualTrackElement("chg_${tick}_${ph - (cy - 4) + 1}_0", HOLD_X, y, "fx", "HZ_CHARGE") }
                         if (ph == 0) {
                             shotAt[elem.id] = tick
-                            val c = shots(w)
+                            val c = (shots(w) + (lv - 1) / 3).coerceAtMost(8)
                             for (i in 0 until c) {
-                                val lane = (pred + ((i - (c - 1) / 2f) * 10f).toInt()).coerceIn(5, 95)
+                                val lane = (pred + ((i - (c - 1) / 2f) * (if (lv >= 10) 14f else 10f)).toInt()).coerceIn(5, 95)
                                 out += VisualTrackElement("bullet_${tick}_hz${n}f$i", HOLD_X - 0.03f, lane, "bullet", "HZ_FIREBALL")
                             }
                             BossSfx.fire()
@@ -136,33 +160,35 @@ object Hazards {
                     }
                     "HZ_SPEAR" -> {
                         y = (actualY + ((pred - actualY) * 0.14f).toInt()).coerceIn(14, 86)
-                        val cy = cycle(20, w, hf); val ph = age % cy
+                        val cy = cycle(20 - (lv - 1) / 2, w, hf); val ph = age % cy
                         if (ph >= cy - 5) { chargeAt[elem.id] = tick; out += VisualTrackElement("chg_${tick}_${ph - (cy - 5) + 1}_1", HOLD_X, y, "fx", "HZ_CHARGE") }
                         if (ph == 0) {
                             shotAt[elem.id] = tick
                             out += VisualTrackElement("bullet_${tick}_hz${n}s0", HOLD_X - 0.03f, pred, "bullet", "HZ_SPEARSHOT")
-                            if (w <= -1) out += VisualTrackElement("bullet_${tick}_hz${n}s1", HOLD_X - 0.03f, (pred + (if (userY > pred) 12 else -12)).coerceIn(5, 95), "bullet", "HZ_SPEARSHOT")
+                            if (w <= -1 || lv >= 6) out += VisualTrackElement("bullet_${tick}_hz${n}s1", HOLD_X - 0.03f, (pred + (if (userY > pred) 12 else -12)).coerceIn(5, 95), "bullet", "HZ_SPEARSHOT")
+                            if (lv >= 10) out += VisualTrackElement("bullet_${tick}_hz${n}s2", HOLD_X - 0.03f, (pred + (if (userY > pred) -12 else 12)).coerceIn(5, 95), "bullet", "HZ_SPEARSHOT")
                             BossSfx.zap()
                         }
                     }
                     "HZ_ACID" -> {
                         y = (26 + (sin(age * 0.22f) * 14f).toInt()).coerceIn(10, 60)
-                        val cy = cycle(10, w, hf)
+                        val cy = cycle(10 - (lv - 1) / 3, w, hf)
                         if (age % cy == 0) {
                             shotAt[elem.id] = tick
-                            val c = if (w >= 2) 1 else if (w >= -1) 2 else 3
+                            val c = ((if (w >= 2) 1 else if (w >= -1) 2 else 3) + (lv - 1) / 3).coerceAtMost(6)
                             for (i in 0 until c) out += VisualTrackElement("bullet_${tick}_hz${n}a$i", HOLD_X - 0.03f - i * 0.02f, (y + 3 + i * 3).coerceIn(5, 95), "bullet", "HZ_ACIDDROP")
                             BossSfx.zap()
                         }
                     }
                     else -> {
-                        val cy = cycle(18, w, hf); val ph = age % cy
+                        val cy = cycle(18 - (lv - 1) / 2, w, hf); val ph = age % cy
                         if (ph >= cy - 4) { chargeAt[elem.id] = tick; out += VisualTrackElement("chg_${tick}_${ph - (cy - 4) + 1}_3", HOLD_X, y, "fx", "HZ_CHARGE") }
                         if (ph == 0) {
                             shotAt[elem.id] = tick
                             val land = pred.coerceIn(20, 84)
                             out += VisualTrackElement("bullet_${tick}_hz${n}r_$land", HOLD_X - 0.03f, land, "bullet", "HZ_BOULDER")
-                            if (w <= -1) out += VisualTrackElement("bullet_${tick}_hz${n}q_${(land + (if (land > 50) -18 else 18))}", HOLD_X - 0.05f, (land + (if (land > 50) -18 else 18)), "bullet", "HZ_BOULDER")
+                            if (w <= -1 || lv >= 6) out += VisualTrackElement("bullet_${tick}_hz${n}q_${(land + (if (land > 50) -18 else 18))}", HOLD_X - 0.05f, (land + (if (land > 50) -18 else 18)), "bullet", "HZ_BOULDER")
+                            if (lv >= 10) { val l3 = (land + (if (land > 50) -36 else 36)).coerceIn(4, 96); out += VisualTrackElement("bullet_${tick}_hz${n}p_$l3", HOLD_X - 0.07f, l3, "bullet", "HZ_BOULDER") }
                             BossSfx.fire()
                         }
                     }
