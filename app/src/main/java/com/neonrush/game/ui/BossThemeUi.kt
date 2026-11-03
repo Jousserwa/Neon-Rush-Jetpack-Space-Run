@@ -23,10 +23,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -36,13 +41,46 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.neonrush.game.BossSkins
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 private val BT_MONO = FontFamily.Monospace
 private val BT_RED = Color(0xFFFF5252)
 
 /**
- * Draws the equipped boss theme around the boss: an aura, a ring and orbiting pieces (different for each theme). Does nothing when no theme is equipped.
+ * The boss theme pictures (res/drawable bt1_halo, bt1_piece, bt1_crest, bt1_shot ... bt3_*; TOXIC BLOOM reuses hz_shot_acid for its shot). Decoded once on a background thread
+ * (see [preload], called from the home card and the Boss Themes page). A missing picture means that part is drawn by code, as before.
+ */
+object BtArt {
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, ImageBitmap>()
+    private val tried = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    fun halo(i: Int) = "bt${i + 1}_halo"
+    fun piece(i: Int) = "bt${i + 1}_piece"
+    fun crest(i: Int) = "bt${i + 1}_crest"
+    fun shot(i: Int) = if (i == 1) "hz_shot_acid" else "bt${i + 1}_shot"
+    fun preload(ctx: android.content.Context, themeIdx: Int) {
+        val app = ctx.applicationContext
+        for (n in listOf(halo(themeIdx), piece(themeIdx), crest(themeIdx), shot(themeIdx))) {
+            if (!tried.add(n)) continue
+            Thread {
+                try {
+                    val id = app.resources.getIdentifier(n, "drawable", app.packageName)
+                    if (id != 0) { val o = android.graphics.BitmapFactory.Options().apply { inScaled = false }; android.graphics.BitmapFactory.decodeResource(app.resources, id, o)?.let { cache[n] = it.asImageBitmap() } }
+                } catch (_: Throwable) { }
+            }.start()
+        }
+    }
+    fun get(n: String): ImageBitmap? = cache[n]
+}
+
+private fun DrawScope.btSprite(img: ImageBitmap, cx: Float, cy: Float, w: Float, alpha: Float) {
+    val hh = w * img.height / img.width
+    drawImage(img, dstOffset = IntOffset((cx - w / 2f).roundToInt(), (cy - hh / 2f).roundToInt()), dstSize = IntSize(w.roundToInt().coerceAtLeast(1), hh.roundToInt().coerceAtLeast(1)), alpha = alpha)
+}
+
+/**
+ * Draws the equipped boss theme around the boss. With the artwork: a big emblem ring behind/around the boss (turning slowly), four pieces orbiting it, and a crest on its head (VOID EMPEROR).
+ * Without the artwork it falls back to the old code-drawn aura, ring and pieces. Does nothing when no theme is equipped.
  * Called from the App canvas right after the boss itself is drawn. [h] = boss display height, [t] = smooth clock in seconds.
  */
 fun DrawScope.drawBossTheme(themeIdx: Int, c: Offset, h: Float, t: Float, alpha: Float = 1f) {
@@ -50,14 +88,29 @@ fun DrawScope.drawBossTheme(themeIdx: Int, c: Offset, h: Float, t: Float, alpha:
     val col = Color(th.accent)
     val a = alpha.coerceIn(0f, 1f)
     val pulse = 0.5f + 0.5f * sin(t * 3f)
+    val halo = BtArt.get(BtArt.halo(themeIdx)); val piece = BtArt.get(BtArt.piece(themeIdx)); val crest = BtArt.get(BtArt.crest(themeIdx))
     drawCircle(Brush.radialGradient(listOf(col.copy(alpha = (0.20f + 0.12f * pulse) * a), Color.Transparent), c, h * 0.95f), h * 0.95f, c)
-    drawCircle(col.copy(alpha = 0.55f * a), h * 0.62f, c, style = Stroke(h * 0.012f))
-    val n = 6
+    if (halo != null) {
+        val side = h * 1.95f * (if (themeIdx == 1) 1f + 0.03f * pulse else 1f)
+        val rot = when (themeIdx) { 0 -> t * 6f; 1 -> sin(t * 0.8f) * 4f; else -> -t * 9f }
+        rotate(rot, c) { btSprite(halo, c.x, c.y, side, a) }
+    } else {
+        drawCircle(col.copy(alpha = 0.55f * a), h * 0.62f, c, style = Stroke(h * 0.012f))
+    }
+    val n = if (piece != null) 4 else 6
     for (i in 0 until n) {
         val ang = t * (if (themeIdx == 1) 0.5f else 0.9f) + i * (6.2832f / n)
-        val r = h * (0.62f + (if (themeIdx == 1) 0.08f * sin(t * 2f + i) else 0f))
+        val r = h * ((if (halo != null) 0.98f else 0.62f) + (if (themeIdx == 1) 0.08f * sin(t * 2f + i) else 0f))
         val p = Offset(c.x + cos(ang) * r * 0.55f, c.y + sin(ang) * r)
         val s = h * 0.045f
+        if (piece != null) {
+            when (themeIdx) {
+                0 -> rotate(ang * 57.3f + 90f, p) { btSprite(piece, p.x, p.y, h * 0.30f, a) }                          // armour plates turn to face outward
+                1 -> btSprite(piece, p.x, p.y + sin(t * 2.4f + i * 1.7f) * h * 0.02f, h * 0.17f, a)                      // spore pods hang upright and bob
+                else -> rotate(sin(t + i) * 20f, p) { btSprite(piece, p.x, p.y, h * 0.16f, a) }                          // crown shards sway
+            }
+            continue
+        }
         when (themeIdx) {
             0 -> rotate(ang * 57.3f, p) {                       // armoured plates
                 drawRect(Color(0xFF455A64), Offset(p.x - s, p.y - s * 0.6f), Size(s * 2f, s * 1.2f))
@@ -74,14 +127,25 @@ fun DrawScope.drawBossTheme(themeIdx: Int, c: Offset, h: Float, t: Float, alpha:
             }
         }
     }
+    if (crest != null) btSprite(crest, c.x, c.y - h * 0.42f + sin(t * 2f) * h * 0.012f, h * 0.55f, a)
 }
 
-/** A glow behind a boss shot in the equipped theme's colour. No-op when none is equipped. */
-fun DrawScope.drawBossThemeShot(themeIdx: Int, x: Float, y: Float, ch: Float, t: Float) {
-    val th = BossSkins.THEMES.getOrNull(themeIdx) ?: return
+/**
+ * The boss shot in the equipped theme: a glow behind it, and (with the artwork) the theme's own shot picture. Returns true when the picture was drawn, so the caller skips the plain shot.
+ * [aimDeg] = the angle the shot is flying at, [scale] = the shot's size factor. The hit box is not changed.
+ */
+fun DrawScope.drawBossThemeShot(themeIdx: Int, x: Float, y: Float, ch: Float, t: Float, aimDeg: Float = 0f, scale: Float = 1f): Boolean {
+    val th = BossSkins.THEMES.getOrNull(themeIdx) ?: return false
     val col = Color(th.accent)
     val r = ch * (0.045f + 0.008f * sin(t * 12f))
     drawCircle(Brush.radialGradient(listOf(col.copy(alpha = 0.55f), Color.Transparent), Offset(x, y), r * 2f), r * 2f, Offset(x, y))
+    val img = BtArt.get(BtArt.shot(themeIdx)) ?: return false
+    val w = ch * 0.17f * scale
+    val hh = w * img.height / img.width
+    withTransform({ rotate(if (themeIdx == 1) 0f else aimDeg, Offset(x, y)) }) {
+        drawImage(img, dstOffset = IntOffset((x - w * 0.16f).roundToInt(), (y - hh / 2f).roundToInt()), dstSize = IntSize(w.roundToInt().coerceAtLeast(1), hh.roundToInt().coerceAtLeast(1)))
+    }
+    return true
 }
 
 /** Home-screen card for the Boss Themes (challenge skins). */
@@ -89,8 +153,10 @@ fun DrawScope.drawBossThemeShot(themeIdx: Int, x: Float, y: Float, ch: Float, t:
 fun BossThemeCard(onOpen: () -> Unit, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
     val eq = BossSkins.equipped(ctx)
+    LaunchedEffect(eq) { if (eq >= 0) BtArt.preload(ctx, eq) }
     val shape = RoundedCornerShape(16.dp)
-    Row(modifier.fillMaxWidth().clip(shape).background(Brush.horizontalGradient(listOf(Color(0xFF2A0B0B), Color(0xFF0B1536)))).border(2.dp, BT_RED.copy(alpha = 0.65f), shape).clickable { onOpen() }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.fillMaxWidth().clip(shape).background(Brush.horizontalGradient(listOf(Color(0xFF2A0B0B), Color(0xFF0B1536)))).border(2.dp, BT_RED.copy(alpha = 0.65f), shape).barFx(BT_RED, phase = 1).clickable { onOpen() }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        BarGlyph("☠", BT_RED)
         Column(Modifier.weight(1f)) {
             Text("BOSS THEMES", color = BT_RED, fontSize = 13.sp, fontWeight = FontWeight.Black, fontFamily = BT_MONO)
             Text(if (eq >= 0) "${BossSkins.THEMES[eq].name} active · tougher bosses, +40% gems" else "Opt-in challenge: a tougher boss that pays +40% gems", color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp, fontFamily = BT_MONO)
@@ -107,6 +173,7 @@ fun BossThemeDialog(testing: Boolean, onClose: () -> Unit, onBuy: (Int, (Boolean
     var busy by remember { mutableStateOf(false) }
     @Suppress("UNUSED_VARIABLE") val ver = BossSkins.version
     val eq = BossSkins.equipped(ctx)
+    LaunchedEffect(Unit) { for (k in BossSkins.THEMES.indices) BtArt.preload(ctx, k) }
     val inf = rememberInfiniteTransition(label = "bossTheme")
     val clock by inf.animateFloat(0f, 600f, infiniteRepeatable(tween(600_000, easing = LinearEasing)), label = "clock")
 
@@ -130,14 +197,14 @@ fun BossThemeDialog(testing: Boolean, onClose: () -> Unit, onBuy: (Int, (Boolean
                     val th = BossSkins.THEMES[i]; val own = BossSkins.owns(ctx, i); val on = eq == i
                     val col = Color(th.accent); val shape = RoundedCornerShape(14.dp)
                     Column(Modifier.fillMaxWidth().padding(top = 12.dp).clip(shape).background(Color.White.copy(alpha = 0.06f)).border(if (on) 2.dp else 1.dp, col.copy(alpha = if (on) 1f else 0.4f), shape).padding(10.dp)) {
-                        Canvas(Modifier.fillMaxWidth().height(120.dp)) {
+                        Canvas(Modifier.fillMaxWidth().height(190.dp)) {
                             val c = Offset(size.width / 2f, size.height / 2f)
                             // stand-in boss body: a dark hull the theme is drawn around
                             drawCircle(Color(0xFF1B1830), size.height * 0.26f, c)
                             drawCircle(col.copy(alpha = 0.5f), size.height * 0.26f, c, style = Stroke(2f))
                             drawCircle(Color.White.copy(alpha = 0.85f), size.height * 0.05f, Offset(c.x - size.height * 0.08f, c.y))
-                            drawBossTheme(i, c, size.height * 0.62f, clock)
-                            for (k in 0 until 2) drawBossThemeShot(i, size.width * (0.2f - 0.15f * ((clock * 0.8f + k * 0.5f) % 1f)) + size.width * 0.12f, c.y + (k - 0.5f) * size.height * 0.3f, size.height, clock)
+                            drawBossTheme(i, c, size.height * 0.52f, clock)
+                            for (k in 0 until 2) drawBossThemeShot(i, size.width * (0.42f - 0.30f * ((clock * 0.8f + k * 0.5f) % 1f)), c.y + (k - 0.5f) * size.height * 0.38f, size.height, clock)
                         }
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
                             Column(Modifier.weight(1f)) {
