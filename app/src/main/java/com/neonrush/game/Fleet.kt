@@ -152,7 +152,7 @@ object Fleet {
 
     private fun hurt(b: Body, d: Float) {
         b.hp -= d; b.flash = 0.25f
-        if (b.hp <= 0f && b.alive) { b.alive = false; lastDeadX = b.x; lastDeadY = b.y; deathSeq += 1 }
+        if (b.hp <= 0f && b.alive) { b.alive = false; lastDeadX = b.x; lastDeadY = b.y; deathSeq += 1; Roster.recordKill(b.sp) }
     }
 
     /** Air strikes and bombs: a fraction of the hull to every escort at once. Returns how many escorts were on the field. */
