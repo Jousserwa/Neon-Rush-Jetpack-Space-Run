@@ -300,7 +300,7 @@ fun ArmoryCard(isPro: Boolean, onBuyAmmo: (Int) -> Unit, onBolt: (String) -> Uni
     val shape = RoundedCornerShape(16.dp)
     Column(
         modifier.fillMaxWidth().clip(shape).background(Brush.verticalGradient(listOf(Color(0xFF14102E), Color(0xFF0B0820))))
-            .border(2.dp, Color(sel.argb).copy(alpha = 0.6f), shape).padding(12.dp)
+            .border(2.dp, Color(sel.argb).copy(alpha = 0.6f), shape).barFx(Color(sel.argb), phase = 3).padding(12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             val crate = rememberArt("ammo_crate")
