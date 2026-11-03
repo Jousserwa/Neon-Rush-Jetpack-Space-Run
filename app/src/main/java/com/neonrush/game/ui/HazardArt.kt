@@ -188,9 +188,11 @@ internal fun DrawScope.drawHazard(elem: VisualTrackElement, x: Float, y: Float, 
             "HZ_ACID" -> { idle = S.acidIdle; fire = S.acidFire }
             else -> { idle = S.rockIdle; fire = S.rockFire }
         }
-        val img = if (st >= 1 && fire != null) fire else idle
+        val img = if (st >= 1) (fire ?: idle) else (idle ?: fire)
+        val lv = Hazards.level(elem.id)
         if (img != null) {
-            val h = ch * 0.30f
+            val h = ch * 0.30f * (if (lv >= 10) 1.1f else 1f)
+            if (lv >= 10) { val pk = 0.5f + 0.5f * sin(time * 4f); val gr = h * 0.75f; drawCircle(androidx.compose.ui.graphics.Brush.radialGradient(listOf(Color(0xFFFFD54F).copy(alpha = 0.30f + 0.20f * pk), Color.Transparent), Offset(x, y), gr), gr, Offset(x, y)) }
             val bob = sin(time * 3f + elem.id.hashCode() % 7) * h * 0.02f
             val recoil = if (st == 2) h * 0.035f else 0f
             hzSprite(img, x + recoil, y + bob, h, Hazards.flashing(elem.id))
