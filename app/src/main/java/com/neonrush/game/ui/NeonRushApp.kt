@@ -1776,7 +1776,7 @@ fun ArcadeHomeView(
         }
          // Species Codex: the ten escort species
         SpeciesCodexCard(onOpen = { showSpCodex = true }, modifier = Modifier.padding(vertical = 4.dp))
-        if (showSpCodex) SpeciesCodexDialog(onClose = { showSpCodex = false })
+        if (showSpCodex) SpeciesCodexDialog(onClose = { showSpCodex = false }, onClaim = { viewModel.creditStormGems(it) })
         // Upgrade Bay: weapon + aircraft upgrades (one-time purchases)
         UpgradeBayCard(onOpen = { showUpgBay = true }, modifier = Modifier.padding(vertical = 4.dp))
         if (showUpgBay) {
@@ -1835,6 +1835,7 @@ fun ArcadeHomeView(
                     .fillMaxWidth()
                     .height(44.dp)
                     .border(1.dp, CyberSecondary, RoundedCornerShape(8.dp))
+                    .background(Color(0xFF0B0820), RoundedCornerShape(8.dp))
                     .background(CyberSecondary.copy(alpha = 0.10f), RoundedCornerShape(8.dp))
                     .clickable { onShowGhostSelection() }
                     .padding(horizontal = 12.dp),
@@ -1897,7 +1898,8 @@ fun ArcadeHomeView(
                         .weight(1f)
                         .then(if (isSelected) Modifier.homeGlow(homePulse, tierColor, 0.12f, 0.2f) else Modifier)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(if (isSelected) tierColor else tierColor.copy(alpha = 0.08f))
+                        .background(Color(0xFF0B0820))
+                        .background(if (isSelected) tierColor else tierColor.copy(alpha = 0.10f))
                         .border(1.dp, tierColor.copy(alpha = if (isSelected) 1f else if (isLocked) 0.2f else 0.45f), RoundedCornerShape(10.dp))
                         .clickable {
                             if (!isLocked) {
@@ -4559,8 +4561,8 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
             else -> 0f
         }
         val shotSize = when { elem.subType == "SNIPE" -> 1.35f; elem.subType == "CURT" -> 0.8f; elem.subType == "ECHO" -> 1.15f; elem.subType.startsWith("FAN") -> 0.9f; else -> 1f }
-        com.neonrush.game.BossSkins.active()?.let { drawBossThemeShot(com.neonrush.game.BossSkins.THEMES.indexOf(it), x, y, ch, fxClock.value) }
-        withTransform({ rotate(aimDeg, Offset(x, y)) }) {
+        val themedShot = com.neonrush.game.BossSkins.active()?.let { drawBossThemeShot(com.neonrush.game.BossSkins.THEMES.indexOf(it), x, y, ch, fxClock.value, aimDeg, shotSize) } ?: false
+        withTransform({ if (themedShot) scale(0f, 0f, Offset(x, y)) else rotate(aimDeg, Offset(x, y)) }) {
             if (RealmRules.isKnightZone(simState.currentZoneNumber) && elem.subType != "ECHO") drawKnightSword(knightSword, x, y, ch, fxClock.value, shotSize)
             else drawBossShot(if (elem.subType == "ECHO") 1 else (eliteShot?.base ?: (variant?.baseFamily ?: currentWorld.worldFamily)), x, y, ch, fxClock.value, elem.id.hashCode(), bulletImg, shotSize)
         }
