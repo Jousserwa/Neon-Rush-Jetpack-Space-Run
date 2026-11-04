@@ -1762,6 +1762,14 @@ fun ArcadeHomeView(
                 })
         }
           // Auto-Refill (Pro): refuels for you at 20% fuel when you hold 300+ gems
+        BombDepotCard(testing = TESTING_DISABLE_PRO_GATE, onBuy = { id, cb ->
+            val act = reviewActivity
+            if (TESTING_DISABLE_PRO_GATE) cb(true)   // testing: bomb products are free
+            else if (act == null) cb(false)
+            else RevenueCatManager.purchaseGemPack(act, id) { ok -> cb(ok) }
+        }, modifier = Modifier.padding(vertical = 4.dp))
+        ScoreExchangeCard(modifier = Modifier.padding(vertical = 4.dp))
+        MilShieldCard(gems = profile.gems, spend = { n, cb -> viewModel.spendStormGems(n, cb) }, modifier = Modifier.padding(vertical = 4.dp))
         AutoRefillCard(isPro = isPro, gems = profile.gems, onUpgrade = { showPlanPaywall = true }, modifier = Modifier.padding(vertical = 4.dp))
          // Boss Themes: opt-in challenge skins (tougher boss, +40% gems)
         BossThemeCard(onOpen = { showBossTheme = true }, modifier = Modifier.padding(vertical = 4.dp))
@@ -1796,7 +1804,7 @@ fun ArcadeHomeView(
                     val act = reviewActivity
                     if (TESTING_DISABLE_PRO_GATE) { com.neonrush.game.NrUpgrades.apply(proCtx, track, step); cb(true) }   // testing: free
                     else if (act == null) cb(false)
-                    else RevenueCatManager.purchaseGemPack(act, com.neonrush.game.NrUpgrades.productId(track, step)) { ok -> if (ok) com.neonrush.game.NrUpgrades.apply(proCtx, track, step); cb(ok) }
+                    else RevenueCatManager.purchaseGemPack(act, if (track == com.neonrush.game.NrUpgrades.WING && step == 2 && com.neonrush.game.NrUpgrades.level(proCtx, track) == 1) "neonrush_wing_up" else com.neonrush.game.NrUpgrades.productId(track, step)) { ok -> if (ok) com.neonrush.game.NrUpgrades.apply(proCtx, track, step); cb(ok) }
                 },
                 onBuySkin = { i, cb ->
                     val act = reviewActivity
@@ -1804,7 +1812,8 @@ fun ArcadeHomeView(
                     if (TESTING_DISABLE_PRO_GATE || pid == null) { com.neonrush.game.Wingman.applySkinPurchase(proCtx, i); cb(true) }
                     else if (act == null) cb(false)
                     else RevenueCatManager.purchaseGemPack(act, pid) { ok -> if (ok) com.neonrush.game.Wingman.applySkinPurchase(proCtx, i); cb(ok) }
-                })
+                },
+                credit = { g -> viewModel.creditStormGems(g) }, spend = { n, cb -> viewModel.spendStormGems(n, cb) })
         }
         // World Echo Boss: this week's returning boss + twist
         WorldEchoCard(isPro = isPro, modifier = Modifier.padding(vertical = 4.dp))
@@ -2789,6 +2798,8 @@ fun DailyCrateDialog(profile: GameProfile, isPro: Boolean, viewModel: NeonRushVi
     val ready = DailyCrate.isReady(profile, isPro)
     val noAd = isPro || profile.adsRemoved
     val openedToday = DailyCrate.cratesOpenedToday(profile)
+    var charging by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val bob by rememberInfiniteTransition(label = "crateBob").animateFloat(
         initialValue = -6f, targetValue = 6f,
         animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "bob"
@@ -2814,10 +2825,10 @@ fun DailyCrateDialog(profile: GameProfile, isPro: Boolean, viewModel: NeonRushVi
         ) {
             val res = result
             if (res == null) {
-                Text("🎁", fontSize = 64.sp, modifier = Modifier.offset(y = bob.dp))
+                CrateStage(charging = charging, opened = false)
                 Text("DAILY CRATE", color = gold, fontWeight = FontWeight.Black, fontSize = 20.sp, fontFamily = FontFamily.Monospace)
                 Text(
-                    "Gems, hull shards or a quote. Collect shards to unlock hulls for free.",
+                    "2-3 gems, 2 bombs, an airstrike call or 2 military shields. Hull shards too.",
                     color = CyberOnSurface.copy(alpha = 0.8f), fontSize = 12.sp, textAlign = TextAlign.Center,
                     modifier = Modifier.padding(vertical = 8.dp)
                 )
@@ -2826,6 +2837,8 @@ fun DailyCrateDialog(profile: GameProfile, isPro: Boolean, viewModel: NeonRushVi
                     "🔥 Crate streak: $streak day${if (streak == 1) "" else "s"}  •  every 7th day is a bonus",
                     color = CyberPrimary, fontSize = 11.sp, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center
                 )
+                WeekPips(days = com.neonrush.game.CrateWeek.days(LocalContext.current), modifier = Modifier.padding(top = 8.dp))
+                BonusWheelButton(credit = { viewModel.creditStormGems(it) })
                 Spacer(Modifier.height(10.dp))
                 // Shard progress for hulls not yet owned
                 val owned = profile.unlockedSkinsCsv.split(",").toSet()
@@ -2852,7 +2865,8 @@ fun DailyCrateDialog(profile: GameProfile, isPro: Boolean, viewModel: NeonRushVi
                     Button(
                         onClick = {
                             if (noAd) {
-                                viewModel.openDailyCrate(isPro)
+                                charging = true
+                                scope.launch { delay(650); viewModel.openDailyCrate(isPro) }
                             } else {
                                 activity?.let { act ->
                                     AdMobManager.showRewardedIfReady(act, RewardedSlot.DAILY_CRATE) {
@@ -2889,33 +2903,9 @@ fun DailyCrateDialog(profile: GameProfile, isPro: Boolean, viewModel: NeonRushVi
                     )
                 }
             } else {
-                PilotPose(Pose.THUMB, 144.dp, Modifier.graphicsLayer(scaleX = reveal.value, scaleY = reveal.value))
-                if (res.isStreakBonus) {
-                    Text(res.message ?: "", color = gold, fontWeight = FontWeight.Black, fontSize = 14.sp, textAlign = TextAlign.Center)
-                }
-                if (res.gems > 0) {
-                    Text("+${res.gems} 💎", color = CyberPrimary, fontWeight = FontWeight.Black, fontSize = 26.sp, fontFamily = FontFamily.Monospace)
-                }
-                if (res.shardHullId != null && res.shardCount > 0) {
-                    Text(
-                        "+${res.shardCount} 🧩 ${hullName(res.shardHullId)} shards",
-                        color = gold, fontWeight = FontWeight.Bold, fontSize = 16.sp, textAlign = TextAlign.Center
-                    )
-                }
-                if (res.unlockedHullId != null) {
-                    Text(
-                        "🎊 ${hullName(res.unlockedHullId)} UNLOCKED!",
-                        color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp, textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                }
-                if (!res.isStreakBonus && res.message != null) {
-                    Text(
-                        "“${res.message}”",
-                        color = CyberOnSurface.copy(alpha = 0.9f), fontSize = 13.sp, textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                }
+                CrateStage(charging = false, opened = true)
+                CrateReveal(res = res, hullName = { hullName(it) })
+                BonusWheelButton(credit = { viewModel.creditStormGems(it) })
                 Spacer(Modifier.height(16.dp))
                 Button(
                     onClick = { close() },
@@ -3833,6 +3823,8 @@ val puScoreX5Img = ImageBitmap.imageResource(id = R.drawable.powerup_score_x5)
 val puInvincibilityImg = ImageBitmap.imageResource(id = R.drawable.powerup_invincibility)
 val puBoomClearImg = ImageBitmap.imageResource(id = R.drawable.powerup_boom_clear)
 val puShrinkImg = ImageBitmap.imageResource(id = R.drawable.powerup_shrink)
+val puMilImg = rememberArt("pu_mil") ?: puShieldImg          // military shield pickup art (res/drawable/pu_mil)
+val puPillImg = rememberArt("pu_pill") ?: puShrinkImg        // healing pill pickup art (res/drawable/pu_pill)
 val puLaneWarpImg = ImageBitmap.imageResource(id = R.drawable.powerup_lane_warp)
 val puZoneSkipImg = ImageBitmap.imageResource(id = R.drawable.powerup_zone_skip)
 val puLegendaryAuraImg = ImageBitmap.imageResource(id = R.drawable.powerup_legendary_aura)
@@ -4199,6 +4191,8 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                                 "powerup" -> {
     val puImg = when (elem.subType) {
         "PU1" -> puShieldImg
+        "PU13" -> puMilImg
+        "PU14" -> puPillImg
         "PU2" -> puMagnetImg
         "PU3" -> puTimeSlowImg
         "PU4" -> puGhostImg
@@ -4815,6 +4809,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                                 if (pilotAlpha < 0.999f) drawIntoCanvas { cv -> cv.restore() }
                                 // layered pilot shield: wraps the pilot, one ring per hit left
                                 drawPilotShield(simState.shieldLayers, userX, userY, displayHeight, displayWidth, fxClock.value)
+                                drawMilShield(userX, userY, displayHeight, displayWidth, fxClock.value)
                             }
                         }
                         drawPickupBurst(userX, userY, displayHeight)
@@ -4904,7 +4899,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                     onBombSweep = { viewModel.bombSweep() }, onBombBoss = { d -> viewModel.bombBoss(d) }) // boss lunge + brood + brood bomb
                 com.neonrush.game.ui.WingmanOverlay(active = simState.isStarted && !simState.isCompleted, bossActive = simState.bossActive, bossY = simState.bossY, pilotY = simState.userYPos,
                     hullPct = simState.fuelLevelPercent, testing = TESTING_DISABLE_PRO_GATE, bossZoneOk = com.neonrush.game.Wingman.unlocked(simState.currentZoneNumber),
-                    onShot = { m -> viewModel.damageBoss(Shooting.BOSS_DAMAGE * m) }, onClear = { y -> viewModel.wingClear(y) }) // combat wingman
+                    onShot = { m -> viewModel.damageBoss(Shooting.BOSS_DAMAGE * m) }, onClear = { y -> viewModel.wingClear(y) }, elements = simState.activeTrackElements, onCollect = { y -> viewModel.wingCollect(y) }, onUpgrade = { android.widget.Toast.makeText(activity ?: return@WingmanOverlay, "Open the Combat Wingman card on the home screen to go ELITE", android.widget.Toast.LENGTH_LONG).show() }) // combat wingman
                 com.neonrush.game.ui.LanceOverlay(active = simState.isStarted && !simState.isCompleted, bossActive = simState.bossActive, bossY = simState.bossY, pilotY = simState.userYPos,
                     onLance = { f -> viewModel.lanceBoss(f) }) // pulse lance: cells + point-blank button
                 ShootingOverlay(elements = simState.activeTrackElements, pilotY = simState.userYPos, bossActive = simState.bossActive, bossY = simState.bossY,
@@ -4916,6 +4911,8 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                     bossActive = simState.bossActive, bossY = simState.bossY, pilotY = simState.userYPos, fuel = simState.fuelLevelPercent, shields = simState.shieldLayers,
                     onGoPro = { airPaywall = true }, onBossStrike = { d -> viewModel.airBossStrike(d) }, onSweep = { x -> viewModel.airSweep(x) },
                     onScore = { n -> viewModel.addBonusScore(n) }) // Air Support: radio call, gunship / jet sortie, missiles
+                DangerPromptOverlay(active = simState.isStarted && !simState.isCompleted, fuel = simState.fuelLevelPercent, shields = simState.shieldLayers, bossActive = simState.bossActive, gems = profile.gems, spend = { n, cb -> viewModel.spendStormGems(n, cb) }) // smart danger prompt (0.5 s buy chip)
+                MilShieldOverlay(active = simState.isStarted && !simState.isCompleted) // military shield: damage bar + MIL button
                 PauseOverlay(active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, isPro = isPro || TESTING_DISABLE_PRO_GATE, bossActive = simState.bossActive) // limited pause + 3-2-1 + auto-pause when the app is left
 
                 // Invisible onboarding: non-blocking contextual prompts.
