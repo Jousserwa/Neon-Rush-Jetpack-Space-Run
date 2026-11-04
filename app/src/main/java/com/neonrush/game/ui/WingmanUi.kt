@@ -1,6 +1,9 @@
 package com.neonrush.game.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -70,7 +73,7 @@ internal fun droneAt(c: Offset, hgt: Float, t: Float, k: Int): Offset =
 @Composable
 fun WingmanOverlay(
     active: Boolean, bossActive: Boolean, bossY: Int, pilotY: Int, hullPct: Int, testing: Boolean, bossZoneOk: Boolean,
-    onShot: (Float) -> Unit, onClear: (Int) -> Int, modifier: Modifier = Modifier
+    onShot: (Float) -> Unit, onClear: (Int) -> Int, elements: List<com.neonrush.game.VisualTrackElement> = emptyList(), onUpgrade: () -> Unit = {}, onCollect: (Int) -> Int = { 0 }, modifier: Modifier = Modifier
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val sfx = remember { NeonSoundEngine() }
@@ -95,23 +98,44 @@ fun WingmanOverlay(
     var bannerAge by remember { mutableStateOf(-1f) }
     var severe by remember { mutableStateOf(false) }
     var weapon by remember { mutableStateOf(-1) }
+    var phase by remember { mutableStateOf(0) }            // 0 waiting, 1 fighting, 2 reloading
+    var sortieNo by remember { mutableStateOf(0) }
+    var reloadLeft by remember { mutableStateOf(0f) }
+    var fromHazard by remember { mutableStateOf(false) }   // started outside a boss fight (3+ hazards attacking)
+    var cycleCd by remember { mutableStateOf(0f) }
+    var attackNow by remember { mutableStateOf(false) }
+    var hurt by remember { mutableStateOf(0f) }
+    val elemsRef = rememberUpdatedState(elements)
+    val hitIds = remember { HashSet<String>() }
     var weaponLeft by remember { mutableStateOf(0f) }
     val sorties = Wingman.sorties(ctx, testing)
     val unlocked = testing || bossZoneOk
     val left = sorties - Wingman.usedRound
+    val tier = Wingman.tier(ctx, testing)
+    val hazLeft = Wingman.hazardLeft(ctx, testing)
+    val previewOk = tier == 0 && bossZoneOk && !WingmanPerks.previewUsed(ctx)   // one free call at zone 30
+    val collectRef = rememberUpdatedState(onCollect)
     val skin = Wingman.SKINS[Wingman.equippedSkin(ctx)]
 
-    fun launch() {
-        if (Wingman.active || left <= 0) return
-        Wingman.usedRound += 1; Wingman.active = true; Wingman.left = Wingman.length(); entry = 0f
+    fun startSortie() {
+        Wingman.active = true; Wingman.left = Wingman.FIGHT_S; entry = 0f; phase = 1
         wy = yRef.value.toFloat(); wx = -0.1f; weapon = -1; crates.clear()
-        banner = "WINGMAN IN · ${Wingman.length().toInt()}s"; bannerAge = 0f; sfx.playAirRadio(true); sfx.playBossCharge()
+        banner = "WINGMAN IN · ${sortieNo}/${Wingman.SORTIES_PER_CALL}"; bannerAge = 0f; sfx.playAirRadio(true); sfx.playBossCharge()
+    }
+    fun launch() {
+        if (Wingman.active || phase != 0 || Wingman.hp <= 0f) return
+        if (previewOk) { WingmanPerks.usePreview(ctx); fromHazard = !bossRef.value; sortieNo = 1; startSortie(); return }
+        if (bossRef.value) { if (left <= 0) return; Wingman.usedRound += 1; fromHazard = false }
+        else { if (cycleCd > 0f || Wingman.hazardLeft(ctx, testing) <= 0) return; fromHazard = true; Wingman.hazardUsed += 1 }
+        sortieNo = 1; startSortie()
     }
 
     LaunchedEffect(active) {
-        Wingman.reset(); tracers.clear(); crates.clear(); weapon = -1
+        Wingman.reset(); tracers.clear(); crates.clear(); weapon = -1; phase = 0; sortieNo = 0; cycleCd = 0f; hitIds.clear()
         if (!active) return@LaunchedEffect
         com.neonrush.game.NrUpgrades.refresh(ctx)
+        if (tier > 0 && WingmanPerks.dailyPill(ctx)) { banner = "DAILY WINGMAN PILL +1 💊"; bannerAge = 0f }
+        var collectCd = 0f; var screenCd = 0f
         var last = 0L; var fireCd = 0f; var clearCd = 0f; var crateIn = 5f; var seenPilotShot = Wingman.pilotShotSeq
         while (true) {
             val now = withFrameNanos { it }
@@ -121,11 +145,41 @@ fun WingmanOverlay(
             val boss = bossRef.value
             Wingman.syncRound(Siege.zone * 100 + Siege.round)
             severe = boss && (hullRef.value <= 60 || BossLunge.vulnerable || Fleet.bodies.any { it.alive && (it.tel > 0f || it.diving) })
-            if (!boss && Wingman.active) { Wingman.active = false; crates.clear(); banner = "WINGMAN OUT"; bannerAge = 0f }
+            if (!boss && !fromHazard && phase != 0) { Wingman.active = false; phase = 0; crates.clear(); banner = "WINGMAN OUT"; bannerAge = 0f }
+            run {   // attack sensing: a boss is attacking, or more than 2 hazards / bullets are on the way
+                var th = 0
+                for (e in elemsRef.value) if ((e.type == "obstacle" || e.type == "bullet") && e.xOffsetFraction in 0f..1.1f) th++
+                attackNow = boss || th >= 2
+            }
+            if (cycleCd > 0f) cycleCd -= dt
+            if (hurt > 0f) hurt = (hurt - dt * 3f).coerceAtLeast(0f)
+            if (!Wingman.active) Wingman.hp = (Wingman.hp + dt * 0.5f).coerceAtMost(100f)   // slow field repair while it waits
+            if (phase == 2) { reloadLeft -= dt; if (reloadLeft <= 0f) { sortieNo += 1; startSortie() } }
             val w = sz.width.toFloat(); val h = sz.height.toFloat()
             if (Wingman.active && w > 0f) {
                 Wingman.left -= dt; entry = (entry + dt * 1.8f).coerceAtMost(1f)
-                if (Wingman.left <= 0f) { Wingman.active = false; crates.clear(); banner = "WINGMAN RETURNS TO BASE"; bannerAge = 0f; sfx.playAirRadio(false) }
+                // the wingman can be hit by anything that flies through it
+                if (entry >= 1f) {
+                    for (e in elemsRef.value) {
+                        if ((e.type == "obstacle" || e.type == "bullet") && abs(e.xOffsetFraction - wx) < 0.05f && abs(e.yMatchPos - wy) < 8f && hitIds.add(e.id)) {
+                            Wingman.hp = (Wingman.hp - (if (e.subType == "DRONE_SHOT") 4f else 9f)).coerceAtLeast(0f); hurt = 1f; sfx.playCollision()
+                        }
+                    }
+                    if (hitIds.size > 300) hitIds.clear()
+                    if (Wingman.hp <= 0f) { Wingman.active = false; phase = 0; crates.clear(); banner = "WINGMAN DOWN · USE A PILL"; bannerAge = 0f; if (fromHazard) cycleCd = 20f }
+                }
+                if (Wingman.active && Wingman.left <= 0f) {
+                    Wingman.active = false; crates.clear(); sfx.playAirRadio(false)
+                    if (tier == 2) { WingmanRank.addXp(ctx, 10); if (sortieNo >= Wingman.SORTIES_PER_CALL) WingmanContracts.add(ctx, WingmanContracts.CALLS, 1) }
+                    if (sortieNo >= Wingman.SORTIES_PER_CALL) { phase = 0; if (fromHazard) cycleCd = 20f; banner = "WINGMAN DONE · READY FOR NEXT ATTACK" }
+                    else {
+                        phase = 2; reloadLeft = Wingman.RELOAD_S
+                        // repair while reloading: a pill if it is hurt, otherwise a small field repair
+                        if (Wingman.hp < 70f && Wingman.usePill(ctx)) banner = "RELOADING · 💊 +${Wingman.PILL_HEAL.toInt()}%"
+                        else { Wingman.hp = (Wingman.hp + 8f).coerceAtMost(100f); banner = "WINGMAN RELOADING" }
+                    }
+                    bannerAge = 0f
+                }
                 // ordnance crates drift in; the wingman steers to the nearest one by itself
                 crateIn -= dt
                 if (crateIn <= 0f && crates.size < 2) { crateIn = Random.nextFloat() * 3f + 5f; crates.add(Crate(1.05f, Random.nextFloat() * 70f + 15f, Random.nextInt(3))) }
@@ -156,7 +210,7 @@ fun WingmanOverlay(
                 if (entry >= 1f && (fireCd <= 0f || (pilotFired && fireCd < gapNow * 0.6f))) {
                     fireCd = gapNow
                     val hgt = h * 0.2f; val cpx = Offset(wx * w, wy / 100f * h)
-                    val mulW = Wingman.damageMul() * (if (weapon == 0) 3f else if (weapon == 2) 6f else 1f)
+                    val mulW = Wingman.damageMul() * Wingman.focusMul(sortieNo, Wingman.FIGHT_S - Wingman.left) * (if (weapon == 0) 3f else if (weapon == 2) 6f else 1f)
                     val col = if (weapon >= 0) Color(Wingman.ORD_COLS[weapon]) else Color(skin.accent)
                     val tgt = Fleet.bodies.filter { it.alive }.minByOrNull { abs(it.y - wy) }
                     val bx = 0.88f + BossLunge.shift + Fleet.dx; val by = bossYRef.value.toFloat()
@@ -172,7 +226,17 @@ fun WingmanOverlay(
                 if (weapon == 1) { weaponLeft -= dt; if (weaponLeft <= 0f) weapon = -1 }
                 // clear the lane in front of it
                 clearCd -= dt
-                if (clearCd <= 0f) { clearCd = 0.9f; if (clearRef.value(wy.toInt()) > 0) sfx.playSmash() }
+                if (clearCd <= 0f) {
+                    clearCd = 0.9f
+                    val n = clearRef.value(wy.toInt())
+                    if (n > 0) { sfx.playSmash(); if (tier == 2) { WingmanContracts.add(ctx, WingmanContracts.CLEAR, n); WingmanRank.addXp(ctx, n) } }
+                }
+                // COLLECTOR: grabs gems and fuel in its lane
+                collectCd -= dt
+                if (collectCd <= 0f) { collectCd = 0.6f; val g = collectRef.value(wy.toInt()); if (g > 0) { sfx.playArmorPickup(); if (tier == 2) WingmanContracts.add(ctx, WingmanContracts.COLLECT, g) } }
+                // BULLET SCREEN (Elite): takes one enemy shot per second for the pilot, and pays for it in hull
+                screenCd -= dt
+                if (tier == 2 && screenCd <= 0f && entry >= 1f) { screenCd = 1f; if (clearRef.value(yRef.value) > 0) { Wingman.hp = (Wingman.hp - 4f).coerceAtLeast(0f); hurt = 1f } }
             }
             val ti = tracers.iterator(); while (ti.hasNext()) { val t = ti.next(); t.age += dt; if (t.age > 0.14f) ti.remove() }
             if (bannerAge >= 0f) { bannerAge += dt; if (bannerAge > 2.2f) bannerAge = -1f }
@@ -193,12 +257,34 @@ fun WingmanOverlay(
             for (c in crates) drawCrate(Offset(c.x * w, c.y / 100f * h), h * 0.03f, c.kind, c.age)
             if (Wingman.active) {
                 val label = if (weapon >= 0) Wingman.ORD_NAMES[weapon] else "WINGMAN"
-                drawWingmanPilot(Offset(wx * w, wy / 100f * h), h * 0.2f, frames[(clock * 10f).toInt() % frames.size], custom, clock, skin, Wingman.arms(), Wingman.drones(), tilt, Wingman.left / Wingman.length(), label, tm)
+                drawWingmanPilot(Offset(wx * w, wy / 100f * h), h * 0.2f, frames[(clock * 10f).toInt() % frames.size], custom, clock, skin, Wingman.arms(), Wingman.drones(), tilt, Wingman.left / Wingman.FIGHT_S, label, tm)
+                val cpw = Offset(wx * w, wy / 100f * h); val hh = h * 0.2f; val bw2 = hh * 0.9f; val by2 = cpw.y + hh * 0.66f
+                val hpF = (Wingman.hp / 100f).coerceIn(0f, 1f)
+                drawRect(Color.Black.copy(alpha = 0.6f), Offset(cpw.x - bw2 / 2f, by2), Size(bw2, 5.dp.toPx()))
+                drawRect(if (hpF > 0.6f) Color(0xFF69F0AE) else if (hpF > 0.3f) Color(0xFFFFB74D) else Color(0xFFFF5252), Offset(cpw.x - bw2 / 2f, by2), Size(bw2 * hpF, 5.dp.toPx()))
+                if (hurt > 0f) drawCircle(Color(0xFFFF5252).copy(alpha = 0.35f * hurt), hh * 0.55f, cpw)
             }
         }
-        if (unlocked && (severe || testing) && bossActive && !Wingman.active && left > 0) {
-            GameButton(BtnKind.OVER, 58.dp, Color(skin.accent), "WINGMAN", "x$left", 1f, true, false, { launch() },
+        if (phase == 2) {
+            androidx.compose.material3.Text("WINGMAN RELOADING ${kotlin.math.ceil(reloadLeft.toDouble()).toInt()}s · ${sortieNo}/${Wingman.SORTIES_PER_CALL}", color = Color(skin.accent).copy(alpha = 0.55f + 0.45f * abs(sin(clock * 5f))),
+                fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 150.dp, bottom = 110.dp))
+        }
+        val pillCount = Wingman.pills(ctx)
+        if (pillCount > 0 && Wingman.hp < 100f) {
+            androidx.compose.material3.Text("💊 ×$pillCount  HEAL ${Wingman.hp.toInt()}%", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 150.dp, bottom = 168.dp)
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp)).background(Color(0xCC0B2A1C))
+                    .clickable { if (Wingman.usePill(ctx)) { banner = "WINGMAN HEALED +${Wingman.PILL_HEAL.toInt()}%"; bannerAge = 0f } }.padding(horizontal = 10.dp, vertical = 6.dp))
+        }
+        if (unlocked && attackNow && phase == 0 && !Wingman.active && Wingman.hp > 0f && (previewOk || (if (bossActive) left > 0 else hazLeft > 0)) && !(bossActive && BossLunge.vulnerable) && cycleCd <= 0f) {
+            GameButton(BtnKind.OVER, 58.dp, Color(skin.accent), "WINGMAN", if (previewOk) "FREE" else if (bossActive) "x$left" else if (hazLeft == Int.MAX_VALUE) "∞" else "x$hazLeft", 1f, true, false, { launch() },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = 164.dp, bottom = 96.dp))
+        }
+        if (unlocked && tier == 1 && attackNow && !bossActive && phase == 0 && !Wingman.active && hazLeft <= 0) {
+            androidx.compose.material3.Text("WINGMAN OUT · GO ELITE (unlimited)", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 150.dp, bottom = 100.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                    .background(Color(skin.accent)).clickable { onUpgrade() }.padding(horizontal = 10.dp, vertical = 7.dp))
         }
         if (bannerAge >= 0f) {
             androidx.compose.material3.Text(banner, color = Color(skin.accent), fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace,
