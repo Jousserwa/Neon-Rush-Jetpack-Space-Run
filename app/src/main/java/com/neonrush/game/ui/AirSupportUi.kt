@@ -105,6 +105,7 @@ fun AirSupportOverlay(
     var chain by remember { mutableStateOf(listOf(false)) }
     var menuOpen by remember { mutableStateOf(false) }
     var seenBonus by remember { mutableStateOf(AirSupport.bonusSeq) }
+    var armedLatch by remember { mutableStateOf(false) }   // once the button is offered it stays until you press it
 
     val radioLen = 3.7f
     val flyLen = (if (jet) 7.0f else 9.0f) * (if (flightIdx > 0) 0.75f else 1f)
@@ -112,7 +113,7 @@ fun AirSupportOverlay(
     // ---------- watcher: counts failed attempts and heavy attacks, offers the call ----------
     LaunchedEffect(active) {
         if (!active) return@LaunchedEffect
-        AirSupport.newRun(); stage = 0
+        AirSupport.newRun(); stage = 0; armedLatch = false
         var lastDef = false; var lastFuel = fuelRef.value; var lastSh = shRef.value; var lastFail = 0L; var wasOffered = false
         val hits = ArrayList<Long>()
         while (true) {
@@ -133,6 +134,7 @@ fun AirSupportOverlay(
             val off = AirSupport.offered(tierName, bossRef.value)
             if (off && !wasOffered && stage == 0) { sfx.playAirLock(); banner = if (isPro) "BACKUP AVAILABLE" else "AIR SUPPORT (PRO) AVAILABLE"; bannerAge = 0f }
             wasOffered = off
+            if (off) armedLatch = true
             tick += 1
         }
     }
@@ -141,6 +143,7 @@ fun AirSupportOverlay(
         demo = asDemo; callId = id; flightIdx = 0
         chain = if (asDemo) listOf(Random.nextBoolean()) else AirSupport.chainFor(ctx, id)
         jet = chain[0]
+        armedLatch = false
         parts.clear(); tracers.clear(); missiles.clear(); booms.clear()
         st = 0f; stage = 1; speaker = ""; lineText = ""; acX = -1f; flash = 0f; struck = 0f
         AirSupport.phase = if (asDemo) 0 else 1
@@ -290,12 +293,12 @@ fun AirSupportOverlay(
     @Suppress("UNUSED_VARIABLE") val tk = tick
     Box(modifier.fillMaxSize().onSizeChanged { sz = it }) {
         // -------- call button + the seven-call menu --------
-        if (stage == 0 && offered) {
+        if (stage == 0 && (offered || armedLatch)) {
             val cd = AirSupport.cooldownLeftMs()
             val stock = com.neonrush.game.AirSupport.calls(ctx); val free = AirSupport.freeAvailable(ctx, isPro)
             val ready = cd == 0L
             val inf = androidx.compose.animation.core.rememberInfiniteTransition(label = "airBtn")
-            val pulse by inf.animateFloat(0.55f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(700), androidx.compose.animation.core.RepeatMode.Reverse), label = "p")
+            val pulse by inf.animateFloat(0.35f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1000), androidx.compose.animation.core.RepeatMode.Reverse), label = "p")
             val accent = if (!isPro) Color(0xFFB388FF) else if (ready) Color(0xFF69F0AE) else Color(0xFF8A8A9A)
             val have = stock + (if (free) 1 else 0)
             Column(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, bottom = 20.dp), horizontalAlignment = Alignment.Start) {
@@ -316,7 +319,7 @@ fun AirSupportOverlay(
                     )
                 }
                 Column(
-                    Modifier.clip(RoundedCornerShape(14.dp)).background(Color(0xE6080620))
+                    Modifier.graphicsLayer(alpha = if (menuOpen) 1f else 0.55f + 0.45f * pulse).clip(RoundedCornerShape(14.dp)).background(Color(0xE6080620))
                         .border(2.dp, accent.copy(alpha = if (ready) pulse else 0.5f), RoundedCornerShape(14.dp))
                         .clickable {
                             if (!isPro) { if (AirSupport.teaserShown) onGoPro() else { AirSupport.teaserShown = true; start(true) } }
