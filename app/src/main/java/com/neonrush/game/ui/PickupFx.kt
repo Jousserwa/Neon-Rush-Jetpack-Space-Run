@@ -52,6 +52,8 @@ object PickupFx {
         "PU10" -> Color(0xFF00E5FF)
         "PU11" -> Color(0xFFE040FB)
         "PU12" -> Color(0xFFFFFFFF)
+        "PU13" -> Color(0xFFFFC400)
+        "PU14" -> Color(0xFF00E676)
         "FUEL" -> Color(0xFF00FF88)
         else -> Color(0xFFFFFFFF)
     }
@@ -114,7 +116,7 @@ fun DrawScope.drawPickupHalo(id: String, x: Float, y: Float, size: Float, tick: 
     val pi = PI.toFloat()
     fxGlow(c, size * (0.85f + 0.12f * p), col, 0.30f + 0.12f * p)
     when (id) {
-        "PU1" -> {
+        "PU1", "PU13" -> {
             val path = Path()
             for (k in 0..5) {
                 val ang = t * 1.2f + k * (pi / 3f)
@@ -371,7 +373,7 @@ fun DrawScope.drawPickupBurst(x: Float, y: Float, h: Float) {
             }
             glow(c, h * 0.7f, col, 0.22f * sin(f * PI.toFloat()))
         }
-        "PU1" -> {
+        "PU1", "PU13" -> {
             // shield: a hexagon snaps around the pilot
             val hr = h * (0.55f + 0.2f * ease)
             val path = androidx.compose.ui.graphics.Path()
