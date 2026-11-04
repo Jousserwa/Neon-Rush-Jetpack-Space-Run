@@ -76,7 +76,8 @@ fun WingmanCard(bestZone: Int, testing: Boolean, onOpen: () -> Unit, modifier: M
  * [onBuy] (track, step, callback) and [onBuySkin] (index, callback) start the store purchase (the caller applies it and answers true/false).
  */
 @Composable
-fun WingmanPageDialog(bestZone: Int, testing: Boolean, onClose: () -> Unit, onBuy: (Int, Int, (Boolean) -> Unit) -> Unit, onBuySkin: (Int, (Boolean) -> Unit) -> Unit) {
+fun WingmanPageDialog(bestZone: Int, testing: Boolean, onClose: () -> Unit, onBuy: (Int, Int, (Boolean) -> Unit) -> Unit, onBuySkin: (Int, (Boolean) -> Unit) -> Unit,
+    credit: (Int) -> Unit = {}, spend: (Int, (Boolean) -> Unit) -> Unit = { _, cb -> cb(false) }) {
     val ctx = LocalContext.current
     val dens = LocalDensity.current.density
     val tm = rememberTextMeasurer()
@@ -143,12 +144,36 @@ fun WingmanPageDialog(bestZone: Int, testing: Boolean, onClose: () -> Unit, onBu
                 Spacer(Modifier.height(10.dp))
                 Section("HOW IT WORKS")
                 for (l in listOf("A real copy of your pilot in a military suit, with a rifle, jet-pack and gunship drones.", "It flies beside you and moves when you move, shoots by itself and every time you shoot.",
-                    "It collects its own ordnance crates: rocket pod, minigun, ion cannon.", "Call it in a boss fight when the attack gets severe (hull 60% or less, a lunge, a hunter dive).", "Sorties per boss round: \$4.99 gives 1, \$9.99 gives 2. Each sortie lasts ${Wingman.length().toInt()}+ seconds.")) Bullet(l)
-                Section("SORTIES (one-time)")
+                    "It collects its own ordnance crates: rocket pod, minigun, ion cannon.", "Its button appears whenever a boss attacks, or 2 or more hazards attack at once. Each call = 3 sorties of 3 seconds, with a 2 second reload between them.", "Its shots grow stronger during a call (focus fire). Boss shields still stop its bullets, and it cannot stop blink strikes: that is a job for the airstrike.", "\$4.99: 3 calls per boss round and 15 hazard calls per run. \$9.99 ELITE: 5 boss calls and UNLIMITED hazard calls.")) Bullet(l)
+                Section("CALLS (one-time)")
                 for (s in 1..2) {
                     val tr = NrUpgrades.TRACKS[NrUpgrades.WING]
-                    UpRow(tr.labels[s - 1] + " per boss round", if (s == 1) "Your wingman flies once every boss round." else "Twice every boss round. Replaces the \$4.99 tier, no need to buy both.", tr.prices[s - 1], wing >= s, open, busy) { buy(NrUpgrades.WING, s) }
+                    UpRow(tr.labels[s - 1], if (s == 1) "3 calls per boss round, 15 hazard calls per run." else "5 boss calls per round, UNLIMITED hazard calls, more perks. Replaces the \$4.99 tier" + (if (wing == 1) " (upgrade price)." else "."), if (s == 2 && wing == 1) "\$4.99" else tr.prices[s - 1], wing >= s, open, busy) { buy(NrUpgrades.WING, s) }
                 }
+                Section("PERKS")
+                for (l in listOf("COLLECTOR (both tiers): it grabs gems and fuel in its lane while it is out.", "DAILY PILL (both tiers): 1 free healing pill every day.", "ELITE: BULLET SCREEN takes 1 enemy shot per second for you.", "ELITE: TOW, once per run at 8% fuel it gives you +${WingmanPerks.TOW_GIVES}% fuel.", "ELITE: RANK 1-10 with rewards, and a DAILY CONTRACT that pays gems and a score voucher.")) Bullet(l)
+                Section("HEALING PILLS · you have ${Wingman.pills(ctx)}")
+                Row(Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.06f)).border(1.dp, AMB.copy(alpha = 0.5f), RoundedCornerShape(12.dp)).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("${WingmanPerks.PILL_PACK} pills · +${Wingman.PILL_HEAL.toInt()}% hull each", color = Color.White, fontSize = 11.sp, fontFamily = MONOW, modifier = Modifier.weight(1f))
+                    Text("BUY ${WingmanPerks.PILL_PACK_GEMS} 💎", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = MONOW,
+                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(AMB).clickable { spend(WingmanPerks.PILL_PACK_GEMS) { ok -> if (ok) { Wingman.addPill(ctx, WingmanPerks.PILL_PACK); good = true; msg = "+${WingmanPerks.PILL_PACK} pills" } else { good = false; msg = "Not enough gems" } } }.padding(horizontal = 10.dp, vertical = 6.dp))
+                }
+                Section("RANK & CONTRACT (Elite)")
+                if (wing >= 2 || testing) {
+                    val lvl = WingmanRank.level(ctx); val (xi, xn) = WingmanRank.xpIntoLevel(ctx)
+                    Text("RANK $lvl / ${WingmanRank.MAX}  ·  $xi / $xn XP", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = MONOW)
+                    Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = 0.12f))) { Box(Modifier.fillMaxWidth((xi.toFloat() / xn).coerceIn(0f, 1f)).height(6.dp).background(AMB)) }
+                    val pend = WingmanRank.pending(ctx)
+                    if (pend > 0) Text("CLAIM RANK $pend REWARD · ${WingmanRank.rewardText(pend)}", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = MONOW,
+                        modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF69F0AE)).clickable { val g = WingmanRank.claim(ctx); if (g > 0) credit(g); good = true; msg = "Rank reward claimed" }.padding(horizontal = 10.dp, vertical = 7.dp))
+                    else if (lvl < WingmanRank.MAX) Text("Next reward at rank ${lvl + 1}: ${WingmanRank.rewardText(lvl + 1)}", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp, fontFamily = MONOW)
+                    Spacer(Modifier.height(6.dp))
+                    val prog = WingmanContracts.progress(ctx)
+                    Text("TODAY: ${WingmanContracts.name()}  ($prog / ${WingmanContracts.goal()})", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = MONOW)
+                    if (WingmanContracts.ready(ctx)) Text("CLAIM ${WingmanContracts.GEMS} 💎 + 1 🎟", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = MONOW,
+                        modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF69F0AE)).clickable { val g = WingmanContracts.claim(ctx); if (g > 0) credit(g); good = true; msg = "Contract paid" }.padding(horizontal = 10.dp, vertical = 7.dp))
+                    else if (WingmanContracts.claimed(ctx)) Text("Done today. A new contract tomorrow.", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp, fontFamily = MONOW)
+                } else Text("Unlocked with the \$9.99 ELITE wingman.", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp, fontFamily = MONOW)
                 Section("WINGMAN ARMS (one-time, in order)")
                 val ar = NrUpgrades.TRACKS[NrUpgrades.WARMS]
                 val armBlurb = listOf("Cannon x1.25 · 15 s sortie", "Cannon x1.5 · SECOND GUNSHIP DRONE", "Cannon x1.8 · 18 s sortie", "Cannon x2.2 · 20 s sortie · fastest fire")
