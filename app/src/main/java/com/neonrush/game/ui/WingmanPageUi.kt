@@ -34,6 +34,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.neonrush.game.NrUpgrades
 import com.neonrush.game.Wingman
+import com.neonrush.game.WingmanContracts
+import com.neonrush.game.WingmanRank
+import com.neonrush.game.WingmanPerks
 import kotlin.math.sin
 
 private val MONOW = FontFamily.Monospace
