@@ -80,7 +80,7 @@ fun WingmanCard(bestZone: Int, testing: Boolean, onOpen: () -> Unit, modifier: M
  */
 @Composable
 fun WingmanPageDialog(bestZone: Int, testing: Boolean, onClose: () -> Unit, onBuy: (Int, Int, (Boolean) -> Unit) -> Unit, onBuySkin: (Int, (Boolean) -> Unit) -> Unit,
-    credit: (Int) -> Unit = {}, spend: (Int, (Boolean) -> Unit) -> Unit = { _, cb -> cb(false) }) {
+    credit: (Int) -> Unit = {}, spend: (Int, (Boolean) -> Unit) -> Unit = { _, cb -> cb(false) }, onBuyDmg: (String, (Boolean) -> Unit) -> Unit = { _, cb -> cb(false) }) {
     val ctx = LocalContext.current
     val dens = LocalDensity.current.density
     val tm = rememberTextMeasurer()
@@ -177,6 +177,19 @@ fun WingmanPageDialog(bestZone: Int, testing: Boolean, onClose: () -> Unit, onBu
                         modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF69F0AE)).clickable { val g = WingmanContracts.claim(ctx); if (g > 0) credit(g); good = true; msg = "Contract paid" }.padding(horizontal = 10.dp, vertical = 7.dp))
                     else if (WingmanContracts.claimed(ctx)) Text("Done today. A new contract tomorrow.", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp, fontFamily = MONOW)
                 } else Text("Unlocked with the \$9.99 ELITE wingman.", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp, fontFamily = MONOW)
+                Section("WINGMAN DAMAGE (in order)")
+                val dl = Wingman.dmgLevel(ctx)
+                Text("Its shots chip hazards exactly like your own bolts. These levels make them hit harder, on hazards and bosses.", color = Color.White.copy(alpha = 0.65f), fontSize = 9.sp, fontFamily = MONOW, modifier = Modifier.padding(bottom = 4.dp))
+                fun buyDmg(lv: Int) {
+                    if (busy) return
+                    if (!open) { good = false; msg = "Locked: reach zone ${Wingman.UNLOCK_ZONE} to buy (you are at zone $bestZone)"; return }
+                    if (lv != dl + 1) { good = false; msg = "Buy the levels in order"; return }
+                    if (lv <= 2) { busy = true; spend(Wingman.DMG_GEMS[lv - 1]) { ok -> busy = false; good = ok; if (ok) { Wingman.setDmgLevel(ctx, lv); msg = "Wingman damage level $lv" } else msg = "Not enough gems" } }
+                    else { busy = true; onBuyDmg(Wingman.DMG_ID3) { ok -> busy = false; good = ok; if (ok) { Wingman.setDmgLevel(ctx, 3); msg = "Wingman damage level 3" } else msg = "Purchase cancelled" } }
+                }
+                UpRow("DAMAGE I", "x1.25 on hazards and bosses", "${Wingman.DMG_GEMS[0]} 💎", dl >= 1, open, busy) { buyDmg(1) }
+                UpRow("DAMAGE II", "x1.5 on hazards and bosses", "${Wingman.DMG_GEMS[1]} 💎", dl >= 2, open, busy) { buyDmg(2) }
+                UpRow("DAMAGE III", "x2 on hazards and bosses", Wingman.DMG_PRICE3, dl >= 3, open, busy) { buyDmg(3) }
                 Section("WINGMAN ARMS (one-time, in order)")
                 val ar = NrUpgrades.TRACKS[NrUpgrades.WARMS]
                 val armBlurb = listOf("Cannon x1.25 · 15 s sortie", "Cannon x1.5 · SECOND GUNSHIP DRONE", "Cannon x1.8 · 18 s sortie", "Cannon x2.2 · 20 s sortie · fastest fire")
