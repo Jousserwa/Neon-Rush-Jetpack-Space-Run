@@ -42,7 +42,7 @@ object BroodBomb {
     @Volatile var MAX = BASE
     var version by mutableStateOf(0)
     private fun prefs(ctx: Context) = ctx.applicationContext.getSharedPreferences("neonrush_shooting", Context.MODE_PRIVATE)
-    fun rack(ctx: Context): Int { @Suppress("UNUSED_VARIABLE") val v = version; val r = try { prefs(ctx).getInt("rack", 0) } catch (_: Throwable) { 0 }.coerceIn(0, RACK_MAX); MAX = BASE + r + NrUpgrades.rackBonus(ctx); return r }
+    fun rack(ctx: Context): Int { @Suppress("UNUSED_VARIABLE") val v = version; val r = try { prefs(ctx).getInt("rack", 0) } catch (_: Throwable) { 0 }.coerceIn(0, RACK_MAX); MAX = if (BombDepot.unlimited(ctx)) 9999 else BASE + r + NrUpgrades.rackBonus(ctx); return r }
     /** Buys the next Bomb Rack level with gems. Returns an error text or null on success. */
     suspend fun upgradeRack(ctx: Context, dao: com.neonrush.game.db.GameDao): String? {
         val r = rack(ctx); if (r >= RACK_MAX) return "Bomb Rack is maxed"
@@ -53,15 +53,17 @@ object BroodBomb {
         try { prefs(ctx).edit().putInt("rack", r + 1).apply() } catch (_: Throwable) { }
         version += 1; rack(ctx); return null
     }
-    fun count(ctx: Context): Int { @Suppress("UNUSED_VARIABLE") val v = version; return try { prefs(ctx).getInt("bombs", 0) } catch (_: Throwable) { 0 } }
+    fun pocket(ctx: Context): Int { @Suppress("UNUSED_VARIABLE") val v = version; return try { prefs(ctx).getInt("bombs", 0) } catch (_: Throwable) { 0 } }
+    /** Bombs you can fire: the pocket plus bought reserve (the reserve never changes how many you can pick up). */
+    fun count(ctx: Context): Int = pocket(ctx) + BombDepot.reserve(ctx)
     /** Adds one bomb; false when the pocket is full. */
     fun add(ctx: Context): Boolean {
-        rack(ctx); val n = count(ctx); if (n >= MAX) return false
+        rack(ctx); val n = pocket(ctx); if (n >= MAX) return false
         try { prefs(ctx).edit().putInt("bombs", n + 1).apply() } catch (_: Throwable) { }
         version += 1; return true
     }
     fun use(ctx: Context): Boolean {
-        val n = count(ctx); if (n <= 0) return false
+        val n = pocket(ctx); if (n <= 0) { val ok = BombDepot.takeReserve(ctx); if (ok) version += 1; return ok }
         try { prefs(ctx).edit().putInt("bombs", n - 1).apply() } catch (_: Throwable) { }
         version += 1; return true
     }
