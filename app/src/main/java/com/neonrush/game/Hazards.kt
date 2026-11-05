@@ -108,9 +108,9 @@ object Hazards {
     /** 0 idle, 1 charging, 2 firing: lets the art swap frames. */
     fun state(id: String, tick: Int): Int = if ((shotAt[id] ?: -99) >= tick - 2) 2 else if ((chargeAt[id] ?: -99) >= tick - 1) 1 else 0
     /** A bolt hit [id]. Returns true when the emplacement is destroyed (the caller removes it and scores). */
-    fun hit(id: String): Boolean {
+    fun hit(id: String, extra: Float = 1f): Boolean {
         val h = hp[id] ?: return true
-        val left = h - com.neonrush.game.NrUpgrades.gunMul()
+        val left = h - com.neonrush.game.NrUpgrades.gunMul() * extra
         flashUntil[id] = System.nanoTime() / 1_000_000L + 140L
         if (left <= 0f) { hp.remove(id); hpMax.remove(id); flashUntil.remove(id); chargeAt.remove(id); shotAt.remove(id); return true }
         hp[id] = left
