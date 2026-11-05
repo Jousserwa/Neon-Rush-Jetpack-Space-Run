@@ -171,6 +171,9 @@ private fun SpeciesCard(sp: Roster.Species, clock: Float, rev: Int, onClaim: (In
     val portrait = rememberArt(Roster.artName(sp.id))
     val frame = rememberArt(if (!met) "frame_bronze" else when (rank) { 2 -> "frame_gold"; 1 -> "frame_silver"; else -> "frame_bronze" })
     val pending = if (met) Roster.pendingRank(ctx, sp.id) else -1
+    // The card is laid out in fractions of its own size, so its text must not grow with the phone's font-size setting (that pushed the text out of its slots).
+    val dens0 = androidx.compose.ui.platform.LocalDensity.current
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(dens0.density, 1f)) {
     BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(0.655f).clip(RoundedCornerShape(10.dp)).background(Brush.verticalGradient(listOf(col.copy(alpha = if (met) 0.25f else 0.08f), Color(0xFF0B0820), Color(0xFF06040F))))) {
         val w = maxWidth; val h = maxHeight
         Box(Modifier.offset(w * 0.10f, h * 0.085f).size(w * 0.80f, h * 0.065f), contentAlignment = Alignment.Center) {
@@ -195,7 +198,7 @@ private fun SpeciesCard(sp: Roster.Species, clock: Float, rev: Int, onClaim: (In
                 }
             }
             if (pending >= 0) {
-                Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp)) {
+                Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 0.dp).graphicsLayer { scaleX = 0.72f; scaleY = 0.72f }) {
                     ClaimPill("${Roster.RANK_NAMES[pending]} +${Roster.rankReward(pending)} 💎", enabled = true, good = false) { onClaim(Roster.claimRank(ctx, sp.id, pending)) }
                 }
             }
@@ -217,6 +220,7 @@ private fun SpeciesCard(sp: Roster.Species, clock: Float, rev: Int, onClaim: (In
             }
         }
         if (frame != null) Image(frame, null, Modifier.matchParentSize(), contentScale = ContentScale.FillBounds, alpha = if (met) 1f else 0.4f)
+    }
     }
 }
 
