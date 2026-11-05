@@ -25,7 +25,16 @@ object Wingman {
     private val MUL = floatArrayOf(1.0f, 1.25f, 1.5f, 1.8f, 2.2f)
     private val LEN = floatArrayOf(14f, 15f, 16f, 18f, 20f)
     private val GAP = floatArrayOf(0.36f, 0.34f, 0.32f, 0.30f, 0.27f)
-    fun sorties(ctx: Context, testing: Boolean): Int = if (testing) 2 else NrUpgrades.level(ctx, NrUpgrades.WING)
+    /** 0 = not owned, 1 = Wingman ($4.99), 2 = Elite ($9.99). */
+    fun tier(ctx: Context, testing: Boolean): Int = if (testing) 2 else NrUpgrades.level(ctx, NrUpgrades.WING)
+    /** Calls allowed per boss round: 3 (Wingman) or 5 (Elite). Kept capped on purpose: the airstrike stays the answer to the hardest moments. */
+    fun sorties(ctx: Context, testing: Boolean): Int = when (tier(ctx, testing)) { 0 -> 0; 1 -> 3; else -> 5 }
+    const val HAZARD_CAP_T1 = 15
+    @Volatile var hazardUsed = 0
+    /** Hazard calls left in this run (a call is spent only when you press the button). Elite = unlimited. */
+    fun hazardLeft(ctx: Context, testing: Boolean): Int = when (tier(ctx, testing)) { 0 -> 0; 1 -> (HAZARD_CAP_T1 - hazardUsed).coerceAtLeast(0); else -> Int.MAX_VALUE }
+    /** Boss damage of one shot, on top of the arms level: starts 20% above the old value and GROWS during a call (focus fire). */
+    fun focusMul(sortie: Int, elapsed: Float): Float = 1.2f + 0.1f * (sortie - 1).coerceIn(0, 2) + 0.3f * (elapsed / FIGHT_S).coerceIn(0f, 1f)
     fun arms(): Int = NrUpgrades.wingArms()
     fun damageMul(): Float = MUL[arms().coerceIn(0, 4)]
     fun length(): Float = LEN[arms().coerceIn(0, 4)]
@@ -36,7 +45,25 @@ object Wingman {
     /** Shop: can it be bought with the best zone reached so far. */
     fun canBuy(bestZone: Int, testing: Boolean): Boolean = testing || bestZone >= UNLOCK_ZONE
     fun syncRound(key: Int) { if (key != roundKey) { roundKey = key; usedRound = 0 } }
-    fun reset() { active = false; left = 0f; usedRound = 0; roundKey = -1 }
+    @Volatile var towUsed = false
+    fun reset() { active = false; left = 0f; usedRound = 0; roundKey = -1; hp = 100f; hazardUsed = 0; towUsed = false }
+
+    // ---- sorties (Stage 169): 3 s fight, 2 s RELOADING, back by itself, 3 times per call ----
+    const val FIGHT_S = 3f
+    const val RELOAD_S = 2f
+    const val SORTIES_PER_CALL = 3
+    // ---- damage and healing: the wingman has 100 hull; HEALING PILLS (rare pickups, stored without limit) repair it ----
+    @Volatile var hp = 100f
+    const val PILL_HEAL = 50f
+    var pillVersion by mutableStateOf(0)
+    fun pills(ctx: Context): Int { @Suppress("UNUSED_VARIABLE") val v = pillVersion; return try { prefs(ctx).getInt("pills", 0) } catch (_: Throwable) { 0 } }
+    fun addPill(ctx: Context, n: Int = 1) { try { prefs(ctx).edit().putInt("pills", (pills(ctx) + n).coerceAtLeast(0)).apply() } catch (_: Throwable) { }; pillVersion += 1 }
+    /** Uses one pill: +50 hull (also brings a downed wingman back). */
+    fun usePill(ctx: Context): Boolean {
+        val n = pills(ctx); if (n <= 0 || hp >= 100f) return false
+        try { prefs(ctx).edit().putInt("pills", n - 1).apply() } catch (_: Throwable) { }
+        hp = (hp + PILL_HEAL).coerceAtMost(100f); pillVersion += 1; return true
+    }
 
     // ---- ordnance the wingman picks up ----
     val ORD_NAMES = arrayOf("ROCKET POD", "MINIGUN", "ION CANNON")
