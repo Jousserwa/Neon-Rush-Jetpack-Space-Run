@@ -1749,10 +1749,20 @@ fun bombBoss(dmgRaw: Float) {
 /** Combat Wingman (Stage 159): shoots down one obstacle or enemy bullet in the lane at height [y]. Returns how many went. */
 fun wingClear(y: Int): Int {
     val st = _simState.value
-    val pick = st.activeTrackElements.filter { (it.type == "obstacle" || it.type == "bullet") && it.xOffsetFraction in 0.12f..0.6f && kotlin.math.abs(it.yMatchPos - y) <= 12 && it.subType != "BLINK_HAZARD" }.minByOrNull { it.xOffsetFraction } ?: return 0
+    val pick = st.activeTrackElements.filter { (it.type == "obstacle" || it.type == "bullet") && it.xOffsetFraction in 0.12f..0.6f && kotlin.math.abs(it.yMatchPos - y) <= 12 && it.subType != "BLINK_HAZARD" && !Hazards.isHazard(it.subType) }.minByOrNull { it.xOffsetFraction } ?: return 0
     ReactFx.obstacle(pick.subType, "BOOM", pick.xOffsetFraction, pick.yMatchPos)
     _simState.value = st.copy(activeTrackElements = st.activeTrackElements.filter { it.id != pick.id }, score = st.score + 8)
     return 1
+}
+/** Wingman shot at a hazard emplacement: it chips hit points exactly like a pilot bolt (same gun upgrades), times [mul] (its damage level and arms). True = destroyed. */
+fun wingHazard(y: Int, mul: Float): Boolean {
+    val st = _simState.value
+    val pick = st.activeTrackElements.filter { Hazards.isHazard(it.subType) && it.xOffsetFraction in 0.12f..0.95f && kotlin.math.abs(it.yMatchPos - y) <= 14 }.minByOrNull { it.xOffsetFraction } ?: return false
+    if (!Hazards.hit(pick.id, mul)) { LegendMoves.charge(0.01f); return false }
+    ReactFx.obstacle(pick.subType, "BOOM", pick.xOffsetFraction, pick.yMatchPos)
+    LegendMoves.charge(0.25f)
+    _simState.value = st.copy(activeTrackElements = st.activeTrackElements.filter { it.id != pick.id }, score = st.score + 150)
+    return true
 }
 /** Wingman COLLECTOR: picks up one gem or fuel in its lane. Returns how many it took. */
 fun wingCollect(y: Int): Int {
@@ -2322,7 +2332,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         updatedMsg = "HEALING PILL +1 · ${Wingman.pills(appCtx)} STORED"
                                     } else if (puId == "PU13") {
                                         com.neonrush.game.MilShield.activate()
-                                        updatedMsg = "MILITARY SHIELD ONLINE! 7 HITS"
+                                        updatedMsg = "MILITARY SHIELD ONLINE! 10 HITS"
                                     } else if (puId == "PU1") {
                                         // The shield power-up puts (or puts back) the layered shield on the pilot
                                         val puLayers = 2 + (if (Upgrades.level(activeUpgradesCsv, "shield") >= 3) 1 else 0)
@@ -2354,10 +2364,10 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         ReactFx.obstacle(elem.subType, "SHIELD", elem.xOffsetFraction, elem.yMatchPos)
                                     } else if ((hasInvincibility || hasGhostMode) && !isUnstoppableHazard) {
                                         ReactFx.obstacle(elem.subType, if (hasInvincibility) "SMASH" else "PHASE", elem.xOffsetFraction, elem.yMatchPos)
-                                    } else if (!isUnstoppableHazard && com.neonrush.game.MilShield.absorb()) {
+                                    } else if (!isUnstoppableHazard && run { if (!hasShield && shieldLayersState <= 0) com.neonrush.game.MilShield.autoDeploy(appCtx); com.neonrush.game.MilShield.absorb() }) {
                                         ReactFx.obstacle(elem.subType, "SHIELD", elem.xOffsetFraction, elem.yMatchPos)
                                         soundEngine.playShieldBreak()
-                                        updatedMsg = if (com.neonrush.game.MilShield.hp > 0) "MIL SHIELD HELD: ${com.neonrush.game.MilShield.healthPct()}% LEFT" else "MIL SHIELD DESTROYED"
+                                        updatedMsg = if (com.neonrush.game.MilShield.hp > 0) "MIL SHIELD HELD: ${com.neonrush.game.MilShield.healthPct()}% LEFT" else "MIL SHIELD LAST STAND: ${com.neonrush.game.MilShield.lastStandLeftMs() / 1000 + 1}s"
                                     } else if (hasShield && !isUnstoppableHazard) {
                                         ReactFx.obstacle(elem.subType, "SHIELD", elem.xOffsetFraction, elem.yMatchPos)
                                         soundEngine.playShieldBreak()
@@ -3288,7 +3298,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         updatedMsg = "HEALING PILL +1 · ${Wingman.pills(appCtx)} STORED"
                                     } else if (puId == "PU13") {
                                         com.neonrush.game.MilShield.activate()
-                                        updatedMsg = "MILITARY SHIELD ONLINE! 7 HITS"
+                                        updatedMsg = "MILITARY SHIELD ONLINE! 10 HITS"
                                     } else if (puId == "PU1") {
                                         // The shield power-up puts (or puts back) the layered shield on the pilot
                                         val puLayers = 2 + (if (Upgrades.level(activeUpgradesCsv, "shield") >= 3) 1 else 0)
@@ -3303,10 +3313,10 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                     val isUnstoppableHazard = elem.subType == "BLINK_HAZARD"
                                     if ((hasInvincibility || hasGhostMode) && !isUnstoppableHazard) {
                                         ReactFx.obstacle(elem.subType, if (hasInvincibility) "SMASH" else "PHASE", elem.xOffsetFraction, elem.yMatchPos)
-                                    } else if (!isUnstoppableHazard && com.neonrush.game.MilShield.absorb()) {
+                                    } else if (!isUnstoppableHazard && run { if (!hasShield && shieldLayersState <= 0) com.neonrush.game.MilShield.autoDeploy(appCtx); com.neonrush.game.MilShield.absorb() }) {
                                         ReactFx.obstacle(elem.subType, "SHIELD", elem.xOffsetFraction, elem.yMatchPos)
                                         soundEngine.playShieldBreak()
-                                        updatedMsg = if (com.neonrush.game.MilShield.hp > 0) "MIL SHIELD HELD: ${com.neonrush.game.MilShield.healthPct()}% LEFT" else "MIL SHIELD DESTROYED"
+                                        updatedMsg = if (com.neonrush.game.MilShield.hp > 0) "MIL SHIELD HELD: ${com.neonrush.game.MilShield.healthPct()}% LEFT" else "MIL SHIELD LAST STAND: ${com.neonrush.game.MilShield.lastStandLeftMs() / 1000 + 1}s"
                                     } else if (hasShield && !isUnstoppableHazard) {
                                         ReactFx.obstacle(elem.subType, "SHIELD", elem.xOffsetFraction, elem.yMatchPos)
                                         soundEngine.playShieldBreak()
