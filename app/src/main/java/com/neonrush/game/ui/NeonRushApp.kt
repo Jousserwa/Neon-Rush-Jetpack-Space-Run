@@ -1753,6 +1753,12 @@ fun ArcadeHomeView(
         AirSupportCard(isPro = isPro, onOpen = { showAirBay = true }, modifier = Modifier.padding(vertical = 4.dp))
         if (showAirBay) {
             AirSupportBayDialog(isPro = isPro, testing = TESTING_DISABLE_PRO_GATE, onClose = { showAirBay = false }, onGoPro = { showAirBay = false; showPlanPaywall = true },
+                onBuySkin = { pid, cb ->
+                    val act = reviewActivity
+                    if (TESTING_DISABLE_PRO_GATE) cb(true)   // testing: skins are free
+                    else if (act == null) cb(false)
+                    else RevenueCatManager.purchaseGemPack(act, pid) { ok -> cb(ok) }
+                },
                 onBuyPack = { i, cb ->
                     val act = reviewActivity
                     val pack = com.neonrush.game.AirSupport.PACKS[i]
@@ -5807,6 +5813,8 @@ fun TutorialScreen(onBack: () -> Unit) {
     val standard = ImageBitmap.imageResource(id = R.drawable.obstacle_standard)
     val drone = ImageBitmap.imageResource(id = R.drawable.drone)
     val bossBullet = ImageBitmap.imageResource(id = R.drawable.hazard_bullet_boss)
+    val puMil = rememberArt("pu_mil") ?: puShield
+    val puPill = rememberArt("pu_pill") ?: puShrink
 
     val blinkWolf = ImageBitmap.imageResource(id = R.drawable.hazard_blink_wolf)
     val blinkRaptor = ImageBitmap.imageResource(id = R.drawable.hazard_blink_raptor)
@@ -5927,6 +5935,9 @@ fun TutorialScreen(onBack: () -> Unit) {
                     TutorialBullet("On EASY, every refuel also puts a fresh shield back on your pilot.")
                     TutorialBullet("Bar color = urgency: cyan is fine, orange is getting low, flashing red means refuel now!")
                     TutorialBullet("If your fuel hits 0, your run ends and you're offered a revive.")
+                    TutorialBullet("AUTO-REFILL (Pro): switch it on and the game refuels you at 20% fuel, as long as you hold 100+ gems.")
+                    TutorialBullet("CRATE REFILLS: open the Daily Crate AND play on 6 days in a row to spin the bonus wheel for 5 free automatic refills (once a month). They fire by themselves at 20% fuel.")
+                    TutorialBullet("ELITE WINGMAN TOW: once per run, at 8% fuel, your wingman gives you +30% fuel.")
                 }
 
                 TutorialCard("🛢️", "FUEL TANK UPGRADES", accent = Color(0xFFFFC107)) {
@@ -5986,6 +5997,8 @@ fun TutorialScreen(onBack: () -> Unit) {
                     TutorialIconRow(puWarp, "Lane Warp", "Instantly snaps you onto the ghost marker's safe line.", Color(0xFF69F0AE))
                     TutorialIconRow(puSkip, "Zone Skip", "Leaps you forward to the next zone.", Color(0xFF69F0AE))
                     TutorialIconRow(puAura, "Legendary Aura", "Rare! Grants a whole bundle of power-ups at the same time.", Color(0xFF69F0AE))
+                    TutorialIconRow(puMil, "Military Shield", "Rare gold shield: an armoured hexagon that takes 7 hits. A bar shows how damaged it is. It cannot break in its first 2 seconds, so you always see it work.", Color(0xFFFFC400))
+                    TutorialIconRow(puPill, "Healing Pill", "Very rare. Stored for your Combat Wingman: +50% hull each. You can keep as many as you find.", Color(0xFF00E676))
                 }
 
                 TutorialCard("🚧", "OBSTACLES", accent = Color(0xFFFF7043)) {
@@ -6103,8 +6116,84 @@ fun TutorialScreen(onBack: () -> Unit) {
                 TutorialCard("👑", "PRO", accent = Color(0xFFFFD700)) {
                     TutorialBullet("Unlocks Worlds 4 and 5 and every world's later phases.")
                     TutorialBullet("No revive limit, no refuel limit, and no ad prompts.")
+                    TutorialBullet("Auto-Refill, Air Support with a free call every day, and a second Daily Crate with no ad.")
                     TutorialBullet("Unlocks LEGENDARY difficulty and Pro-only trails, plus a 4-day head start on every new premium drop.")
                     TutorialBullet("Everything you've earned stays yours either way.")
+                }
+
+                TutorialCard("🔫", "SHOOTING & BOMBS", accent = Color(0xFFFF4081), pose = Pose.BOOST) {
+                    TutorialBullet("Tap FIRE to shoot obstacles, enemy bullets and bosses. Armor pickups give you ammo: 20 shots each. You carry 40 shots (free) or 100 (Pro), and the Magazine Bay lets you carry more.")
+                    TutorialBullet("BOMB: a rare pickup. Tap it to wipe out every small boss spawn at once. On LEGENDARY it also breaks the boss shield and hurts the boss.")
+                    TutorialBullet("Bombs you find are never reduced by the shop. The BOMB DEPOT (opens after 30 days of playing) sells 100 bombs for $0.99, 400 for $2.99, and UNLIMITED storage for $1.99.")
+                    TutorialBullet("Boss tricks: some bosses lunge across the track (their shield drops and your bolts hit twice as hard) or hatch small hunters. Watch for the warning.")
+                }
+
+                TutorialCard("🛡️", "MILITARY SHIELD", accent = Color(0xFFFFC400)) {
+                    TutorialBullet("A gold armoured hexagon around your pilot. It takes 7 hits before it breaks, and goes green, amber, then red with cracks as it is damaged. A bar at the top-left shows hits left and the damage percentage.")
+                    TutorialBullet("It always lasts at least 2 seconds after it is switched on, even if it is hit 7 times at once.")
+                    TutorialBullet("Pick it up on the track (about 40% rarer than the normal shield), or tap the MIL button to use one from your stock.")
+                    TutorialBullet("Buy 5 for 350 gems on the home screen. Daily Crates and score vouchers can give them too.")
+                }
+
+                TutorialCard("🚁", "AIR SUPPORT (PRO)", accent = Color(0xFF00E5FF), pose = Pose.CHEER) {
+                    TutorialBullet("When the boss beats you or heavy attacks pile up, the AIR SUPPORT button appears. Once it shows, it stays until you press it (it just fades and glows every second).")
+                    TutorialBullet("Pick one of seven calls. A helicopter or jet flies in; while it is on screen you take no damage. Missiles cut through boss shields, and the bigger calls wipe the screen.")
+                    TutorialBullet("Pro gets 1 free call a day. More calls come from Daily Crates, score vouchers and call packs.")
+                    TutorialBullet("In the Air Support Bay you can buy skins for the helicopter (RAPTOR, HAMMER, STORMCALLER, WASP HUNTER) and the jet (STRIKER, SWARM, BUNKER BUSTER, NIGHTFANG). They are looks only.")
+                }
+
+                TutorialCard("🧑‍✈️", "COMBAT WINGMAN", accent = Color(0xFFFFB74D), pose = Pose.RUN_RIBBON) {
+                    TutorialBullet("Unlocks at zone 30 (you get one free sortie to try it). A copy of your pilot in a military suit flies beside you and shoots.")
+                    TutorialBullet("Its button appears when a boss attacks, or when 2 or more hazards attack at once. A call is only used when you press the button.")
+                    TutorialBullet("One call = 3 sorties: 3 seconds of fighting, then RELOADING for 2 seconds, and it comes back by itself, 3 times.")
+                    TutorialBullet("Its shots grow stronger as a call goes on. Boss shields still stop its bullets, and it cannot stop Blink Strikes. Save your airstrike for boss shields.")
+                    TutorialBullet("It can be hurt: watch its health bar under it. Healing pills (+50%) heal it automatically while it reloads, or tap the pill button.")
+                    TutorialBullet("It also collects gems and fuel in its lane, and you get 1 free pill every day.")
+                    TutorialBullet("\$4.99: 3 boss calls per round and 15 hazard calls per run. \$9.99 ELITE: 5 boss calls, UNLIMITED hazard calls, a bullet screen that takes shots for you, a fuel tow, rank 1-10 with rewards and a daily contract.")
+                }
+
+                TutorialCard("🎁", "DAILY CRATE & BONUS WHEEL", accent = Color(0xFFFFD23F), pose = Pose.THUMB) {
+                    TutorialBullet("Open the Daily Crate once a day (Pro gets a second one, with no ad). You can win 2-3 gems, 2 bombs, 1 airstrike call, 2 military shields or hull shards.")
+                    TutorialBullet("Open the crate AND play a run on the same day. Do it 6 days in a row to earn the BONUS WHEEL. It always lands on 5 free automatic refills, and you can earn it once a month.")
+                    TutorialBullet("A 7-day crate streak also gives you a bonus wheel with a random prize.")
+                }
+
+                TutorialCard("🎟️", "SCORE VOUCHERS", accent = Color(0xFF00E5FF)) {
+                    TutorialBullet("Score 30,000+ in one run to earn 1 voucher. 60,000 earns 2 and 100,000 earns 3, up to 3 a day.")
+                    TutorialBullet("Spend 1 voucher on 10 bombs, or 2 airstrike calls, or 2 military shields, at the SCORE EXCHANGE on the home screen.")
+                }
+
+                TutorialCard("⛈️", "STORM RUN", accent = Color(0xFF00E5FF), pose = Pose.BOOST) {
+                    TutorialBullet("A short daily mini-game. It opens after you finish 3 normal runs, or from the next day.")
+                    TutorialBullet("Collect the falling storm cells and dodge the lightning. Pick up cells quickly in a row to build a combo (up to x4).")
+                    TutorialBullet("The storm changes every day: Monday GALE (wind pushes you), Tuesday SURGE (lightning everywhere), Wednesday FROZEN (you slide), Thursday BLACKOUT (dark, only lightning shows the way), Friday DOUBLE CELLS, Saturday TEMPEST (worst storm, bigger rewards), Sunday CALM EYE (gentle, +50% rewards).")
+                    TutorialBullet("Reach score tiers (15, 30, 45 and 65) for gems: 3, 7, 15 and 35. Pro earns 25% more. Replaying only pays the tiers you have not claimed yet today.")
+                    TutorialBullet("Play every day for a streak: the 7th day pays a bonus. Your lifetime Storm score raises your Storm Rank, and every rank pays gems.")
+                    TutorialBullet("Storm Run pays at most 100 gems a day. Those gems are spent first and any left unspent are taken back after 2 days, so use them.")
+                    TutorialBullet("Out of attempts? Watch an ad for up to 2 extra tries a day.")
+                }
+
+                TutorialCard("👻", "GHOST DUEL", accent = Color(0xFFB388FF), pose = Pose.RUN_RIBBON) {
+                    TutorialBullet("Race a rival pilot's ghost and beat them to the finish. There are three rivals: RetroWave (The Showoff), ZeroGlitch (The Machine) and CyberRunner (The Champion).")
+                    TutorialBullet("Every win makes that rival one level stronger (up to level 10), so the league never ends. Each win pays gems, and the first win against a rival pays extra.")
+                    TutorialBullet("You get 3 duels a day (Pro gets 6, plus one free rematch). Watch an ad for up to 2 extra duels.")
+                    TutorialBullet("Ghost Duel pays at most 50 gems a day, wins and bonuses included. Your best times are saved.")
+                }
+
+                TutorialCard("⚠️", "DANGER ALERT", accent = Color(0xFFFF5252)) {
+                    TutorialBullet("In real danger, if the weapon you need is out of stock, a red buy chip flashes for half a second: a military shield, 3 bombs or an airstrike call, paid with gems.")
+                    TutorialBullet("Ignore it and it fades. It only returns for a new danger, after things calm down.")
+                }
+
+                TutorialCard("👾", "ESCORTS, HAZARDS & THE CODEX", accent = Color(0xFFE040FB)) {
+                    TutorialBullet("Bosses bring escort ships. New species appear as you go deeper (earlier on HARD and LEGENDARY), and the newest species always leads the pack with a NEW banner.")
+                    TutorialBullet("Destroy escorts to rank each species up: SCOUT, VETERAN (8 kills), ACE (25 kills). Every rank pays gems. Claim them in the Species Codex.")
+                    TutorialBullet("Hazards grow as you fly. One kind appears, sharpens through 10 levels and brings copies, and only then does the next kind arrive. Hazards can be shot down, but they fight back.")
+                }
+
+                TutorialCard("🔧", "UPGRADE BAY & BOSS THEMES", accent = Color(0xFFFFC107)) {
+                    TutorialBullet("The Upgrade Bay holds your permanent gun, bomb, helicopter, jet, lance and rack upgrades in one place.")
+                    TutorialBullet("Boss Themes are optional harder bosses. Pick a theme for a tougher fight and bigger gem rewards.")
                 }
 
                 TutorialCard("💡", "PRO TIPS", accent = Color(0xFF69F0AE)) {
@@ -6114,6 +6203,8 @@ fun TutorialScreen(onBack: () -> Unit) {
                     TutorialBullet("Your pilot shield is a free life: when its ring turns amber, fly extra carefully.")
                     TutorialBullet("Found a bug or have an idea? Profile > Settings > REPORT A BUG / SEND FEEDBACK.")
                     TutorialBullet("Blink Strike creatures: wait for the fade, then go.")
+                    TutorialBullet("Save airstrike calls for boss shields and heavy attacks. The wingman is great for everything else.")
+                    TutorialBullet("Keep healing pills for your wingman: a healthy wingman keeps firing.")
                 }
                 Spacer(modifier = Modifier.height(24.dp))
             }
