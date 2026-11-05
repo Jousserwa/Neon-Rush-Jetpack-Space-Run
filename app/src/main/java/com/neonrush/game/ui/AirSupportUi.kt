@@ -78,7 +78,7 @@ fun AirSupportOverlay(
     val strikeRef = rememberUpdatedState(onBossStrike)
     val sweepRef = rememberUpdatedState(onSweep)
     val scoreRef = rememberUpdatedState(onScore)
-    val artHeli = rememberArt("air_heli"); val artJet = rememberArt("air_jet")
+    val artHeli = rememberArt(com.neonrush.game.AirSkins.artName(ctx, "heli")); val artJet = rememberArt(com.neonrush.game.AirSkins.artName(ctx, "jet"))
 
     var sz by remember { mutableStateOf(IntSize.Zero) }
     var stage by remember { mutableStateOf(0) }          // 0 idle, 1 radio, 2 flight, 3 outro / preview end card
