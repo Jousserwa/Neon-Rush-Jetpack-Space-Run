@@ -15,7 +15,12 @@ data class CrateResult(
     val unlockedHullId: String?, // set when these shards completed a hull
     val message: String?,        // quote / tip / streak text
     val streak: Int,
-    val isStreakBonus: Boolean
+    val isStreakBonus: Boolean,
+    val bombs: Int = 0,          // delivered to the Bomb Depot reserve
+    val airCalls: Int = 0,       // airstrike calls
+    val milShields: Int = 0,     // military shields
+    val weekDays: Int = 0,       // counted days this week (filled in by the ViewModel)
+    val weekReward: Boolean = false // true when this crate completed the week and paid the monthly 5 refuels
 )
 
 /**
@@ -143,6 +148,7 @@ object DailyCrate {
         val isBonus = opened == 0 && streak > 0 && streak % 7 == 0
 
         var gems = 0
+        var bombs = 0; var airCalls = 0; var milShields = 0
         var shards = 0
         var message: String? = null
         when {
@@ -150,9 +156,11 @@ object DailyCrate {
             else -> {
                 val p = r.nextInt(100)
                 when {
-                    p < 40 -> gems = r.nextInt(2, 7)
-                    p < 75 -> shards = r.nextInt(1, 4)
-                    else -> { gems = 1; message = QUOTES[r.nextInt(QUOTES.size)] }
+                    p < 40 -> gems = r.nextInt(2, 4)                       // 2 or 3 gems
+                    p < 60 -> { bombs = 2; message = "💣 2 BOMBS" }
+                    p < 75 -> { airCalls = 1; message = "🚁 1 AIRSTRIKE CALL" }
+                    p < 90 -> { milShields = 2; message = "🛡 2 MILITARY SHIELDS" }
+                    else -> shards = r.nextInt(1, 3)
                 }
             }
         }
@@ -189,6 +197,13 @@ object DailyCrate {
             cratesToday = opened + 1,
             crateStreak = streak
         )
-        return updated to CrateResult(gems, hullId, shards, unlocked, message?.trim(), streak, isBonus)
+        return updated to CrateResult(gems, hullId, shards, unlocked, message?.trim(), streak, isBonus, bombs, airCalls, milShields)
+    }
+
+    /** Hands out the non-gem prizes (call once, outside updateProfile). */
+    fun deliver(ctx: android.content.Context, res: CrateResult) {
+        if (res.bombs > 0) BombDepot.addReserve(ctx, res.bombs)
+        if (res.airCalls > 0) AirSupport.addCalls(ctx, res.airCalls)
+        if (res.milShields > 0) MilShield.addStock(ctx, res.milShields)
     }
 }
