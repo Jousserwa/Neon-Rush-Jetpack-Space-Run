@@ -90,5 +90,19 @@ object Wingman {
     }
     fun equippedSkin(ctx: Context): Int { @Suppress("UNUSED_VARIABLE") val v = skinVersion; val i = try { prefs(ctx).getInt("skin", 0) } catch (_: Throwable) { 0 }; return if (ownsSkin(ctx, i)) i else 0 }
     fun equipSkin(ctx: Context, i: Int) { if (!ownsSkin(ctx, i)) return; try { prefs(ctx).edit().putInt("skin", i).apply() } catch (_: Throwable) { }; skinVersion += 1 }
+    // ---- WINGMAN DAMAGE (Stage 173): its shots chip hazards exactly like the pilot's bolts (see Hazards.hit); this ladder makes them bite harder.
+    //      Level 1 = 400 gems (x1.25), level 2 = 800 gems (x1.5), level 3 = $1.99 one-time (x2). Also adds to its boss damage. ----
+    val DMG_MUL = floatArrayOf(1f, 1.25f, 1.5f, 2f)
+    val DMG_GEMS = intArrayOf(400, 800)
+    const val DMG_ID3 = "neonrush_wingdmg_3"
+    const val DMG_PRICE3 = "$1.99"
+    fun dmgLevel(ctx: Context): Int {
+        @Suppress("UNUSED_VARIABLE") val v = pillVersion
+        val saved = try { prefs(ctx).getInt("dmg", 0) } catch (_: Throwable) { 0 }
+        val owned = try { DMG_ID3 in RevenueCatManager.ownedProducts.value } catch (_: Throwable) { false }
+        return (if (owned) 3 else saved).coerceIn(0, 3)
+    }
+    fun dmgMul(ctx: Context): Float = DMG_MUL[dmgLevel(ctx)]
+    fun setDmgLevel(ctx: Context, lv: Int) { try { prefs(ctx).edit().putInt("dmg", maxOf(lv, dmgLevel(ctx)).coerceIn(0, 3)).apply() } catch (_: Throwable) { }; pillVersion += 1 }
     fun applySkinPurchase(ctx: Context, i: Int) { try { prefs(ctx).edit().putBoolean("own$i", true).putInt("skin", i).apply() } catch (_: Throwable) { }; skinVersion += 1 }
 }
