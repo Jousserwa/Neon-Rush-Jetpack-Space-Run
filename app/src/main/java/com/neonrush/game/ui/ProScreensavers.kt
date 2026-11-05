@@ -139,11 +139,11 @@ private fun DrawScope.monthlyNebula(t: Float) {
     val ch = size.height
     val c = Offset(cw / 2f, ch * 0.55f)
     val big = maxOf(cw, ch)
-    drawRect(Brush.verticalGradient(listOf(Color(0xFF160542), Color(0xFF5A1085), Color(0xFFA31B97))), size = size)
-    val blobs = listOf(Color(0xFFFF2FB8), Color(0xFF22E4FF), Color(0xFFFF9A3D), Color(0xFF3D6BFF), Color(0xFF52FFB8))
+    drawRect(Brush.verticalGradient(listOf(Color(0xFF080226), Color(0xFF210A52), Color(0xFF4A1066))), size = size)
+    val blobs = listOf(Color(0xFFD0289A), Color(0xFF14B4D6), Color(0xFFD9722A), Color(0xFF3558E0), Color(0xFF2FC995))
     for (i in 0 until 5) {
         val bc = Offset(cw * (0.1f + 0.2f * i + 0.09f * sin(t * 0.25f + i * 1.3f)), ch * (0.45f + 0.25f * sin(t * 0.18f + i * 2.1f)))
-        fxGlow(bc, ch * (0.85f + 0.12f * sin(t * 0.35f + i)), blobs[i], 0.40f)
+        fxGlow(bc, ch * (0.85f + 0.12f * sin(t * 0.35f + i)), blobs[i], 0.27f)
     }
     // slow sweeping light beams from the bottom centre
     for (k in 0 until 4) {
@@ -153,14 +153,14 @@ private fun DrawScope.monthlyNebula(t: Float) {
         p.lineTo(cw / 2f + cos(a - 0.07f) * big * 1.3f, ch * 1.05f + sin(a - 0.07f) * big * 1.3f)
         p.lineTo(cw / 2f + cos(a + 0.07f) * big * 1.3f, ch * 1.05f + sin(a + 0.07f) * big * 1.3f)
         p.close()
-        drawPath(p, blobs[k % 5].copy(alpha = 0.12f))
+        drawPath(p, blobs[k % 5].copy(alpha = 0.09f))
     }
     starLayer(t, 80, listOf(Color.White, Color(0xFFBFF4FF), Color(0xFFFFC2F2), Color(0xFFFFE3A8)), 3.5f, 1.2f)
     // turning dashed prism rings in changing colours
     for (k in 0 until 3) {
         val dir = if (k % 2 == 0) 1f else -1f
         val hue = ((t * 18f + k * 120f) % 360f + 360f) % 360f
-        drawCircle(Color.hsv(hue, 0.55f, 1f).copy(alpha = 0.55f), radius = ch * (0.22f + 0.17f * k), center = c,
+        drawCircle(Color.hsv(hue, 0.65f, 0.95f).copy(alpha = 0.5f), radius = ch * (0.22f + 0.17f * k), center = c,
             style = Stroke(width = 1.8.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 16f), dir * t * (22f + 9f * k))))
     }
     // turning crystals with rainbow edges
@@ -201,12 +201,12 @@ private fun DrawScope.monthlyAurora(t: Float) {
     val cw = size.width
     val ch = size.height
     val hy = ch * 0.64f
-    drawRect(Brush.verticalGradient(0f to Color(0xFF1A0540), 0.35f to Color(0xFF6A1B9A), 0.65f to Color(0xFFFF4081), 1f to Color(0xFFFF9E40), startY = 0f, endY = hy), size = Size(cw, hy))
+    drawRect(Brush.verticalGradient(0f to Color(0xFF0A0230), 0.35f to Color(0xFF3A1070), 0.65f to Color(0xFFA81E62), 1f to Color(0xFFD9702C), startY = 0f, endY = hy), size = Size(cw, hy))
     starLayer(t, 46, listOf(Color.White, Color(0xFFFFD1F5), Color(0xFFBFE9FF)), 1.6f, 1.0f)
     // the sun
     val sunR = ch * 0.24f
     val sc = Offset(cw / 2f, hy - sunR * 0.25f)
-    fxGlow(sc, sunR * 2.2f, Color(0xFFFFB74D), 0.45f + 0.08f * sin(t * 1.5f))
+    fxGlow(sc, sunR * 2.2f, Color(0xFFE59A3A), 0.38f + 0.08f * sin(t * 1.5f))
     drawCircle(Brush.verticalGradient(listOf(Color(0xFFFFEE58), Color(0xFFFF9100), Color(0xFFFF2D95)), startY = sc.y - sunR, endY = sc.y + sunR), sunR, sc)
     for (i in 0 until 6) {
         val dy = sunR * (0.05f + 0.16f * i) + sin(t * 0.8f) * 1.5f
