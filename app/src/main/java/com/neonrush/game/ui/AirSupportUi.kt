@@ -301,35 +301,39 @@ fun AirSupportOverlay(
             val pulse by inf.animateFloat(0.35f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1000), androidx.compose.animation.core.RepeatMode.Reverse), label = "p")
             val accent = if (!isPro) Color(0xFFB388FF) else if (ready) Color(0xFF69F0AE) else Color(0xFF8A8A9A)
             val have = stock + (if (free) 1 else 0)
-            Column(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, bottom = 20.dp), horizontalAlignment = Alignment.Start) {
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = menuOpen && isPro,
-                    enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(160)) + androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(260)) { it / 3 },
-                    exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)) + androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(160)) { it / 3 }
-                ) {
-                    AirCallMenu(
-                        tierName = tierName, isPro = isPro, testing = testing, have = have, free = free, ready = ready, cdMs = cd,
-                        onPick = { id ->
-                            if (AirSupport.pay(ctx, isPro, testing, tierName, id)) { menuOpen = false; start(false, id) }
-                            else android.widget.Toast.makeText(ctx, AirSupport.lastFail, android.widget.Toast.LENGTH_LONG).show()
-                        },
-                        onBlocked = { m -> android.widget.Toast.makeText(ctx, m, android.widget.Toast.LENGTH_SHORT).show() },
-                        onClose = { menuOpen = false },
-                        modifier = Modifier.padding(bottom = 6.dp)
-                    )
-                }
-                Column(
-                    Modifier.graphicsLayer(alpha = if (menuOpen) 1f else 0.55f + 0.45f * pulse).clip(RoundedCornerShape(14.dp)).background(Color(0xE6080620))
-                        .border(2.dp, accent.copy(alpha = if (ready) pulse else 0.5f), RoundedCornerShape(14.dp))
-                        .clickable {
-                            if (!isPro) { if (AirSupport.teaserShown) onGoPro() else { AirSupport.teaserShown = true; start(true) } }
-                            else menuOpen = !menuOpen
-                        }.padding(horizontal = 14.dp, vertical = 10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(if (!isPro) "📞 AIR SUPPORT 👑" else if (!ready) "📞 READY IN ${(cd / 1000L) + 1}s" else "📞 AIR SUPPORT", color = accent, fontSize = 13.sp, fontWeight = FontWeight.Black, fontFamily = MONO)
-                    Text(if (!isPro) "PRO · TAP TO PREVIEW" else if (testing) "TEST: FREE · TAP FOR CALLS" else "$have ⚡ IN VAULT · TAP FOR CALLS", color = Color.White.copy(alpha = 0.8f), fontSize = 9.sp, fontFamily = MONO)
-                }
+            // The call menu opens in the middle of the screen (never over the button row); the button itself is a small round badge on the right edge under the pause button.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = menuOpen && isPro,
+                modifier = Modifier.align(Alignment.Center),
+                enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(160)) + androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(220), initialScale = 0.9f),
+                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)) + androidx.compose.animation.scaleOut(androidx.compose.animation.core.tween(140), targetScale = 0.9f)
+            ) {
+                AirCallMenu(
+                    tierName = tierName, isPro = isPro, testing = testing, have = have, free = free, ready = ready, cdMs = cd,
+                    onPick = { id ->
+                        if (AirSupport.pay(ctx, isPro, testing, tierName, id)) { menuOpen = false; start(false, id) }
+                        else android.widget.Toast.makeText(ctx, AirSupport.lastFail, android.widget.Toast.LENGTH_LONG).show()
+                    },
+                    onBlocked = { m -> android.widget.Toast.makeText(ctx, m, android.widget.Toast.LENGTH_SHORT).show() },
+                    onClose = { menuOpen = false },
+                    modifier = Modifier
+                )
+            }
+            Column(
+                Modifier.align(Alignment.TopEnd)
+                    .offset { androidx.compose.ui.unit.IntOffset(0, (sz.height * 0.315f).toInt()) }
+                    .padding(end = 8.dp)
+                    .graphicsLayer(alpha = if (menuOpen) 1f else 0.6f + 0.4f * pulse)
+                    .size(54.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xE6080620))
+                    .border(2.dp, accent.copy(alpha = if (ready) pulse else 0.5f), androidx.compose.foundation.shape.CircleShape)
+                    .clickable {
+                        if (!isPro) { if (AirSupport.teaserShown) onGoPro() else { AirSupport.teaserShown = true; start(true) } }
+                        else menuOpen = !menuOpen
+                    },
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
+            ) {
+                Text(if (!isPro) "📞" else if (!ready) "${(cd / 1000L) + 1}s" else "📞", color = accent, fontSize = if (isPro && !ready) 15.sp else 19.sp, fontWeight = FontWeight.Black, fontFamily = MONO)
+                Text(if (!isPro) "PRO 👑" else "AIR", color = Color.White.copy(alpha = 0.85f), fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = MONO)
             }
         }
         // -------- cover ring + red alert edges --------
