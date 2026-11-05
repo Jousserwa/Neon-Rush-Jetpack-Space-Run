@@ -76,7 +76,7 @@ internal fun droneAt(c: Offset, hgt: Float, t: Float, k: Int): Offset =
 @Composable
 fun WingmanOverlay(
     active: Boolean, bossActive: Boolean, bossY: Int, pilotY: Int, hullPct: Int, testing: Boolean, bossZoneOk: Boolean,
-    onShot: (Float) -> Unit, onClear: (Int) -> Int, elements: List<com.neonrush.game.VisualTrackElement> = emptyList(), onUpgrade: () -> Unit = {}, onCollect: (Int) -> Int = { 0 }, modifier: Modifier = Modifier
+    onShot: (Float) -> Unit, onClear: (Int) -> Int, elements: List<com.neonrush.game.VisualTrackElement> = emptyList(), onUpgrade: () -> Unit = {}, onCollect: (Int) -> Int = { 0 }, onHazard: (Int, Float) -> Boolean = { _, _ -> false }, modifier: Modifier = Modifier
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val sfx = remember { NeonSoundEngine() }
@@ -88,6 +88,7 @@ fun WingmanOverlay(
     val hullRef = rememberUpdatedState(hullPct)
     val shotRef = rememberUpdatedState(onShot)
     val clearRef = rememberUpdatedState(onClear)
+    val hazardRef = rememberUpdatedState(onHazard)
     val tracers = remember { ArrayList<Tracer>() }
     val crates = remember { ArrayList<Crate>() }
     var sz by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
@@ -213,7 +214,8 @@ fun WingmanOverlay(
                 if (entry >= 1f && (fireCd <= 0f || (pilotFired && fireCd < gapNow * 0.6f))) {
                     fireCd = gapNow
                     val hgt = h * 0.2f; val cpx = Offset(wx * w, wy / 100f * h)
-                    val mulW = Wingman.damageMul() * Wingman.focusMul(sortieNo, Wingman.FIGHT_S - Wingman.left) * (if (weapon == 0) 3f else if (weapon == 2) 6f else 1f)
+                    val dmgLv = Wingman.dmgMul(ctx)
+                    val mulW = Wingman.damageMul() * dmgLv * Wingman.focusMul(sortieNo, Wingman.FIGHT_S - Wingman.left) * (if (weapon == 0) 3f else if (weapon == 2) 6f else 1f)
                     val col = if (weapon >= 0) Color(Wingman.ORD_COLS[weapon]) else Color(skin.accent)
                     val tgt = Fleet.bodies.filter { it.alive }.minByOrNull { abs(it.y - wy) }
                     val bx = 0.88f + BossLunge.shift + Fleet.dx; val by = bossYRef.value.toFloat()
@@ -222,6 +224,7 @@ fun WingmanOverlay(
                         else { shotRef.value(mul); tracers.add(Tracer(ox, oy, bx, by, col)) }
                     }
                     shoot(wx + 0.07f, wy, mulW)
+                    if (hazardRef.value(wy.toInt(), Wingman.damageMul() * dmgLv * (if (weapon == 0) 3f else if (weapon == 2) 6f else 1f))) { sfx.playSmash(); if (tier == 2) { WingmanContracts.add(ctx, WingmanContracts.CLEAR, 1); WingmanRank.addXp(ctx, 1) } }   // hazards: same chip as a pilot bolt
                     for (k in 0 until Wingman.drones()) { val d = droneAt(cpx, hgt, clock, k); shoot(d.x / w + 0.03f, d.y / h * 100f, Wingman.damageMul() * 0.5f) }
                     if (weapon == 0) sfx.playAirMissile() else if (weapon == 2) sfx.playNova() else sfx.playShot(true)
                     if (weapon == 0 || weapon == 2) { weaponLeft -= 1f; if (weaponLeft <= 0f) weapon = -1 }
