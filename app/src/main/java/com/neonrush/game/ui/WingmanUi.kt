@@ -39,6 +39,9 @@ import com.neonrush.game.PilotDrift
 import com.neonrush.game.R
 import com.neonrush.game.Siege
 import com.neonrush.game.Wingman
+import com.neonrush.game.WingmanContracts
+import com.neonrush.game.WingmanRank
+import com.neonrush.game.WingmanPerks
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
