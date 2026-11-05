@@ -28,7 +28,7 @@ object NrUpgrades {
         Track("lance", "PULSE LANCE", "Point-blank weapon: a bigger bite of the boss at close range.", 4, listOf("$1.99", "$2.99", "$4.99", "$7.99"), listOf("Mk II", "Mk III", "Mk IV", "Mk V")),
         Track("rack", "BOMB RACK", "+1 bomb slot per level.", 3, listOf("$0.99", "$1.99", "$2.99"), listOf("+1", "+2", "+3")),
         Track("lstore", "LANCE STORAGE", "Carry more pulse lance cells (+1 per level, up to 4).", 3, listOf("$0.99", "$1.99", "$2.99"), listOf("+1", "+2", "+3")),
-        Track("wing", "COMBAT WINGMAN", "A second armed pilot fights beside you. Unlocks at zone 50. Mk 1 = 1 sortie per boss round, Mk 2 = 2 sorties.", 2, listOf("$4.99", "$9.99"), listOf("1 SORTIE", "2 SORTIES")),
+        Track("wing", "COMBAT WINGMAN", "A second armed pilot fights beside you. Unlocks at zone 30. $4.99 = 3 boss calls per round + 15 hazard calls per run. $9.99 ELITE = 5 boss calls + unlimited hazard calls + extra perks.", 2, listOf("$4.99", "$9.99"), listOf("WINGMAN", "ELITE")),
         Track("warms", "WINGMAN ARMS", "Stronger cannons, longer sorties, faster fire for the wingman.", 4, listOf("$1.99", "$2.99", "$4.99", "$7.99"), listOf("Mk II", "Mk III", "Mk IV", "Mk V"))
     )
     fun productId(track: Int, step: Int) = "neonrush_${TRACKS[track].key}_$step"   // step 1..n, e.g. neonrush_gun_1 (= Mk II)
