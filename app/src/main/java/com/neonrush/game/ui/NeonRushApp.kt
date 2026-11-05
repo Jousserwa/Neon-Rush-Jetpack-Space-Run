@@ -1774,8 +1774,19 @@ fun ArcadeHomeView(
             else if (act == null) cb(false)
             else RevenueCatManager.purchaseGemPack(act, id) { ok -> cb(ok) }
         }, modifier = Modifier.padding(vertical = 4.dp))
+        AmmoDepotCard(testing = TESTING_DISABLE_PRO_GATE, onBuy = { id, cb ->
+            val act = reviewActivity
+            if (TESTING_DISABLE_PRO_GATE) cb(true)   // testing: ammo packs are free
+            else if (act == null) cb(false)
+            else RevenueCatManager.purchaseGemPack(act, id) { ok -> cb(ok) }
+        }, modifier = Modifier.padding(vertical = 4.dp))
         ScoreExchangeCard(modifier = Modifier.padding(vertical = 4.dp))
-        MilShieldCard(gems = profile.gems, spend = { n, cb -> viewModel.spendStormGems(n, cb) }, modifier = Modifier.padding(vertical = 4.dp))
+        MilShieldCard(gems = profile.gems, spend = { n, cb -> viewModel.spendStormGems(n, cb) }, onBuyAuto = { id, cb ->
+            val act = reviewActivity
+            if (TESTING_DISABLE_PRO_GATE) cb(true)
+            else if (act == null) cb(false)
+            else RevenueCatManager.purchaseGemPack(act, id) { ok -> cb(ok) }
+        }, modifier = Modifier.padding(vertical = 4.dp))
         AutoRefillCard(isPro = isPro, gems = profile.gems, onUpgrade = { showPlanPaywall = true }, modifier = Modifier.padding(vertical = 4.dp))
          // Boss Themes: opt-in challenge skins (tougher boss, +40% gems)
         BossThemeCard(onOpen = { showBossTheme = true }, modifier = Modifier.padding(vertical = 4.dp))
@@ -1819,7 +1830,13 @@ fun ArcadeHomeView(
                     else if (act == null) cb(false)
                     else RevenueCatManager.purchaseGemPack(act, pid) { ok -> if (ok) com.neonrush.game.Wingman.applySkinPurchase(proCtx, i); cb(ok) }
                 },
-                credit = { g -> viewModel.creditStormGems(g) }, spend = { n, cb -> viewModel.spendStormGems(n, cb) })
+                credit = { g -> viewModel.creditStormGems(g) }, spend = { n, cb -> viewModel.spendStormGems(n, cb) },
+                onBuyDmg = { id, cb ->
+                    val act = reviewActivity
+                    if (TESTING_DISABLE_PRO_GATE) cb(true)   // testing: free
+                    else if (act == null) cb(false)
+                    else RevenueCatManager.purchaseGemPack(act, id) { ok -> cb(ok) }
+                })
         }
         // World Echo Boss: this week's returning boss + twist
         WorldEchoCard(isPro = isPro, modifier = Modifier.padding(vertical = 4.dp))
@@ -4905,7 +4922,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                     onBombSweep = { viewModel.bombSweep() }, onBombBoss = { d -> viewModel.bombBoss(d) }) // boss lunge + brood + brood bomb
                 com.neonrush.game.ui.WingmanOverlay(active = simState.isStarted && !simState.isCompleted, bossActive = simState.bossActive, bossY = simState.bossY, pilotY = simState.userYPos,
                     hullPct = simState.fuelLevelPercent, testing = TESTING_DISABLE_PRO_GATE, bossZoneOk = com.neonrush.game.Wingman.unlocked(simState.currentZoneNumber),
-                    onShot = { m -> viewModel.damageBoss(Shooting.BOSS_DAMAGE * m) }, onClear = { y -> viewModel.wingClear(y) }, elements = simState.activeTrackElements, onCollect = { y -> viewModel.wingCollect(y) }, onUpgrade = { android.widget.Toast.makeText(activity ?: return@WingmanOverlay, "Open the Combat Wingman card on the home screen to go ELITE", android.widget.Toast.LENGTH_LONG).show() }) // combat wingman
+                    onShot = { m -> viewModel.damageBoss(Shooting.BOSS_DAMAGE * m) }, onClear = { y -> viewModel.wingClear(y) }, elements = simState.activeTrackElements, onCollect = { y -> viewModel.wingCollect(y) }, onHazard = { y, m -> viewModel.wingHazard(y, m) }, onUpgrade = { android.widget.Toast.makeText(activity ?: return@WingmanOverlay, "Open the Combat Wingman card on the home screen to go ELITE", android.widget.Toast.LENGTH_LONG).show() }) // combat wingman
                 com.neonrush.game.ui.LanceOverlay(active = simState.isStarted && !simState.isCompleted, bossActive = simState.bossActive, bossY = simState.bossY, pilotY = simState.userYPos,
                     onLance = { f -> viewModel.lanceBoss(f) }) // pulse lance: cells + point-blank button
                 ShootingOverlay(elements = simState.activeTrackElements, pilotY = simState.userYPos, bossActive = simState.bossActive, bossY = simState.bossY,
@@ -5910,6 +5927,8 @@ fun TutorialScreen(onBack: () -> Unit) {
                     }
                 }
 
+                HudGuideCard()   // animated tour of every on-screen button
+
                 TutorialCard("🎮", "THE BASICS", pose = Pose.CHEER) {
                     TutorialBullet("Drag up or down anywhere on the screen to steer. Your pilot flies forward on its own.")
                     TutorialBullet("Survive as long as you can — distance, zones cleared and score all grow the further you fly.")
@@ -5997,7 +6016,7 @@ fun TutorialScreen(onBack: () -> Unit) {
                     TutorialIconRow(puWarp, "Lane Warp", "Instantly snaps you onto the ghost marker's safe line.", Color(0xFF69F0AE))
                     TutorialIconRow(puSkip, "Zone Skip", "Leaps you forward to the next zone.", Color(0xFF69F0AE))
                     TutorialIconRow(puAura, "Legendary Aura", "Rare! Grants a whole bundle of power-ups at the same time.", Color(0xFF69F0AE))
-                    TutorialIconRow(puMil, "Military Shield", "Rare gold shield: an armoured hexagon that takes 7 hits. A bar shows how damaged it is. It cannot break in its first 2 seconds, so you always see it work.", Color(0xFFFFC400))
+                    TutorialIconRow(puMil, "Military Shield", "Rare gold shield: an armoured hexagon that takes 10 hits. A bar shows how damaged it is. After the 10th hit it keeps protecting you for 4 more seconds before it disappears.", Color(0xFFFFC400))
                     TutorialIconRow(puPill, "Healing Pill", "Very rare. Stored for your Combat Wingman: +50% hull each. You can keep as many as you find.", Color(0xFF00E676))
                 }
 
@@ -6125,18 +6144,20 @@ fun TutorialScreen(onBack: () -> Unit) {
                     TutorialBullet("Tap FIRE to shoot obstacles, enemy bullets and bosses. Armor pickups give you ammo: 20 shots each. You carry 40 shots (free) or 100 (Pro), and the Magazine Bay lets you carry more.")
                     TutorialBullet("BOMB: a rare pickup. Tap it to wipe out every small boss spawn at once. On LEGENDARY it also breaks the boss shield and hurts the boss.")
                     TutorialBullet("Bombs you find are never reduced by the shop. The BOMB DEPOT (opens after 30 days of playing) sells 100 bombs for $0.99, 400 for $2.99, and UNLIMITED storage for $1.99.")
+                    TutorialBullet("AMMO DEPOT (opens after 3 days of playing): buy 1000 shots for \$0.99 or 2400 for \$1.99. They wait in a reserve and load by themselves when your gun runs dry, up to 400 per run. The armor you collect is not touched.")
                     TutorialBullet("Boss tricks: some bosses lunge across the track (their shield drops and your bolts hit twice as hard) or hatch small hunters. Watch for the warning.")
                 }
 
                 TutorialCard("🛡️", "MILITARY SHIELD", accent = Color(0xFFFFC400)) {
-                    TutorialBullet("A gold armoured hexagon around your pilot. It takes 7 hits before it breaks, and goes green, amber, then red with cracks as it is damaged. A bar at the top-left shows hits left and the damage percentage.")
-                    TutorialBullet("It always lasts at least 2 seconds after it is switched on, even if it is hit 7 times at once.")
+                    TutorialBullet("A gold armoured hexagon around your pilot. It takes 10 hits, and goes green, amber, then red with cracks as it is damaged. A bar at the top-left shows hits left and the damage percentage.")
+                    TutorialBullet("LAST STAND: when the 10th hit lands it does not vanish. It turns red and blocks every hit for 4 more seconds, with a countdown, then it disappears.")
+                    TutorialBullet("AUTO-DEPLOY: when you are hit and no military shield is on, the next one from your stock switches on by itself. The first 3 shields each run are automatic, then you tap MIL. AUTO 6 makes the first 6 automatic (free with Pro, or \$1.99 once). Switch it on the home screen card.")
                     TutorialBullet("Pick it up on the track (about 40% rarer than the normal shield), or tap the MIL button to use one from your stock.")
                     TutorialBullet("Buy 5 for 350 gems on the home screen. Daily Crates and score vouchers can give them too.")
                 }
 
                 TutorialCard("🚁", "AIR SUPPORT (PRO)", accent = Color(0xFF00E5FF), pose = Pose.CHEER) {
-                    TutorialBullet("When the boss beats you or heavy attacks pile up, the AIR SUPPORT button appears. Once it shows, it stays until you press it (it just fades and glows every second).")
+                    TutorialBullet("When the boss beats you or heavy attacks pile up, a small round AIR button appears on the right edge, under PAUSE. Once it shows, it stays until you press it (it just fades and glows every second). Its menu opens in the middle of the screen so it never covers your other buttons.")
                     TutorialBullet("Pick one of seven calls. A helicopter or jet flies in; while it is on screen you take no damage. Missiles cut through boss shields, and the bigger calls wipe the screen.")
                     TutorialBullet("Pro gets 1 free call a day. More calls come from Daily Crates, score vouchers and call packs.")
                     TutorialBullet("In the Air Support Bay you can buy skins for the helicopter (RAPTOR, HAMMER, STORMCALLER, WASP HUNTER) and the jet (STRIKER, SWARM, BUNKER BUSTER, NIGHTFANG). They are looks only.")
@@ -6147,6 +6168,7 @@ fun TutorialScreen(onBack: () -> Unit) {
                     TutorialBullet("Its button appears when a boss attacks, or when 2 or more hazards attack at once. A call is only used when you press the button.")
                     TutorialBullet("One call = 3 sorties: 3 seconds of fighting, then RELOADING for 2 seconds, and it comes back by itself, 3 times.")
                     TutorialBullet("Its shots grow stronger as a call goes on. Boss shields still stop its bullets, and it cannot stop Blink Strikes. Save your airstrike for boss shields.")
+                    TutorialBullet("Its shots hit hazards exactly like your own bolts: a hazard has hit points and takes several shots. WINGMAN DAMAGE levels make them hit harder on hazards and bosses: level 1 = 400 gems, level 2 = 800 gems, level 3 = \$1.99.")
                     TutorialBullet("It can be hurt: watch its health bar under it. Healing pills (+50%) heal it automatically while it reloads, or tap the pill button.")
                     TutorialBullet("It also collects gems and fuel in its lane, and you get 1 free pill every day.")
                     TutorialBullet("\$4.99: 3 boss calls per round and 15 hazard calls per run. \$9.99 ELITE: 5 boss calls, UNLIMITED hazard calls, a bullet screen that takes shots for you, a fuel tow, rank 1-10 with rewards and a daily contract.")
