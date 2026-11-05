@@ -119,7 +119,7 @@ fun AirSupportCard(isPro: Boolean, onOpen: () -> Unit, modifier: Modifier = Modi
  * Free players see everything (to see what they miss) but cannot buy.
  */
 @Composable
-fun AirSupportBayDialog(isPro: Boolean, testing: Boolean, onClose: () -> Unit, onGoPro: () -> Unit, onBuyPack: (Int, (Boolean) -> Unit) -> Unit) {
+fun AirSupportBayDialog(isPro: Boolean, testing: Boolean, onClose: () -> Unit, onGoPro: () -> Unit, onBuyPack: (Int, (Boolean) -> Unit) -> Unit, onBuySkin: (String, (Boolean) -> Unit) -> Unit = { _, cb -> cb(false) }) {
     val ctx = LocalContext.current
     val dens = LocalDensity.current.density
     val inf = rememberInfiniteTransition(label = "airBay")
@@ -128,7 +128,7 @@ fun AirSupportBayDialog(isPro: Boolean, testing: Boolean, onClose: () -> Unit, o
     val calls = AirSupport.calls(ctx); val free = AirSupport.freeAvailable(ctx, isPro)
     val total = AirSupport.totalSorties(ctx); val lv = AirSupport.level(total)
     val jetOk = AirSupport.jetUnlocked(ctx); val craft = AirSupport.aircraft(ctx)
-    val artHeli = rememberArt("air_heli"); val artJet = rememberArt("air_jet")
+    val artHeli = rememberArt(com.neonrush.game.AirSkins.artName(ctx, "heli")); val artJet = rememberArt(com.neonrush.game.AirSkins.artName(ctx, "jet"))
     var msg by remember { mutableStateOf("") }; var msgGood by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
     var burst by remember { mutableStateOf(-1f) }; var burstText by remember { mutableStateOf("") }
@@ -218,6 +218,7 @@ fun AirSupportBayDialog(isPro: Boolean, testing: Boolean, onClose: () -> Unit, o
                         }
                     }
                 }
+                AirSkinsSection(testing = testing, onBuy = onBuySkin, clock = clock)
                 // ---- rules ----
                 Spacer(Modifier.height(16.dp))
                 val rs = RoundedCornerShape(14.dp)
