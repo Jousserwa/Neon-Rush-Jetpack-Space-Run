@@ -810,7 +810,21 @@ fun onFuelTierChanged(tier: String) {
 /** Pro Auto-Refill (Stage 165): called every sim tick. Presses the refuel for the player when the fuel is low and they have 300+ gems. Never revives. */
 fun autoRefuelCheck(fuel: Int) {
     if (fuel > AutoRefill.TRIGGER) { autoRefuelBusy = false; return }
-    if (autoRefuelBusy || !AutoRefill.isOn() || Pause.frozen()) return
+    if (fuel <= WingmanPerks.TOW_FUEL_AT && !Wingman.towUsed && !Pause.frozen() && Wingman.tier(appCtx, TESTING_DISABLE_PRO_GATE) >= 2) {   // ELITE wingman TOW: last-chance fuel, once per run
+        Wingman.towUsed = true
+        _simState.value = _simState.value.copy(fuelLevelPercent = (fuel + WingmanPerks.TOW_GIVES).coerceAtMost(100), feedbackMessage = "🛟 WINGMAN TOW +${WingmanPerks.TOW_GIVES}% FUEL")
+        soundEngine.playUnlockSkin()
+        return
+    }
+    if (autoRefuelBusy || Pause.frozen()) return
+    if (CrateWeek.freeRefills(appCtx) > 0) {   // crate-week gift: free automatic refuel
+        autoRefuelBusy = true
+        val left = CrateWeek.takeRefill(appCtx)
+        _simState.value = _simState.value.copy(fuelLevelPercent = 100, feedbackMessage = "⛽ CRATE REFILL · $left LEFT")
+        soundEngine.playUnlockSkin()
+        return
+    }
+    if (!AutoRefill.isOn()) return
     if (!(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE)) return
     val gems = profile.value?.gems ?: return
     if (gems < AutoRefill.MIN_GEMS || gems < fuelRefillCostForCurrentRun()) return
@@ -1033,7 +1047,11 @@ fun freezeStreak() {
                     updated
                 }
             }
-            result?.let {
+            result?.let { r0 ->
+                DailyCrate.deliver(appCtx, r0)
+                if (r0.isStreakBonus) CrateWeek.setWheel(appCtx, 1)
+                val paid = CrateWeek.markOpened(appCtx)
+                val it = r0.copy(weekDays = if (paid) CrateWeek.DAYS else CrateWeek.days(appCtx), weekReward = paid)
                 _crateResult.value = it
                 soundEngine.playUnlockSkin()
             }
@@ -1279,7 +1297,7 @@ fun freezeStreak() {
         return when {
             roll < legendaryThreshold -> if (rand.nextBoolean()) "PU11" else "PU12"
             roll < legendaryThreshold + rareThreshold -> "PU" + rand.nextInt(6, 11)
-            else -> "PU" + rand.nextInt(1, 6)
+            else -> if (rand.nextInt(100) < 4) "PU14" else if (rand.nextInt(100) < 11) "PU13" else "PU" + rand.nextInt(1, 6)
         }
     }
 
@@ -1736,6 +1754,15 @@ fun wingClear(y: Int): Int {
     _simState.value = st.copy(activeTrackElements = st.activeTrackElements.filter { it.id != pick.id }, score = st.score + 8)
     return 1
 }
+/** Wingman COLLECTOR: picks up one gem or fuel in its lane. Returns how many it took. */
+fun wingCollect(y: Int): Int {
+    val st = _simState.value
+    val pick = st.activeTrackElements.firstOrNull { (it.type == "gem" || it.type == "fuel") && it.xOffsetFraction in 0.1f..0.75f && kotlin.math.abs(it.yMatchPos - y) <= 12 } ?: return 0
+    var s2 = st.copy(activeTrackElements = st.activeTrackElements.filter { it.id != pick.id })
+    if (pick.type == "gem") creditStormGems(1) else s2 = s2.copy(fuelLevelPercent = (st.fuelLevelPercent + 15).coerceAtMost(100))
+    _simState.value = s2
+    return 1
+}
 /** Pulse Lance (Stage 157): [frac] of the hull to the escorts first, else to the main boss. Class 3: nothing stops it, the layers still take their share. */
 fun lanceBoss(frac: Float) {
     if (Pause.frozen()) return
@@ -1800,7 +1827,7 @@ fun testJumpToZone(zone: Int) {
 
 fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = null, startFromZone: Int = 1) {
     simJob?.cancel()
-    HullFx.reset(); PilotShieldFx.reset(); PickupFx.reset(); ReactFx.reset(); lastPuSpawnTick = 0; fuelFreezeUntilTick = 0; if (selectedDifficulty == DifficultyTier.EASY) PilotShieldFx.onGain(EASY_SHIELD_LAYERS); hangar.onRunStart(profile.value?.activeSkinId ?: "cyan_diamond"); ThreatDirector.reset(); resetStoryProgress(); seasonPass.tierTokenMult = selectedDifficulty.tokenMult; seasonPass.onRunStart()
+    HullFx.reset(); PilotShieldFx.reset(); com.neonrush.game.MilShield.reset(); CrateWeek.markPlayed(appCtx); PickupFx.reset(); ReactFx.reset(); lastPuSpawnTick = 0; fuelFreezeUntilTick = 0; if (selectedDifficulty == DifficultyTier.EASY) PilotShieldFx.onGain(EASY_SHIELD_LAYERS); hangar.onRunStart(profile.value?.activeSkinId ?: "cyan_diamond"); ThreatDirector.reset(); resetStoryProgress(); seasonPass.tierTokenMult = selectedDifficulty.tokenMult; seasonPass.onRunStart()
     var startupDna = ZoneGenerator.generateZone(startFromZone, 42)
     if (specialWorldId != null) startupDna = overrideEnvironment(startupDna, specialWorldId)
     val todayMutation = DailyMutations.getActiveMutation()
@@ -2290,6 +2317,12 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         }
                                         shieldLayersState = maxOf(shieldLayersState, 2); PilotShieldFx.onGain(shieldLayersState)
                                         updatedMsg = "LEGENDARY PRESTIGE MATRIX SYNC ACTIVE!"
+                                    } else if (puId == "PU14") {
+                                        Wingman.addPill(appCtx, 1)
+                                        updatedMsg = "HEALING PILL +1 · ${Wingman.pills(appCtx)} STORED"
+                                    } else if (puId == "PU13") {
+                                        com.neonrush.game.MilShield.activate()
+                                        updatedMsg = "MILITARY SHIELD ONLINE! 7 HITS"
                                     } else if (puId == "PU1") {
                                         // The shield power-up puts (or puts back) the layered shield on the pilot
                                         val puLayers = 2 + (if (Upgrades.level(activeUpgradesCsv, "shield") >= 3) 1 else 0)
@@ -2321,6 +2354,10 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                         ReactFx.obstacle(elem.subType, "SHIELD", elem.xOffsetFraction, elem.yMatchPos)
                                     } else if ((hasInvincibility || hasGhostMode) && !isUnstoppableHazard) {
                                         ReactFx.obstacle(elem.subType, if (hasInvincibility) "SMASH" else "PHASE", elem.xOffsetFraction, elem.yMatchPos)
+                                    } else if (!isUnstoppableHazard && com.neonrush.game.MilShield.absorb()) {
+                                        ReactFx.obstacle(elem.subType, "SHIELD", elem.xOffsetFraction, elem.yMatchPos)
+                                        soundEngine.playShieldBreak()
+                                        updatedMsg = if (com.neonrush.game.MilShield.hp > 0) "MIL SHIELD HELD: ${com.neonrush.game.MilShield.healthPct()}% LEFT" else "MIL SHIELD DESTROYED"
                                     } else if (hasShield && !isUnstoppableHazard) {
                                         ReactFx.obstacle(elem.subType, "SHIELD", elem.xOffsetFraction, elem.yMatchPos)
                                         soundEngine.playShieldBreak()
@@ -2704,6 +2741,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
     fun finalizeRunStats() {
         viewModelScope.launch {
             val finalState = _simState.value
+            ScoreVouchers.award(appCtx, finalState.score.toLong())
             val wasAssisted = firstRunAssist
             var firstFlight = false
             var isNewPB = false
@@ -3245,6 +3283,12 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                             nextDurationsMap["PU$i"] = 40
                                         }
                                         shieldLayersState = maxOf(shieldLayersState, 2); PilotShieldFx.onGain(shieldLayersState)
+                                    } else if (puId == "PU14") {
+                                        Wingman.addPill(appCtx, 1)
+                                        updatedMsg = "HEALING PILL +1 · ${Wingman.pills(appCtx)} STORED"
+                                    } else if (puId == "PU13") {
+                                        com.neonrush.game.MilShield.activate()
+                                        updatedMsg = "MILITARY SHIELD ONLINE! 7 HITS"
                                     } else if (puId == "PU1") {
                                         // The shield power-up puts (or puts back) the layered shield on the pilot
                                         val puLayers = 2 + (if (Upgrades.level(activeUpgradesCsv, "shield") >= 3) 1 else 0)
@@ -3259,6 +3303,10 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                                     val isUnstoppableHazard = elem.subType == "BLINK_HAZARD"
                                     if ((hasInvincibility || hasGhostMode) && !isUnstoppableHazard) {
                                         ReactFx.obstacle(elem.subType, if (hasInvincibility) "SMASH" else "PHASE", elem.xOffsetFraction, elem.yMatchPos)
+                                    } else if (!isUnstoppableHazard && com.neonrush.game.MilShield.absorb()) {
+                                        ReactFx.obstacle(elem.subType, "SHIELD", elem.xOffsetFraction, elem.yMatchPos)
+                                        soundEngine.playShieldBreak()
+                                        updatedMsg = if (com.neonrush.game.MilShield.hp > 0) "MIL SHIELD HELD: ${com.neonrush.game.MilShield.healthPct()}% LEFT" else "MIL SHIELD DESTROYED"
                                     } else if (hasShield && !isUnstoppableHazard) {
                                         ReactFx.obstacle(elem.subType, "SHIELD", elem.xOffsetFraction, elem.yMatchPos)
                                         soundEngine.playShieldBreak()
