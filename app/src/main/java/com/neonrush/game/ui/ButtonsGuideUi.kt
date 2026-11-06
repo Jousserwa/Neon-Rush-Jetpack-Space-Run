@@ -41,7 +41,7 @@ private val HUD_STOPS = listOf(
     HudStop("FUEL", 0.60f, 0.93f, 0.30f, true, Color(0xFF69F0AE), "FUEL BAR · bottom",
         "Your fuel drains as you fly. Fly through fuel canisters to fill it. If it runs low, tap the bar to refuel. The bar shows the gem cost (or FREE) and how many refuels you have left."),
     HudStop("FIRE", 0.85f, 0.80f, 0.115f, false, Color(0xFFFF4081), "FIRE · bottom right",
-        "Press and hold to shoot obstacles, enemy bullets and bosses. The number is how many shots you have. EMPTY means none left: pick up armor to reload, or buy shots at the Ammo Depot (they fill the magazine when a run starts)."),
+        "Press and hold to shoot obstacles, enemy bullets and bosses. The number is how many shots you have. EMPTY means none left: pick up armor to reload, or buy shots at the Ammo Depot (they fill the magazine when a run starts and reload it by themselves when you run dry)."),
     HudStop("BOMB", 0.85f, 0.55f, 0.095f, false, Color(0xFFFFB300), "BOMB · right side",
         "Tap to detonate a bomb. It wipes out every small boss spawn at once. The x number is how many bombs you carry."),
     HudStop("DASH", 0.17f, 0.80f, 0.095f, false, Color(0xFF80F0FF), "DASH · SMASH (Pro runs)",
