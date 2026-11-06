@@ -4987,6 +4987,8 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                     bossActive = simState.bossActive, bossY = simState.bossY, pilotY = simState.userYPos, fuel = simState.fuelLevelPercent, shields = simState.shieldLayers,
                     onGoPro = { airPaywall = true }, onBossStrike = { d -> viewModel.airBossStrike(d) }, onSweep = { x -> viewModel.airSweep(x) },
                     onScore = { n -> viewModel.addBonusScore(n) }) // Air Support: radio call, gunship / jet sortie, missiles
+                PhaseGateOverlay(active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, bossActive = simState.bossActive, fuel = simState.fuelLevelPercent,
+                    runs = profile.totalRuns, pilotY = simState.userYPos, onGems = { n -> viewModel.creditStormGems(n) })   // Phase Gate: a 2.5 s glimpse of another realm, once in a while
                 DangerPromptOverlay(active = simState.isStarted && !simState.isCompleted, fuel = simState.fuelLevelPercent, shields = simState.shieldLayers, bossActive = simState.bossActive, gems = profile.gems, spend = { n, cb -> viewModel.spendStormGems(n, cb) }) // smart danger prompt (0.5 s buy chip)
                 MilShieldOverlay(active = simState.isStarted && !simState.isCompleted) // military shield: damage bar + MIL button
                 PauseOverlay(active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, isPro = isPro || TESTING_DISABLE_PRO_GATE, bossActive = simState.bossActive) // limited pause + 3-2-1 + auto-pause when the app is left
@@ -5560,6 +5562,17 @@ fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
 
                 var soundEnabled by remember { mutableStateOf(viewModel.getSoundEffectsEnabled()) }
                 var musicEnabled by remember { mutableStateOf(viewModel.getAmbientEnabled()) }
+                val pgCtx = androidx.compose.ui.platform.LocalContext.current
+                var gateOn by remember { mutableStateOf(com.neonrush.game.PhaseGate.enabled(pgCtx)) }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Phase Gate", color = Color.White, fontFamily = FontFamily.Monospace)
+                        Text("A 2.5 second glimpse of another realm, once in a while", color = Color.White.copy(alpha = 0.5f), fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+                    }
+                    Switch(checked = gateOn, onCheckedChange = { gateOn = it; com.neonrush.game.PhaseGate.setEnabled(pgCtx, it) },
+                        colors = SwitchDefaults.colors(checkedThumbColor = CyberPrimary, checkedTrackColor = CyberPrimary.copy(alpha = 0.5f)))
+                }
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -5630,6 +5643,15 @@ fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
                 Text("\uD83E\uDDEA REACTION LAB (testing)", color = Color(0xFFFFD54F), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
             }
             if (showLab) ReactionLabDialog(onClose = { showLab = false })
+            var gateQuick by remember { mutableStateOf(com.neonrush.game.PhaseGate.testQuick) }
+            Button(
+                onClick = { gateQuick = !gateQuick; com.neonrush.game.PhaseGate.testQuick = gateQuick },
+                colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth().border(1.dp, Color(0xFF7C4DFF).copy(alpha = 0.8f), RoundedCornerShape(8.dp))
+            ) {
+                Text("\uD83C\uDF00 PHASE GATE every 6 s (testing): " + (if (gateQuick) "ON - start a run" else "OFF"), color = Color(0xFFB388FF), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            }
             Text("\uD83E\uDDEA ZONE JUMP (testing)", color = Color(0xFFFFD54F), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             listOf(listOf(60, 100, 150, 200), listOf(240, 270, 300, 330), listOf(395, 420, 480, 505)).forEach { rowZones ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
@@ -6197,7 +6219,7 @@ fun TutorialScreen(onBack: () -> Unit) {
                     TutorialBullet("Tap FIRE to shoot obstacles, enemy bullets and bosses. Armor pickups give you ammo: 20 shots each. You carry 40 shots (free) or 100 (Pro), and the Magazine Bay lets you carry more.")
                     TutorialBullet("BOMB: a rare pickup. Tap it to wipe out every small boss spawn at once. On LEGENDARY it also breaks the boss shield and hurts the boss.")
                     TutorialBullet("Bombs you find are never reduced by the shop. The BOMB DEPOT (opens after 30 days of playing) sells 100 bombs for $0.99, 400 for $2.99, and UNLIMITED storage for $1.99. Each bomb pack can be bought 2 times.")
-                    TutorialBullet("AMMO DEPOT (opens after 3 days of playing): buy 1000 shots for \$0.99 or 2400 for \$1.99. They wait in a reserve and fill your magazine at the START of each run. During a run, an empty magazine stays empty until you collect armor. Each pack can be bought 2 times.")
+                    TutorialBullet("AMMO DEPOT (opens after 3 days of playing): buy 1000 shots for \$0.99 or 2400 for \$1.99. They wait in a reserve. They fill your magazine at the START of each run, and when you run completely dry during a run a fresh magazine loads by itself, with a loud reload sound. Each pack can be bought 2 times.")
                     TutorialBullet("Boss tricks: some bosses lunge across the track (their shield drops and your bolts hit twice as hard) or hatch small hunters. Watch for the warning.")
                 }
 
@@ -6270,6 +6292,12 @@ fun TutorialScreen(onBack: () -> Unit) {
                 TutorialCard("🔧", "UPGRADE BAY & BOSS THEMES", accent = Color(0xFFFFC107)) {
                     TutorialBullet("The Upgrade Bay holds your permanent gun, bomb, helicopter, jet, lance and rack upgrades in one place.")
                     TutorialBullet("Boss Themes are optional harder bosses. Pick a theme for a tougher fight and bigger gem rewards. TOXIC BLOOM opens after 1 month of playing and VOID EMPEROR after 3 months.")
+                }
+
+                TutorialCard("🌀", "PHASE GATE", accent = Color(0xFF7C4DFF)) {
+                    TutorialBullet("Every 5 to 9 minutes of flying, a crack tears open in the track and a portal pulls you in. For about 2.5 seconds you glimpse another realm: a new world, a Hangar item you could own, or a gift of gems. Then you snap back.")
+                    TutorialBullet("You are safe the whole time. You cannot be hurt, you can still steer, and it never ends a run.")
+                    TutorialBullet("It only opens when no boss is on screen, at most twice per run, never in your first runs and never in Legendary. You can switch it off in Settings.")
                 }
 
                 TutorialCard("🚪", "HANGAR & ARMORY", accent = Color(0xFFFF4DD2)) {
