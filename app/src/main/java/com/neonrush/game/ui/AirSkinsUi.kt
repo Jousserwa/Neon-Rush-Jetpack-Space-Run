@@ -36,7 +36,7 @@ fun AirSkinsSection(testing: Boolean, onBuy: (String, (Boolean) -> Unit) -> Unit
     var busy by remember { mutableStateOf(false) }
     Spacer(Modifier.height(16.dp))
     Text("AIRCRAFT SKINS", color = AK_GOLD, fontSize = 14.sp, fontWeight = FontWeight.Black, fontFamily = AK_MONO)
-    Text("Looks only, one-time $1.99 each. Same power, new style.", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp, fontFamily = AK_MONO)
+    Text("Looks only, one-time $1.99 each. Buy them in order: the second only after the first.", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp, fontFamily = AK_MONO)
     for (kind in listOf("heli", "jet")) {
         Spacer(Modifier.height(10.dp))
         Text(if (kind == "heli") "HAWK SIX · helicopter" else "VIPER ONE · jet", color = Color(0xFF00E5FF), fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = AK_MONO)
@@ -48,11 +48,14 @@ fun AirSkinsSection(testing: Boolean, onBuy: (String, (Boolean) -> Unit) -> Unit
             for (slot in 0..4) {
                 val skin = if (slot == 0) null else AirSkins.list(kind)[slot - 1]
                 val own = skin == null || AirSkins.owns(ctx, skin, testing)
+                val prevSkin = if (skin == null || skin.n == 1) null else AirSkins.list(kind)[skin.n - 2]
+                val inOrder = prevSkin == null || AirSkins.owns(ctx, prevSkin, testing)   // skins are bought in order: 1, then 2, then 3, then 4
                 val sel = eq == slot
                 val shape = RoundedCornerShape(10.dp)
                 Column(Modifier.weight(1f).clip(shape).background(Color(0xFF16103A)).border(if (sel) 2.dp else 1.dp, if (sel) AK_GOLD else Color.White.copy(alpha = 0.2f), shape)
                     .clickable(enabled = !busy) {
                         if (own) { AirSkins.equip(ctx, kind, slot); msg = "" }
+                        else if (skin != null && !inOrder) msg = "Buy ${prevSkin!!.name} first"
                         else if (skin != null) { busy = true; onBuy(skin.id) { ok -> busy = false; if (ok) AirSkins.applyPurchase(ctx, skin) else msg = "Purchase cancelled" } }
                     }.padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Canvas(Modifier.fillMaxWidth().height(34.dp)) {
@@ -61,7 +64,7 @@ fun AirSkinsSection(testing: Boolean, onBuy: (String, (Boolean) -> Unit) -> Unit
                         if (!own) drawRect(Color(0x99100C28))
                     }
                     Text(skin?.name ?: "BASE", color = if (sel) AK_GOLD else Color.White, fontSize = 7.sp, fontWeight = FontWeight.Black, fontFamily = AK_MONO, maxLines = 1)
-                    Text(if (sel) "ON" else if (own) "TAP" else skin!!.price, color = Color.White.copy(alpha = 0.8f), fontSize = 8.sp, fontFamily = AK_MONO)
+                    Text(if (sel) "ON" else if (own) "TAP" else if (!inOrder) "🔒" else skin!!.price, color = Color.White.copy(alpha = 0.8f), fontSize = 8.sp, fontFamily = AK_MONO)
                 }
             }
         }
