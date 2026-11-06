@@ -2231,7 +2231,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         nextDurationsMap[key] = remaining - 1
                     }
                 }
-                val hasInvincibility = nextDurationsMap.containsKey("PU7") || nextDurationsMap.containsKey("PU12") || LegendMoves.dashing() || AirSupport.covering() || Pause.covering()
+                val hasInvincibility = nextDurationsMap.containsKey("PU7") || nextDurationsMap.containsKey("PU12") || LegendMoves.dashing() || AirSupport.covering() || PhaseGate.covering() || Pause.covering()
                 val hasGhostMode = nextDurationsMap.containsKey("PU4") || activeDna.mechanicIds.contains(3)
                 var hasShield = nextDurationsMap.containsKey("PU1")
                 var hitThisTick = false
@@ -3187,7 +3187,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
                         nextDurationsMap[key] = remaining - 1
                     }
                 }
-                val hasInvincibility = nextDurationsMap.containsKey("PU7") || nextDurationsMap.containsKey("PU12") || LegendMoves.dashing() || AirSupport.covering() || Pause.covering()
+                val hasInvincibility = nextDurationsMap.containsKey("PU7") || nextDurationsMap.containsKey("PU12") || LegendMoves.dashing() || AirSupport.covering() || PhaseGate.covering() || Pause.covering()
                 val hasGhostMode = nextDurationsMap.containsKey("PU4") || activeDna.mechanicIds.contains(3)
                 var hasShield = nextDurationsMap.containsKey("PU1")
                 var hitThisTick = false
