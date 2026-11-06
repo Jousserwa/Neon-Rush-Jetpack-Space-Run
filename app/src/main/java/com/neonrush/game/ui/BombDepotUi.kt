@@ -45,7 +45,10 @@ fun BombDepotCard(testing: Boolean, onBuy: (String, (Boolean) -> Unit) -> Unit, 
             Text("Bombs you find in the game are not affected.", color = Color.White.copy(alpha = 0.6f), fontSize = 9.sp, fontFamily = BD_MONO)
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                for (p in BombDepot.PACKS) DepotBtn("${p.bombs} BOMBS", p.price, true, Modifier.weight(1f)) { onBuy(p.id) { ok -> if (ok) BombDepot.deliver(ctx, p.id) } }
+                for (p in BombDepot.PACKS) {
+                    val canBuy = com.neonrush.game.AmmoDepot.canBuy(ctx, p.id, testing)
+                    DepotBtn("${p.bombs} BOMBS", if (canBuy) p.price else "LIMIT ${com.neonrush.game.AmmoDepot.MAX_BUYS}/${com.neonrush.game.AmmoDepot.MAX_BUYS}", canBuy, Modifier.weight(1f)) { onBuy(p.id) { ok -> if (ok) BombDepot.deliver(ctx, p.id) } }
+                }
                 DepotBtn("UNLIMITED", if (unl) "OWNED" else BombDepot.UNLIMITED_PRICE, !unl, Modifier.weight(1f)) { onBuy(BombDepot.UNLIMITED_ID) { ok -> if (ok) BombDepot.deliver(ctx, BombDepot.UNLIMITED_ID) } }
             }
         }
