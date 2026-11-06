@@ -211,9 +211,13 @@ fun BossThemeDialog(testing: Boolean, onClose: () -> Unit, onBuy: (Int, (Boolean
                                 Text(th.name, color = col, fontSize = 14.sp, fontWeight = FontWeight.Black, fontFamily = BT_MONO)
                                 Text(th.blurb, color = Color.White.copy(alpha = 0.7f), fontSize = 9.sp, fontFamily = BT_MONO)
                             }
-                            Text(if (on) "EQUIPPED ✓" else if (own) "EQUIP" else th.price, color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = BT_MONO,
+                            // TOXIC BLOOM opens after 1 month of playing, VOID EMPEROR after 3 months
+                            val needDays = when (i) { 1 -> 30; 2 -> 90; else -> 0 }
+                            val daysLeft = if (testing || own) 0 else (needDays - com.neonrush.game.BombDepot.daysInstalled(ctx)).coerceAtLeast(0)
+                            Text(if (on) "EQUIPPED ✓" else if (own) "EQUIP" else if (daysLeft > 0) "🔒 ${daysLeft}d" else th.price, color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = BT_MONO,
                                 modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(if (on) Color(0xFF69F0AE) else col).clickable(enabled = !busy) {
                                     if (own) { BossSkins.toggle(ctx, i); good = true; msg = if (BossSkins.equipped(ctx) == i) "${th.name} equipped" else "Boss theme off: normal bosses" }
+                                    else if (daysLeft > 0) { good = false; msg = "${th.name} opens after ${if (needDays >= 90) "3 months" else "1 month"} of playing. $daysLeft more day${if (daysLeft == 1) "" else "s"} to go." }
                                     else { busy = true; onBuy(i) { ok -> busy = false; good = ok; msg = if (ok) "${th.name} unlocked and equipped" else "Purchase cancelled" } }
                                 }.padding(horizontal = 12.dp, vertical = 8.dp))
                         }
