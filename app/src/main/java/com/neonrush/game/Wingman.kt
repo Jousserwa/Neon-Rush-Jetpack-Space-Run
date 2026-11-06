@@ -104,5 +104,12 @@ object Wingman {
     }
     fun dmgMul(ctx: Context): Float = DMG_MUL[dmgLevel(ctx)]
     fun setDmgLevel(ctx: Context, lv: Int) { try { prefs(ctx).edit().putInt("dmg", maxOf(lv, dmgLevel(ctx)).coerceIn(0, 3)).apply() } catch (_: Throwable) { }; pillVersion += 1 }
-    fun applySkinPurchase(ctx: Context, i: Int) { try { prefs(ctx).edit().putBoolean("own$i", true).putInt("skin", i).apply() } catch (_: Throwable) { }; skinVersion += 1 }
+    /** Wingman skins open one at a time: 10 days after the last one you bought. Null = open. */
+    fun skinLock(ctx: Context): String? {
+        val last = try { prefs(ctx).getLong("skinAt", 0L) } catch (_: Throwable) { 0L }
+        if (last <= 0L) return null
+        val gone = ((ServerClock.bestNowMs() - last) / 86_400_000L).toInt()
+        return if (gone < 10) "Next wingman skin opens in ${10 - gone} day${if (10 - gone == 1) "" else "s"}" else null
+    }
+    fun applySkinPurchase(ctx: Context, i: Int) { try { prefs(ctx).edit().putBoolean("own$i", true).putInt("skin", i).putLong("skinAt", ServerClock.bestNowMs()).apply() } catch (_: Throwable) { }; skinVersion += 1 }
 }
