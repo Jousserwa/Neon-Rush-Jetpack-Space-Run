@@ -106,6 +106,8 @@ fun WingmanPageDialog(bestZone: Int, testing: Boolean, onClose: () -> Unit, onBu
         if (busy) return
         if (Wingman.ownsSkin(ctx, i)) { Wingman.equipSkin(ctx, i); good = true; msg = "${Wingman.SKINS[i].name} equipped"; return }
         if (!open) { good = false; msg = "Locked: reach zone ${Wingman.UNLOCK_ZONE} to buy skins"; return }
+        val skinWhy = if (testing) null else Wingman.skinLock(ctx)
+        if (skinWhy != null) { good = false; msg = skinWhy; return }
         busy = true
         onBuySkin(i) { ok -> busy = false; good = ok; msg = if (ok) "${Wingman.SKINS[i].name} unlocked" else "Purchase cancelled" }
     }
