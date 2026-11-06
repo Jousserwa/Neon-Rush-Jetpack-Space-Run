@@ -73,6 +73,9 @@ object MagazineBay {
         if (!testing) {
             if (!pro && (t.proOnly || n > FREE_MAX_TIER)) return "Pro only"
             if (pro && proMonths < t.proMonths) return "Needs ${t.proMonths} months of Pro (you have $proMonths)"
+            val needDays = if (n == 4) 30 else if (n == 5) 60 else 0
+            val days = BombDepot.daysInstalled(ctx)
+            if (days < needDays) return "Opens after $needDays days of playing: ${needDays - days} more day${if (needDays - days == 1) "" else "s"}"
             if (boughtToday(ctx)) return "One tier per day. Come back tomorrow"
         }
         return null
