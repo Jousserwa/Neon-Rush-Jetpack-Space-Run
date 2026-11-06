@@ -6,8 +6,8 @@ import androidx.compose.runtime.setValue
 
 /**
  * AMMO DEPOT (Stage 173, reworked 174): bought shots for players who cannot collect enough armor. They wait in a RESERVE that never touches the armor you
- * collect. The reserve fills the gun's magazine ONLY at the start of a run (up to the Magazine Bay capacity). During a run nothing is fetched from it:
- * when the magazine is empty it stays empty until the player collects armor. Opens after [MIN_DAYS] days of playing.
+ * collect. The reserve fills the gun's magazine at the start of a run AND again by itself during a run whenever the gun runs completely dry (Stage 176):
+ * it loads a fresh magazine up to the Magazine Bay capacity, with a loud reload sound. Opens after [MIN_DAYS] days of playing.
  * Each pack can be bought at most [MAX_BUYS] times (also used for the bomb packs). Play Console: two CONSUMABLE products.
  */
 object AmmoDepot {
@@ -24,7 +24,19 @@ object AmmoDepot {
         try { prefs(ctx).edit().putInt("reserve", (reserve(ctx) + n).coerceAtLeast(0)).apply() } catch (_: Throwable) {}
         version += 1
     }
-    /** Run start: move shots from the reserve into the magazine, as many as fit. Nothing is ever taken during a run. */
+    /** Set when a reload from the reserve happens during a run (the shooting layer watches this for the sound and banner), and how many shots it loaded. */
+    @Volatile var reloadMs = 0L
+    @Volatile var reloadN = 0
+    /** Mid-run: the gun is completely empty, so load a fresh magazine from the reserve (up to the Magazine Bay capacity). Returns the shots loaded. */
+    fun autoReload(ctx: Context): Int {
+        val r = reserve(ctx)
+        if (r <= 0) return 0
+        if (Shooting.ammo(ctx) > 0) return 0
+        val added = Shooting.addArmor(ctx, minOf(MagazineBay.capacity(ctx), r))
+        if (added > 0) { addReserve(ctx, -added); reloadN = added; reloadMs = System.currentTimeMillis() }
+        return added
+    }
+    /** Run start: move shots from the reserve into the magazine, as many as fit. */
     fun topUp(ctx: Context) {
         val r = reserve(ctx)
         if (r <= 0) return
