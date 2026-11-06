@@ -5,43 +5,43 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 
 /**
- * AMMO DEPOT (Stage 173): bought shots for players who cannot collect enough armor. They sit in a RESERVE that never touches the armor you
- * collect or the Magazine Bay capacity. When the gun runs dry in a run, the reserve loads automatically (at most [RUN_CAP] shots per run, so a pack
- * lasts several runs and boss fights stay fair). Opens after the game has been installed [MIN_DAYS] days.
- * Play Console: two CONSUMABLE products (neonrush_ammo_1000 $0.99, neonrush_ammo_2400 $1.99).
+ * AMMO DEPOT (Stage 173, reworked 174): bought shots for players who cannot collect enough armor. They wait in a RESERVE that never touches the armor you
+ * collect. The reserve fills the gun's magazine ONLY at the start of a run (up to the Magazine Bay capacity). During a run nothing is fetched from it:
+ * when the magazine is empty it stays empty until the player collects armor. Opens after [MIN_DAYS] days of playing.
+ * Each pack can be bought at most [MAX_BUYS] times (also used for the bomb packs). Play Console: two CONSUMABLE products.
  */
 object AmmoDepot {
     const val MIN_DAYS = 3
-    const val RUN_CAP = 400
+    const val MAX_BUYS = 2
     class Pack(val id: String, val shots: Int, val price: String)
     val PACKS = listOf(Pack("neonrush_ammo_1000", 1000, "$0.99"), Pack("neonrush_ammo_2400", 2400, "$1.99"))
 
-    @Volatile var runUsed = 0
     var version by androidx.compose.runtime.mutableStateOf(0)
     private fun prefs(ctx: Context) = ctx.applicationContext.getSharedPreferences("neonrush_ammodepot", Context.MODE_PRIVATE)
 
-    fun newRun() { runUsed = 0 }
     fun reserve(ctx: Context): Int { @Suppress("UNUSED_VARIABLE") val v = version; return try { prefs(ctx).getInt("reserve", 0) } catch (_: Throwable) { 0 } }
     fun addReserve(ctx: Context, n: Int) {
         try { prefs(ctx).edit().putInt("reserve", (reserve(ctx) + n).coerceAtLeast(0)).apply() } catch (_: Throwable) {}
         version += 1
     }
-    /** Shots the reserve can still give in this run. */
-    fun runLeft(ctx: Context): Int = minOf(reserve(ctx), (RUN_CAP - runUsed).coerceAtLeast(0))
-    /** Takes one shot from the reserve (respecting the per-run cap). */
-    fun takeShot(ctx: Context): Boolean {
-        if (runUsed >= RUN_CAP) return false
-        val n = try { prefs(ctx).getInt("reserve", 0) } catch (_: Throwable) { 0 }
-        if (n <= 0) return false
-        try { prefs(ctx).edit().putInt("reserve", n - 1).apply() } catch (_: Throwable) { return false }
-        runUsed += 1
-        return true
+    /** Run start: move shots from the reserve into the magazine, as many as fit. Nothing is ever taken during a run. */
+    fun topUp(ctx: Context) {
+        val r = reserve(ctx)
+        if (r <= 0) return
+        val room = (MagazineBay.capacity(ctx) - Shooting.ammo(ctx)).coerceAtLeast(0)
+        val added = Shooting.addArmor(ctx, minOf(room, r))
+        if (added > 0) addReserve(ctx, -added)
     }
+
+    // ---- purchase limit: any pack (ammo or bomb) can be bought at most MAX_BUYS times ----
+    fun buys(ctx: Context, id: String): Int { @Suppress("UNUSED_VARIABLE") val v = version; return try { prefs(ctx).getInt("buys_$id", 0) } catch (_: Throwable) { 0 } }
+    fun canBuy(ctx: Context, id: String, testing: Boolean): Boolean = testing || buys(ctx, id) < MAX_BUYS
+    fun noteBuy(ctx: Context, id: String) { try { prefs(ctx).edit().putInt("buys_$id", buys(ctx, id) + 1).apply() } catch (_: Throwable) {}; version += 1 }
 
     fun daysInstalled(ctx: Context): Int = BombDepot.daysInstalled(ctx)
     fun daysLeft(ctx: Context): Int = (MIN_DAYS - daysInstalled(ctx)).coerceAtLeast(0)
     fun unlocked(ctx: Context): Boolean = daysLeft(ctx) == 0
 
     /** Hands out what a product id stands for (after a real purchase, or in testing). */
-    fun deliver(ctx: Context, id: String) { PACKS.firstOrNull { it.id == id }?.let { addReserve(ctx, it.shots) } }
+    fun deliver(ctx: Context, id: String) { PACKS.firstOrNull { it.id == id }?.let { addReserve(ctx, it.shots); noteBuy(ctx, id) } }
 }
