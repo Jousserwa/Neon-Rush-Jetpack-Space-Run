@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.neonrush.game.AmmoDepot
 import com.neonrush.game.BossBrood
 import com.neonrush.game.BossGuard
 import com.neonrush.game.BossLunge
@@ -78,6 +79,7 @@ fun ShootingOverlay(
     var bossFlash by remember { mutableStateOf(0f) }
     var banner by remember { mutableStateOf("") }
     var reloadFx by remember { mutableStateOf(0f) }
+    var resFx by remember { mutableStateOf(0f) }
     val sfx = remember { NeonSoundEngine() }
     val packRef = rememberUpdatedState(pack)
     var muzzle by remember { mutableStateOf(0f) }
@@ -118,6 +120,7 @@ fun ShootingOverlay(
         if (!active) { bolts.clear(); sparks.clear(); rings.clear(); BossGuard.incomingY = -1f; return@LaunchedEffect }
         var last = 0L
         var seenReload = Shooting.reloadMs
+        var seenRes = AmmoDepot.reloadMs
         var prevShield = false; var prevEn = 0
         while (true) {
             val now = withFrameNanos { it }
@@ -128,6 +131,10 @@ fun ShootingOverlay(
             if (muzzle > 0f) muzzle -= dt
             if (bossFlash > 0f) bossFlash -= dt
             if (reloadFx > 0f) reloadFx -= dt
+            if (resFx > 0f) resFx -= dt
+            // bought shots (Ammo Depot): the gun is completely dry, so a fresh magazine loads from the reserve by itself
+            if (mode != 0 && Shooting.ammo(ctx) <= 0 && Shooting.runShots <= 0 && AmmoDepot.reserve(ctx) > 0) AmmoDepot.autoReload(ctx)
+            if (AmmoDepot.reloadMs != seenRes) { seenRes = AmmoDepot.reloadMs; resFx = 2.0f; sfx.playMagSwap(); sfx.playArmorPickup(); sfx.playPulse() }
             if (Shooting.reloadMs != seenReload) { seenReload = Shooting.reloadMs; reloadFx = 1.4f; sfx.playMagSwap() }
             run {
                 val bi = booms.iterator(); while (bi.hasNext()) { val bm = bi.next(); bm.age += dt; if (bm.age > 0.36f) bi.remove() }
@@ -277,6 +284,11 @@ fun ShootingOverlay(
             val a = (reloadFx / 1.4f).coerceIn(0f, 1f)
             Text("🔄 MAGAZINE SWAP  (${Shooting.ammo(ctx) / MagazineBay.MAG_SIZE + 1} mags left)", color = Color(0xFFFFE082).copy(alpha = a), fontSize = 11.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = 100.dp, bottom = 40.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xCC080620)).padding(horizontal = 8.dp, vertical = 4.dp))
+        }
+        if (resFx > 0f) {
+            val a = (resFx / 2.0f).coerceIn(0f, 1f)
+            Text("🔋 RESERVE LOADED  +${AmmoDepot.reloadN}  (${AmmoDepot.reserve(ctx)} left in reserve)", color = Color(0xFF00E5FF).copy(alpha = a), fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 90.dp, bottom = 96.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xDD080620)).padding(horizontal = 10.dp, vertical = 5.dp))
         }
         val armorN = Shooting.ammo(ctx)
         val total = armorN + Shooting.runShots
