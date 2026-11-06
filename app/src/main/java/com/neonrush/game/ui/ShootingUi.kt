@@ -279,10 +279,9 @@ fun ShootingOverlay(
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = 100.dp, bottom = 40.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xCC080620)).padding(horizontal = 8.dp, vertical = 4.dp))
         }
         val armorN = Shooting.ammo(ctx)
-        val reserveLeft = com.neonrush.game.AmmoDepot.runLeft(ctx)
-        val total = armorN + Shooting.runShots + reserveLeft
+        val total = armorN + Shooting.runShots
         val ring = if (armorN > 0) gold else Color(pack.argb)
-        val magFill = if (armorN <= 0) (if (Shooting.runShots > 0 || reserveLeft > 0) 1f else 0f) else ((armorN - 1) % MagazineBay.MAG_SIZE + 1) / MagazineBay.MAG_SIZE.toFloat()   // the magazine being fired
+        val magFill = if (armorN <= 0) (if (Shooting.runShots > 0) 1f else 0f) else ((armorN - 1) % MagazineBay.MAG_SIZE + 1) / MagazineBay.MAG_SIZE.toFloat()   // the magazine being fired
         GameButton(
             BtnKind.FIRE, 70.dp, ring, if (total == 0) "EMPTY" else "FIRE", if (total == 0) "" else "$total", magFill.coerceIn(0f, 1f), total > 0, held,
             { held = true; fire() }, { held = false }, extra = magFill.coerceIn(0f, 1f),
