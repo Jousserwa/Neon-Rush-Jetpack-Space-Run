@@ -51,6 +51,6 @@ object BombDepot {
     /** Hands out what a product id stands for (after a real purchase, restore, or in testing). */
     fun deliver(ctx: Context, id: String) {
         val pack = PACKS.firstOrNull { it.id == id }
-        if (pack != null) addReserve(ctx, pack.bombs) else if (id == UNLIMITED_ID) applyUnlimited(ctx)
+        if (pack != null) { addReserve(ctx, pack.bombs); AmmoDepot.noteBuy(ctx, pack.id) } else if (id == UNLIMITED_ID) applyUnlimited(ctx)
     }
 }
