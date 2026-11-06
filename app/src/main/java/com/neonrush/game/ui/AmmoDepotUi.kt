@@ -40,7 +40,7 @@ fun AmmoDepotCard(testing: Boolean, onBuy: (String, (Boolean) -> Unit) -> Unit, 
             Text("🔒 Opens after $left more day${if (left == 1) "" else "s"} of playing", color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontFamily = AD_MONO)
         } else {
             Text("Bought shots: $reserve", color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp, fontFamily = AD_MONO)
-            Text("They fill your magazine at the start of each run. During a run an empty magazine stays empty until you collect armor. Each pack can be bought ${AmmoDepot.MAX_BUYS} times.", color = Color.White.copy(alpha = 0.6f), fontSize = 9.sp, fontFamily = AD_MONO)
+            Text("They fill your magazine at the start of each run, and load a fresh magazine by themselves whenever you run dry during a run. Each pack can be bought ${AmmoDepot.MAX_BUYS} times.", color = Color.White.copy(alpha = 0.6f), fontSize = 9.sp, fontFamily = AD_MONO)
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (p in AmmoDepot.PACKS) {
