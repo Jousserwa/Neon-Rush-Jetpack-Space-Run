@@ -311,7 +311,15 @@ fun AirSupportOverlay(
                 AirCallMenu(
                     tierName = tierName, isPro = isPro, testing = testing, have = have, free = free, ready = ready, cdMs = cd,
                     onPick = { id ->
-                        if (AirSupport.pay(ctx, isPro, testing, tierName, id)) { menuOpen = false; start(false, id) }
+                        val stockBefore = AirSupport.calls(ctx)
+                        if (AirSupport.pay(ctx, isPro, testing, tierName, id)) {
+                            menuOpen = false; start(false, id)   // the call goes out at once: reloading never delays the rescue
+                            val drawn = stockBefore - AirSupport.calls(ctx)
+                            if (!testing && drawn > 0) {   // the free strike is used up: bought strikes reload from the reserve, heavy sound
+                                sfx.playNova(); sfx.playAirLock()
+                                banner = "🚁 AIR RESERVE LOADED  -$drawn  (${AirSupport.calls(ctx)} left)"; bannerAge = 0f
+                            }
+                        }
                         else android.widget.Toast.makeText(ctx, AirSupport.lastFail, android.widget.Toast.LENGTH_LONG).show()
                     },
                     onBlocked = { m -> android.widget.Toast.makeText(ctx, m, android.widget.Toast.LENGTH_SHORT).show() },
