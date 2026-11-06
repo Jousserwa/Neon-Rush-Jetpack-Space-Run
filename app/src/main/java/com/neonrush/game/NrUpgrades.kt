@@ -37,6 +37,13 @@ object NrUpgrades {
     private val BOMB_MUL = floatArrayOf(1f, 1.2f, 1.4f, 1.7f, 2.0f)
     private val AIR_MUL = floatArrayOf(1f, 1.15f, 1.3f, 1.5f, 1.75f)
 
+    /** Best zone the player has reached; the UI keeps it fresh so the zone locks below work without a context. */
+    @Volatile var bestZone = 0
+    private val GUN_BOMB_ZONES = intArrayOf(0, 5, 10, 15)       // Mk II is open, Mk III needs zone 5, Mk IV zone 10, Mk V zone 15
+    private val AIR_DAYS = intArrayOf(0, 7, 14, 30)             // helicopter / jet: days of playing
+    private val ARMS_RANK = intArrayOf(0, 3, 5, 8)              // wingman arms: wingman rank
+    private const val GAP_DAYS = 5                              // lance / rack / lance storage: days between levels
+
     var version by mutableStateOf(0)
     /** Cached levels so the sim and drawing code can read them without a context. Refreshed by [refresh] and every purchase. */
     private val cache = IntArray(9)
@@ -58,11 +65,34 @@ object NrUpgrades {
     /** Null when step [step] (1..n) of [track] can be bought now, otherwise the reason. */
     fun blockReason(ctx: Context, track: Int, step: Int): String? {
         val l = level(ctx, track)
-        if (track == WING) return if (step <= l) "Already owned" else null   // the $9.99 tier can be bought directly and replaces the $4.99 one
-        return when { step <= l -> "Already owned"; step > l + 1 -> "Buy ${TRACKS[track].labels[l]} first"; else -> null }
+        if (track == WING) return if (step <= l) "Already owned" else if (step == 2 && l < 1) "Buy the \$4.99 wingman first, then upgrade to ELITE" else null
+        val order = when { step <= l -> "Already owned"; step > l + 1 -> "Buy ${TRACKS[track].labels[l]} first"; else -> null }
+        if (order != null) return order
+        return if (TESTING_DISABLE_PRO_GATE) null else lockReason(ctx, track, step)
+    }
+
+    /** Progress and time locks (zones, days, wingman rank). Null = open. */
+    private fun lockReason(ctx: Context, track: Int, step: Int): String? = lockInfo(ctx, track, step)?.first
+
+    /** (reason text, 0..1 progress toward opening) while step [step] of [track] is locked by progress or time, null when it is open. FLASH uses the progress ring. */
+    fun lockInfo(ctx: Context, track: Int, step: Int): Pair<String, Float>? {
+        if (step < 1 || step > TRACKS[track].steps) return null
+        val days = BombDepot.daysInstalled(ctx)
+        fun d(n: Int) = if (n == 1) "" else "s"
+        when (track) {
+            GUN, BOMB -> { val z = GUN_BOMB_ZONES[step - 1]; if (bestZone < z) return "Reach zone $z to unlock (your best is zone $bestZone)" to (bestZone / z.toFloat()) }
+            HELI, JET -> { val n = AIR_DAYS[step - 1]; if (days < n) return "Opens after $n days of playing: ${n - days} more day${d(n - days)}" to (days / n.toFloat()) }
+            LANCE, RACK, STORE -> if (step > 1) {
+                val last = try { prefs(ctx).getLong("at_${TRACKS[track].key}", 0L) } catch (_: Throwable) { 0L }
+                val gone = ((ServerClock.bestNowMs() - last) / 86_400_000L).toInt()
+                if (last > 0L && gone < GAP_DAYS) return "Next level opens in ${GAP_DAYS - gone} day${d(GAP_DAYS - gone)}" to (gone / GAP_DAYS.toFloat())
+            }
+            WARMS -> { val r = ARMS_RANK[step - 1]; val have = WingmanRank.level(ctx); if (have < r) return "Needs Wingman rank $r (you are rank $have)" to (have / r.toFloat()) }
+        }
+        return null
     }
     fun apply(ctx: Context, track: Int, step: Int) {
-        try { prefs(ctx).edit().putInt(TRACKS[track].key, maxOf(level(ctx, track), step)).apply() } catch (_: Throwable) { }
+        try { prefs(ctx).edit().putInt(TRACKS[track].key, maxOf(level(ctx, track), step)).putLong("at_${TRACKS[track].key}", ServerClock.bestNowMs()).apply() } catch (_: Throwable) { }
         version += 1; refresh(ctx)
         if (track == RACK) BroodBomb.rack(ctx)
     }
