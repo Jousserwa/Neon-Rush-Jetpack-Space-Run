@@ -61,7 +61,7 @@ object Shooting {
     /** Mode for a difficulty: 0 none, 1 power shots, 2 legendary unlimited + heat. */
     fun mode(tierName: String, isPro: Boolean): Int = when (tierName) { "LEGENDARY" -> 2; "MEDIUM", "HARD" -> 1; else -> 0 }
 
-    fun newRun(isPro: Boolean, legend: Boolean = false) { AmmoDepot.newRun(); heat = 0f; overheated = false; lastArmor = false; runShots = if (legend) LEGEND_BASIC else if (isPro) PRO_SHOTS else FREE_SHOTS; version += 1 }
+    fun newRun(isPro: Boolean, legend: Boolean = false) { heat = 0f; overheated = false; lastArmor = false; runShots = if (legend) LEGEND_BASIC else if (isPro) PRO_SHOTS else FREE_SHOTS; version += 1 }
 
     /** Cooling, called every frame by the overlay. */
     fun cool(dt: Float) {
@@ -89,7 +89,6 @@ object Shooting {
             version += 1; return 2
         }
         if (runShots > 0) { runShots -= 1; version += 1; return 1 }
-        if (AmmoDepot.takeShot(ctx)) { version += 1; return 2 }   // bought shots (Ammo Depot) load when the gun runs dry
         return 0
     }
 
