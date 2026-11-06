@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neonrush.game.BossLunge
 import com.neonrush.game.Fleet
+import com.neonrush.game.Hazards
 import com.neonrush.game.NeonSoundEngine
 import com.neonrush.game.PilotDrift
 import com.neonrush.game.R
@@ -162,10 +163,10 @@ fun WingmanOverlay(
             val w = sz.width.toFloat(); val h = sz.height.toFloat()
             if (Wingman.active && w > 0f) {
                 Wingman.left -= dt; entry = (entry + dt * 1.8f).coerceAtMost(1f)
-                // the wingman can be hit by anything that flies through it
+                // only hazards and bosses (their shots) can hurt the wingman; plain obstacles pass through it harmlessly
                 if (entry >= 1f) {
                     for (e in elemsRef.value) {
-                        if ((e.type == "obstacle" || e.type == "bullet") && abs(e.xOffsetFraction - wx) < 0.05f && abs(e.yMatchPos - wy) < 8f && hitIds.add(e.id)) {
+                        if ((e.type == "bullet" || Hazards.isHazard(e.subType)) && abs(e.xOffsetFraction - wx) < 0.05f && abs(e.yMatchPos - wy) < 8f && hitIds.add(e.id)) {
                             Wingman.hp = (Wingman.hp - (if (e.subType == "DRONE_SHOT") 4f else 9f)).coerceAtLeast(0f); hurt = 1f; sfx.playCollision()
                         }
                     }
@@ -224,19 +225,14 @@ fun WingmanOverlay(
                         else { shotRef.value(mul); tracers.add(Tracer(ox, oy, bx, by, col)) }
                     }
                     shoot(wx + 0.07f, wy, mulW)
+                    val nClear = clearRef.value(wy.toInt())   // one obstacle per shot, exactly like the pilot's main shot
+                    if (nClear > 0) { sfx.playSmash(); if (tier == 2) { WingmanContracts.add(ctx, WingmanContracts.CLEAR, nClear); WingmanRank.addXp(ctx, nClear) } }
                     if (hazardRef.value(wy.toInt(), Wingman.damageMul() * dmgLv * (if (weapon == 0) 3f else if (weapon == 2) 6f else 1f))) { sfx.playSmash(); if (tier == 2) { WingmanContracts.add(ctx, WingmanContracts.CLEAR, 1); WingmanRank.addXp(ctx, 1) } }   // hazards: same chip as a pilot bolt
                     for (k in 0 until Wingman.drones()) { val d = droneAt(cpx, hgt, clock, k); shoot(d.x / w + 0.03f, d.y / h * 100f, Wingman.damageMul() * 0.5f) }
                     if (weapon == 0) sfx.playAirMissile() else if (weapon == 2) sfx.playNova() else sfx.playShot(true)
                     if (weapon == 0 || weapon == 2) { weaponLeft -= 1f; if (weaponLeft <= 0f) weapon = -1 }
                 }
                 if (weapon == 1) { weaponLeft -= dt; if (weaponLeft <= 0f) weapon = -1 }
-                // clear the lane in front of it
-                clearCd -= dt
-                if (clearCd <= 0f) {
-                    clearCd = 0.9f
-                    val n = clearRef.value(wy.toInt())
-                    if (n > 0) { sfx.playSmash(); if (tier == 2) { WingmanContracts.add(ctx, WingmanContracts.CLEAR, n); WingmanRank.addXp(ctx, n) } }
-                }
                 // COLLECTOR: grabs gems and fuel in its lane
                 collectCd -= dt
                 if (collectCd <= 0f) { collectCd = 0.6f; val g = collectRef.value(wy.toInt()); if (g > 0) { sfx.playArmorPickup(); if (tier == 2) WingmanContracts.add(ctx, WingmanContracts.COLLECT, g) } }
