@@ -731,11 +731,12 @@ if (showStreakFreezeOffer) {
                                 indicatorColor = CyberPrimary.copy(alpha = 0.1f)
                             ),
                             icon = {
-                                BadgedBox(badge = { Badge(containerColor = CyberSecondary) }) {
-                                    Icon(Icons.Filled.ShoppingCart, contentDescription = "Skins")
+                                val navShwCtx = androidx.compose.ui.platform.LocalContext.current
+                                BadgedBox(badge = { if (com.neonrush.game.Showcase.unopened(navShwCtx, com.neonrush.game.Showcase.HANGAR) > 0) Badge(containerColor = CyberSecondary) }) {
+                                    Icon(Icons.Filled.ShoppingCart, contentDescription = "Hangar")
                                 }
                             },
-                            label = { Text("Skins", fontFamily = FontFamily.Monospace, fontSize = 11.sp) }
+                            label = { Text("Hangar", fontFamily = FontFamily.Monospace, fontSize = 11.sp) }
                         )
                         NavigationBarItem(
                             selected = activeTab == "profile",
@@ -1720,6 +1721,83 @@ fun ArcadeHomeView(
         ProDailyCard(isPro = isPro, onCollect = { viewModel.claimProDaily { g -> android.widget.Toast.makeText(proCtx, "+$g \uD83D\uDC8E Pro daily gems collected!", android.widget.Toast.LENGTH_SHORT).show() } }, onUpgrade = { showPlanPaywall = true }, modifier = Modifier.padding(vertical = 4.dp))
         // Living World: today's sky and its gem bonus
         SkyBanner(isPro = isPro, onUpgrade = { showPlanPaywall = true }, modifier = Modifier.padding(vertical = 4.dp))
+        // FLASH: the advisor. One tip at a time from how your last runs ended (see Flash.kt / FlashUi.kt)
+        FlashCard(gems = profile.gems, bestZone = profile.bestZoneReached, fuelTiers = profile.fuelTiersOwned, testing = TESTING_DISABLE_PRO_GATE,
+            onGo = { tgt ->
+                when (tgt) {
+                    "upgrades" -> showUpgBay = true
+                    "wingman" -> showWing = true
+                    "magbay" -> showBay = true
+                    "air" -> showAirBay = true
+                    "bosstheme" -> showBossTheme = true
+                    "hangar" -> onNavigateToSkins()
+                    "hangar:pilots", "hangar:ships", "hangar:trails", "hangar:upgrades" -> { com.neonrush.game.Showcase.hangarSub = tgt.substring(7); onNavigateToSkins() }
+                    "crate" -> showCrate = true
+                    "milshield" -> viewModel.spendStormGems(com.neonrush.game.MilShield.PACK_GEMS) { ok ->
+                        if (ok) { com.neonrush.game.MilShield.addStock(proCtx, com.neonrush.game.MilShield.PACK); android.widget.Toast.makeText(proCtx, "+${com.neonrush.game.MilShield.PACK} Military Shields", android.widget.Toast.LENGTH_SHORT).show() }
+                        else android.widget.Toast.makeText(proCtx, "Not enough gems", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    else -> {}
+                }
+            }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+        // HANGAR | ARMORY doors (Showcase.kt / ShowcaseUi.kt): every part of the game gets a door and a daily spotlight
+        var showArmory by remember { mutableStateOf(false) }
+        var armoryStart by remember { mutableStateOf(0) }
+        var armoryKey by remember { mutableStateOf(0) }
+        val shwCtx = androidx.compose.ui.platform.LocalContext.current
+        val shwOwnedSuits = remember(profile.unlockedPilotSkinsCsv) { val o = profile.unlockedPilotSkinsCsv.split(",").toSet(); com.neonrush.game.Skins.ALL.count { it.id == "default" || it.id in o } }
+        val shwGo: (com.neonrush.game.Showcase.Entry) -> Unit = { e ->
+            if (e.target.startsWith("h:")) { showArmory = false; com.neonrush.game.Showcase.hangarSub = e.target.substring(2); onNavigateToSkins() }
+            else { armoryStart = e.target.substring(2).toIntOrNull() ?: 0; armoryKey += 1; showArmory = true }
+        }
+        DoorsRow(
+            hangarNew = com.neonrush.game.Showcase.unopened(shwCtx, com.neonrush.game.Showcase.HANGAR),
+            armoryNew = com.neonrush.game.Showcase.unopened(shwCtx, com.neonrush.game.Showcase.ARMORY),
+            onHangar = { onNavigateToSkins() },
+            onArmory = { armoryStart = 0; armoryKey += 1; showArmory = true }
+        )
+        SpotlightCard(com.neonrush.game.Showcase.HANGAR, shwOwnedSuits, com.neonrush.game.Skins.ALL.size, onGo = shwGo, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+        if (showArmory) key(armoryKey) {
+            ArmoryDialog(
+                startTab = armoryStart, onClose = { showArmory = false }, onSpotlight = shwGo,
+                weapons = {
+        ArmoryCard(isPro = isPro, onBuyAmmo = { i -> viewModel.buyAmmo(i) { ok -> android.widget.Toast.makeText(proCtx, if (ok) "Armor refilled!" else "Not enough gems, gun full or daily limit reached", android.widget.Toast.LENGTH_SHORT).show() } },
+            onBolt = { id -> viewModel.buyBolt(id) { ok -> if (!ok) android.widget.Toast.makeText(proCtx, "Not enough gems", android.widget.Toast.LENGTH_SHORT).show() } },
+            onOpenBay = { showBay = true }, modifier = Modifier.padding(vertical = 4.dp))
+        BossThemeCard(onOpen = { showBossTheme = true }, modifier = Modifier.padding(vertical = 4.dp))
+        UpgradeBayCard(onOpen = { showUpgBay = true }, modifier = Modifier.padding(vertical = 4.dp))
+                },
+                defense = {
+        MilShieldCard(gems = profile.gems, spend = { n, cb -> viewModel.spendStormGems(n, cb) }, onBuyAuto = { id, cb ->
+            val act = reviewActivity
+            if (TESTING_DISABLE_PRO_GATE) cb(true)
+            else if (act == null) cb(false)
+            else com.neonrush.game.PurchaseGate.buy(act, id) { ok -> cb(ok) }
+        }, modifier = Modifier.padding(vertical = 4.dp))
+        AutoRefillCard(isPro = isPro, gems = profile.gems, onUpgrade = { showPlanPaywall = true }, modifier = Modifier.padding(vertical = 4.dp))
+                },
+                allies = {
+        WingmanCard(bestZone = profile.bestZoneReached, testing = TESTING_DISABLE_PRO_GATE, onOpen = { showWing = true }, modifier = Modifier.padding(vertical = 4.dp))
+        AirSupportCard(isPro = isPro, onOpen = { showAirBay = true }, modifier = Modifier.padding(vertical = 4.dp))
+        SpeciesCodexCard(onOpen = { showSpCodex = true }, modifier = Modifier.padding(vertical = 4.dp))
+                },
+                depots = {
+        BombDepotCard(testing = TESTING_DISABLE_PRO_GATE, onBuy = { id, cb ->
+            val act = reviewActivity
+            if (TESTING_DISABLE_PRO_GATE) cb(true)   // testing: bomb products are free
+            else if (act == null) cb(false)
+            else com.neonrush.game.PurchaseGate.buy(act, id) { ok -> cb(ok) }
+        }, modifier = Modifier.padding(vertical = 4.dp))
+        AmmoDepotCard(testing = TESTING_DISABLE_PRO_GATE, onBuy = { id, cb ->
+            val act = reviewActivity
+            if (TESTING_DISABLE_PRO_GATE) cb(true)   // testing: ammo packs are free
+            else if (act == null) cb(false)
+            else com.neonrush.game.PurchaseGate.buy(act, id) { ok -> cb(ok) }
+        }, modifier = Modifier.padding(vertical = 4.dp))
+        ScoreExchangeCard(modifier = Modifier.padding(vertical = 4.dp))
+                }
+            )
+        }
         // Pilot Contracts: three daily goals
         LaunchedEffect(Unit) { viewModel.ensureContracts() }
         ContractsCard(isPro = isPro, onClaim = { i -> viewModel.claimContract(i) { g -> android.widget.Toast.makeText(proCtx, "+$g \uD83D\uDC8E contract complete!", android.widget.Toast.LENGTH_SHORT).show() } },
@@ -1728,10 +1806,6 @@ fun ArcadeHomeView(
         BeaconChainCard(isPro = isPro, onClaim = { viewModel.claimBeacon(isPro) { g -> android.widget.Toast.makeText(proCtx, "+$g \uD83D\uDC8E beacon collected!", android.widget.Toast.LENGTH_SHORT).show() } }, modifier = Modifier.padding(vertical = 4.dp))
         // Pilot Fusion: fuse cores into gems and Fusion Levels
         FusionCard(onFuse = { kinds, cb -> viewModel.fuseCores(kinds) { n, g -> cb(n, g) } }, modifier = Modifier.padding(vertical = 4.dp))
-        // Armory: ammo packs and bolt looks
-        ArmoryCard(isPro = isPro, onBuyAmmo = { i -> viewModel.buyAmmo(i) { ok -> android.widget.Toast.makeText(proCtx, if (ok) "Armor refilled!" else "Not enough gems, gun full or daily limit reached", android.widget.Toast.LENGTH_SHORT).show() } },
-            onBolt = { id -> viewModel.buyBolt(id) { ok -> if (!ok) android.widget.Toast.makeText(proCtx, "Not enough gems", android.widget.Toast.LENGTH_SHORT).show() } },
-            onOpenBay = { showBay = true }, modifier = Modifier.padding(vertical = 4.dp))
         // Magazine Bay page: gun storage tiers (real money, one per day) + Bomb Rack (gems)
         if (showBay) {
             val bayPerks by viewModel.proPerks.snapshot.collectAsState()
@@ -1745,97 +1819,74 @@ fun ArcadeHomeView(
                     if (why != null) { android.widget.Toast.makeText(proCtx, why, android.widget.Toast.LENGTH_SHORT).show(); cb(false) }
                     else if (TESTING_DISABLE_PRO_GATE) { com.neonrush.game.MagazineBay.applyTier(proCtx, n); cb(true) }   // testing: tiers are free, no store needed
                     else if (act == null) cb(false)
-                    else RevenueCatManager.purchaseGemPack(act, com.neonrush.game.MagazineBay.TIERS[n - 1].id) { ok -> if (ok) com.neonrush.game.MagazineBay.applyTier(proCtx, n); cb(ok) }
+                    else com.neonrush.game.PurchaseGate.buy(act, com.neonrush.game.MagazineBay.TIERS[n - 1].id) { ok -> if (ok) com.neonrush.game.MagazineBay.applyTier(proCtx, n); cb(ok) }
                 }
             )
         }
         // Air Support Bay: helicopter / jet backup (Pro), call packs
-        AirSupportCard(isPro = isPro, onOpen = { showAirBay = true }, modifier = Modifier.padding(vertical = 4.dp))
         if (showAirBay) {
             AirSupportBayDialog(isPro = isPro, testing = TESTING_DISABLE_PRO_GATE, onClose = { showAirBay = false }, onGoPro = { showAirBay = false; showPlanPaywall = true },
                 onBuySkin = { pid, cb ->
                     val act = reviewActivity
                     if (TESTING_DISABLE_PRO_GATE) cb(true)   // testing: skins are free
                     else if (act == null) cb(false)
-                    else RevenueCatManager.purchaseGemPack(act, pid) { ok -> cb(ok) }
+                    else com.neonrush.game.PurchaseGate.buy(act, pid) { ok -> cb(ok) }
                 },
                 onBuyPack = { i, cb ->
                     val act = reviewActivity
                     val pack = com.neonrush.game.AirSupport.PACKS[i]
                     if (TESTING_DISABLE_PRO_GATE) { com.neonrush.game.AirSupport.addCalls(proCtx, pack.calls); cb(true) }   // testing: packs are free
                     else if (act == null) cb(false)
-                    else RevenueCatManager.purchaseGemPack(act, pack.id) { ok -> if (ok) com.neonrush.game.AirSupport.addCalls(proCtx, pack.calls); cb(ok) }
+                    else com.neonrush.game.PurchaseGate.buy(act, pack.id) { ok -> if (ok) com.neonrush.game.AirSupport.addCalls(proCtx, pack.calls); cb(ok) }
                 })
         }
           // Auto-Refill (Pro): refuels for you at 20% fuel when you hold 300+ gems
-        BombDepotCard(testing = TESTING_DISABLE_PRO_GATE, onBuy = { id, cb ->
-            val act = reviewActivity
-            if (TESTING_DISABLE_PRO_GATE) cb(true)   // testing: bomb products are free
-            else if (act == null) cb(false)
-            else RevenueCatManager.purchaseGemPack(act, id) { ok -> cb(ok) }
-        }, modifier = Modifier.padding(vertical = 4.dp))
-        AmmoDepotCard(testing = TESTING_DISABLE_PRO_GATE, onBuy = { id, cb ->
-            val act = reviewActivity
-            if (TESTING_DISABLE_PRO_GATE) cb(true)   // testing: ammo packs are free
-            else if (act == null) cb(false)
-            else RevenueCatManager.purchaseGemPack(act, id) { ok -> cb(ok) }
-        }, modifier = Modifier.padding(vertical = 4.dp))
-        ScoreExchangeCard(modifier = Modifier.padding(vertical = 4.dp))
-        MilShieldCard(gems = profile.gems, spend = { n, cb -> viewModel.spendStormGems(n, cb) }, onBuyAuto = { id, cb ->
-            val act = reviewActivity
-            if (TESTING_DISABLE_PRO_GATE) cb(true)
-            else if (act == null) cb(false)
-            else RevenueCatManager.purchaseGemPack(act, id) { ok -> cb(ok) }
-        }, modifier = Modifier.padding(vertical = 4.dp))
-        AutoRefillCard(isPro = isPro, gems = profile.gems, onUpgrade = { showPlanPaywall = true }, modifier = Modifier.padding(vertical = 4.dp))
+        PurchaseGateOverlay()   // SYSTEMS COOLING screen (one real-money purchase per day)
+        LaunchedEffect(profile.bestZoneReached) { com.neonrush.game.NrUpgrades.bestZone = profile.bestZoneReached }
          // Boss Themes: opt-in challenge skins (tougher boss, +40% gems)
-        BossThemeCard(onOpen = { showBossTheme = true }, modifier = Modifier.padding(vertical = 4.dp))
         if (showBossTheme) {
             BossThemeDialog(testing = TESTING_DISABLE_PRO_GATE, onClose = { showBossTheme = false },
                 onBuy = { i, cb ->
                     val act = reviewActivity
                     if (TESTING_DISABLE_PRO_GATE) { com.neonrush.game.BossSkins.applyPurchase(proCtx, i); cb(true) }   // testing: free
                     else if (act == null) cb(false)
-                    else RevenueCatManager.purchaseGemPack(act, com.neonrush.game.BossSkins.THEMES[i].id) { ok -> if (ok) com.neonrush.game.BossSkins.applyPurchase(proCtx, i); cb(ok) }
+                    else com.neonrush.game.PurchaseGate.buy(act, com.neonrush.game.BossSkins.THEMES[i].id) { ok -> if (ok) com.neonrush.game.BossSkins.applyPurchase(proCtx, i); cb(ok) }
                 })
         }
          // Species Codex: the ten escort species
-        SpeciesCodexCard(onOpen = { showSpCodex = true }, modifier = Modifier.padding(vertical = 4.dp))
         if (showSpCodex) SpeciesCodexDialog(onClose = { showSpCodex = false }, onClaim = { viewModel.creditStormGems(it) })
         // Upgrade Bay: weapon + aircraft upgrades (one-time purchases)
-        UpgradeBayCard(onOpen = { showUpgBay = true }, modifier = Modifier.padding(vertical = 4.dp))
         if (showUpgBay) {
             UpgradeBayDialog(testing = TESTING_DISABLE_PRO_GATE, onClose = { showUpgBay = false },
                 onBuy = { track, step, cb ->
                     val act = reviewActivity
                     if (TESTING_DISABLE_PRO_GATE) { com.neonrush.game.NrUpgrades.apply(proCtx, track, step); cb(true) }   // testing: free
                     else if (act == null) cb(false)
-                    else RevenueCatManager.purchaseGemPack(act, com.neonrush.game.NrUpgrades.productId(track, step)) { ok -> if (ok) com.neonrush.game.NrUpgrades.apply(proCtx, track, step); cb(ok) }
+                    else com.neonrush.game.PurchaseGate.buy(act, com.neonrush.game.NrUpgrades.productId(track, step)) { ok -> if (ok) com.neonrush.game.NrUpgrades.apply(proCtx, track, step); cb(ok) }
                 })
         }
         // Combat Wingman: animated card, locked (advertised) until zone 30
-        WingmanCard(bestZone = profile.bestZoneReached, testing = TESTING_DISABLE_PRO_GATE, onOpen = { showWing = true }, modifier = Modifier.padding(vertical = 4.dp))
         if (showWing) {
             WingmanPageDialog(bestZone = profile.bestZoneReached, testing = TESTING_DISABLE_PRO_GATE, onClose = { showWing = false },
                 onBuy = { track, step, cb ->
                     val act = reviewActivity
                     if (TESTING_DISABLE_PRO_GATE) { com.neonrush.game.NrUpgrades.apply(proCtx, track, step); cb(true) }   // testing: free
                     else if (act == null) cb(false)
-                    else RevenueCatManager.purchaseGemPack(act, if (track == com.neonrush.game.NrUpgrades.WING && step == 2 && com.neonrush.game.NrUpgrades.level(proCtx, track) == 1) "neonrush_wing_up" else com.neonrush.game.NrUpgrades.productId(track, step)) { ok -> if (ok) com.neonrush.game.NrUpgrades.apply(proCtx, track, step); cb(ok) }
+                    else com.neonrush.game.PurchaseGate.buy(act, if (track == com.neonrush.game.NrUpgrades.WING && step == 2 && com.neonrush.game.NrUpgrades.level(proCtx, track) == 1) "neonrush_wing_up" else com.neonrush.game.NrUpgrades.productId(track, step)) { ok -> if (ok) com.neonrush.game.NrUpgrades.apply(proCtx, track, step); cb(ok) }
                 },
                 onBuySkin = { i, cb ->
                     val act = reviewActivity
                     val pid = com.neonrush.game.Wingman.SKINS[i].id
                     if (TESTING_DISABLE_PRO_GATE || pid == null) { com.neonrush.game.Wingman.applySkinPurchase(proCtx, i); cb(true) }
                     else if (act == null) cb(false)
-                    else RevenueCatManager.purchaseGemPack(act, pid) { ok -> if (ok) com.neonrush.game.Wingman.applySkinPurchase(proCtx, i); cb(ok) }
+                    else com.neonrush.game.PurchaseGate.buy(act, pid) { ok -> if (ok) com.neonrush.game.Wingman.applySkinPurchase(proCtx, i); cb(ok) }
                 },
                 credit = { g -> viewModel.creditStormGems(g) }, spend = { n, cb -> viewModel.spendStormGems(n, cb) },
                 onBuyDmg = { id, cb ->
                     val act = reviewActivity
                     if (TESTING_DISABLE_PRO_GATE) cb(true)   // testing: free
                     else if (act == null) cb(false)
-                    else RevenueCatManager.purchaseGemPack(act, id) { ok -> cb(ok) }
+                    else com.neonrush.game.PurchaseGate.buy(act, id) { ok -> cb(ok) }
                 })
         }
         // World Echo Boss: this week's returning boss + twist
@@ -2044,7 +2095,7 @@ fun ArcadeHomeView(
                 ) {
                     Icon(Icons.Filled.ShoppingCart, contentDescription = "Skins", tint = CyberSecondary, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("SKINS", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                    Text("HANGAR", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
             }
 
@@ -3037,7 +3088,9 @@ fun SkinsDeckTab(viewModel: NeonRushViewModel, profile: GameProfile, onStartTria
         profile.unlockedSkinsCsv.split(",").toSet()
     }
     val activity = LocalContext.current.findActivity()
-    var selectedTab by remember { mutableStateOf("pilots") }
+    val hgCtx = LocalContext.current
+    var selectedTab by remember { mutableStateOf(com.neonrush.game.Showcase.takeHangarSub() ?: "pilots") }
+    LaunchedEffect(selectedTab) { com.neonrush.game.Showcase.markTarget(hgCtx, "h:$selectedTab"); com.neonrush.game.Showcase.markOpened(hgCtx, "h_fuel") }
 
     Column(
         modifier = Modifier
@@ -6143,8 +6196,8 @@ fun TutorialScreen(onBack: () -> Unit) {
                 TutorialCard("🔫", "SHOOTING & BOMBS", accent = Color(0xFFFF4081), pose = Pose.BOOST) {
                     TutorialBullet("Tap FIRE to shoot obstacles, enemy bullets and bosses. Armor pickups give you ammo: 20 shots each. You carry 40 shots (free) or 100 (Pro), and the Magazine Bay lets you carry more.")
                     TutorialBullet("BOMB: a rare pickup. Tap it to wipe out every small boss spawn at once. On LEGENDARY it also breaks the boss shield and hurts the boss.")
-                    TutorialBullet("Bombs you find are never reduced by the shop. The BOMB DEPOT (opens after 30 days of playing) sells 100 bombs for $0.99, 400 for $2.99, and UNLIMITED storage for $1.99.")
-                    TutorialBullet("AMMO DEPOT (opens after 3 days of playing): buy 1000 shots for \$0.99 or 2400 for \$1.99. They wait in a reserve and load by themselves when your gun runs dry, up to 400 per run. The armor you collect is not touched.")
+                    TutorialBullet("Bombs you find are never reduced by the shop. The BOMB DEPOT (opens after 30 days of playing) sells 100 bombs for $0.99, 400 for $2.99, and UNLIMITED storage for $1.99. Each bomb pack can be bought 2 times.")
+                    TutorialBullet("AMMO DEPOT (opens after 3 days of playing): buy 1000 shots for \$0.99 or 2400 for \$1.99. They wait in a reserve and fill your magazine at the START of each run. During a run, an empty magazine stays empty until you collect armor. Each pack can be bought 2 times.")
                     TutorialBullet("Boss tricks: some bosses lunge across the track (their shield drops and your bolts hit twice as hard) or hatch small hunters. Watch for the warning.")
                 }
 
@@ -6159,7 +6212,7 @@ fun TutorialScreen(onBack: () -> Unit) {
                 TutorialCard("🚁", "AIR SUPPORT (PRO)", accent = Color(0xFF00E5FF), pose = Pose.CHEER) {
                     TutorialBullet("When the boss beats you or heavy attacks pile up, a small round AIR button appears on the right edge, under PAUSE. Once it shows, it stays until you press it (it just fades and glows every second). Its menu opens in the middle of the screen so it never covers your other buttons.")
                     TutorialBullet("Pick one of seven calls. A helicopter or jet flies in; while it is on screen you take no damage. Missiles cut through boss shields, and the bigger calls wipe the screen.")
-                    TutorialBullet("Pro gets 1 free call a day. More calls come from Daily Crates, score vouchers and call packs.")
+                    TutorialBullet("Pro gets 1 free call a day. More calls come from Daily Crates, score vouchers and call packs. The 15-call pack opens after 5 days of playing and the 50-call pack after 10 days. Helicopter and jet skins are bought in order, first one first.")
                     TutorialBullet("In the Air Support Bay you can buy skins for the helicopter (RAPTOR, HAMMER, STORMCALLER, WASP HUNTER) and the jet (STRIKER, SWARM, BUNKER BUSTER, NIGHTFANG). They are looks only.")
                 }
 
@@ -6169,6 +6222,7 @@ fun TutorialScreen(onBack: () -> Unit) {
                     TutorialBullet("One call = 3 sorties: 3 seconds of fighting, then RELOADING for 2 seconds, and it comes back by itself, 3 times.")
                     TutorialBullet("Its shots grow stronger as a call goes on. Boss shields still stop its bullets, and it cannot stop Blink Strikes. Save your airstrike for boss shields.")
                     TutorialBullet("Its shots hit hazards exactly like your own bolts: a hazard has hit points and takes several shots. WINGMAN DAMAGE levels make them hit harder on hazards and bosses: level 1 = 400 gems, level 2 = 800 gems, level 3 = \$1.99.")
+                    TutorialBullet("Only hazards and bosses can hurt it. Plain obstacles pass through it, and each of its shots destroys one obstacle, just like your own shot.")
                     TutorialBullet("It can be hurt: watch its health bar under it. Healing pills (+50%) heal it automatically while it reloads, or tap the pill button.")
                     TutorialBullet("It also collects gems and fuel in its lane, and you get 1 free pill every day.")
                     TutorialBullet("\$4.99: 3 boss calls per round and 15 hazard calls per run. \$9.99 ELITE: 5 boss calls, UNLIMITED hazard calls, a bullet screen that takes shots for you, a fuel tow, rank 1-10 with rewards and a daily contract.")
@@ -6215,7 +6269,23 @@ fun TutorialScreen(onBack: () -> Unit) {
 
                 TutorialCard("🔧", "UPGRADE BAY & BOSS THEMES", accent = Color(0xFFFFC107)) {
                     TutorialBullet("The Upgrade Bay holds your permanent gun, bomb, helicopter, jet, lance and rack upgrades in one place.")
-                    TutorialBullet("Boss Themes are optional harder bosses. Pick a theme for a tougher fight and bigger gem rewards.")
+                    TutorialBullet("Boss Themes are optional harder bosses. Pick a theme for a tougher fight and bigger gem rewards. TOXIC BLOOM opens after 1 month of playing and VOID EMPEROR after 3 months.")
+                }
+
+                TutorialCard("🚪", "HANGAR & ARMORY", accent = Color(0xFFFF4DD2)) {
+                    TutorialBullet("Two doors sit on the home screen. HANGAR is how you look and fly: pilot suits, ship hulls, neon trails, parts and thrusters, and the fuel tank. ARMORY is everything that shoots or defends.")
+                    TutorialBullet("ARMORY has four tabs: WEAPONS (gun, bomb, magazine, boss themes), DEFENSE (Military Shield, auto refill), ALLIES (wingman, air support, species codex) and DEPOTS (ammo, bombs, score vouchers).")
+                    TutorialBullet("Each door cycles through everything inside it, so nothing stays hidden. A gold NEW badge shows what you have never opened, and a daily spotlight picks something new to look at.")
+                    TutorialBullet("The bottom tab is now called HANGAR. FLASH also points at the Hangar from time to time.")
+                }
+
+                TutorialCard("⚡", "FLASH & FAIR PLAY", accent = Color(0xFF7DF9FF), pose = Pose.THUMB) {
+                    TutorialBullet("FLASH is your helper on the home screen. It watches how your last runs ended and shows ONE tip at a time: out of fuel again, beaten by bosses, magazine empty, or low on gems. Tap it to open the tip.")
+                    TutorialBullet("It tries free and gem fixes first. A real-money item only appears when it clearly fixes what keeps happening. If the item is locked, a ring shows how close you are to unlocking it.")
+                    TutorialBullet("Tap LATER and that tip stays quiet for a day. FLASH never talks during a run.")
+                    TutorialBullet("ONE PURCHASE A DAY: you can make one real-money purchase per day. A second try shows SYSTEMS COOLING with a countdown, and you can SAVE IT FOR TOMORROW. Gem spending, restoring purchases and the Pro subscription are never limited.")
+                    TutorialBullet("Upgrades open as you progress: gun and bomb Mk III, IV and V at zone 5, 10 and 15. Helicopter and jet at 7, 14 and 30 days. Lance, rack and storage levels 5 days apart. Wingman Arms at Wingman rank 3, 5 and 8. Wingman skins 10 days apart. Magazine Bay tiers 4 and 5 at 30 and 60 days.")
+                    TutorialBullet("Tap any locked item to see exactly what opens it.")
                 }
 
                 TutorialCard("💡", "PRO TIPS", accent = Color(0xFF69F0AE)) {
