@@ -251,7 +251,9 @@ fun AirSupportBayDialog(isPro: Boolean, testing: Boolean, onClose: () -> Unit, o
                     val best = i == AirSupport.PACKS.lastIndex
                     val accent = if (best) GOLD else if (i >= 2) Color(0xFFFF4DD2) else CYAN
                     val sh = RoundedCornerShape(16.dp)
-                    val can = (isPro || testing) && !busy
+                    val needDays = when (p.calls) { 15 -> 5; 50 -> 10; else -> 0 }   // big packs open after 5 / 10 days of playing
+                    val daysLeft = if (testing) 0 else (needDays - com.neonrush.game.BombDepot.daysInstalled(ctx)).coerceAtLeast(0)
+                    val can = (isPro || testing) && !busy && daysLeft == 0
                     Box(Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(sh).background(Brush.horizontalGradient(listOf(Color(0xFF16103A), accent.copy(alpha = 0.2f)))).border(if (best) 2.5.dp else 1.5.dp, accent.copy(alpha = 0.8f), sh)) {
                         Canvas(Modifier.matchParentSize()) { val sx = size.width * (((clock * 0.6f + i * 0.2f) % 1.6f) - 0.3f); drawLine(Color.White.copy(alpha = 0.08f), Offset(sx, 0f), Offset(sx - 50f * dens, size.height), 26f * dens) }
                         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -261,10 +263,11 @@ fun AirSupportBayDialog(isPro: Boolean, testing: Boolean, onClose: () -> Unit, o
                                 Text("${p.calls} CALLS", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black, fontFamily = MONO)
                                 Text("${p.calls} strikes" + if (p.calls >= 15) " · unlocks the JET" else "", color = Color.White.copy(alpha = 0.65f), fontSize = 9.sp, fontFamily = MONO)
                             }
-                            Text(if (can) p.price else if (!isPro) "👑 PRO" else "...", color = if (can) Color.Black else Color.White.copy(alpha = 0.8f), fontSize = 15.sp, fontWeight = FontWeight.Black, fontFamily = MONO, textAlign = TextAlign.Center,
+                            Text(if (can) p.price else if (!isPro) "👑 PRO" else if (daysLeft > 0) "🔒 ${daysLeft}d" else "...", color = if (can) Color.Black else Color.White.copy(alpha = 0.8f), fontSize = 15.sp, fontWeight = FontWeight.Black, fontFamily = MONO, textAlign = TextAlign.Center,
                                 modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(if (can) Brush.horizontalGradient(listOf(accent, Color(0xFFFFF3B0))) else Brush.horizontalGradient(listOf(Color(0xFF3A3A4A), Color(0xFF2A2A38))))
-                                    .clickable(enabled = can || !isPro) {
+                                    .clickable(enabled = can || !isPro || daysLeft > 0) {
                                         if (!isPro && !testing) { onGoPro(); return@clickable }
+                                        if (daysLeft > 0) { msgGood = false; msg = "The ${p.calls}-call pack opens after $needDays days of playing. $daysLeft more day${if (daysLeft == 1) "" else "s"} to go."; return@clickable }
                                         busy = true
                                         onBuyPack(i) { ok -> busy = false; if (ok) { burstText = "+${p.calls} AIR SUPPORT CALLS"; burst = 0f; msgGood = true; msg = burstText } else { msgGood = false; msg = "Purchase cancelled" } }
                                     }.padding(horizontal = 16.dp, vertical = 12.dp))
