@@ -40,13 +40,14 @@ fun AmmoDepotCard(testing: Boolean, onBuy: (String, (Boolean) -> Unit) -> Unit, 
             Text("🔒 Opens after $left more day${if (left == 1) "" else "s"} of playing", color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontFamily = AD_MONO)
         } else {
             Text("Bought shots: $reserve", color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp, fontFamily = AD_MONO)
-            Text("They load by themselves when your gun runs dry (up to ${AmmoDepot.RUN_CAP} per run). Armor you collect is not affected.", color = Color.White.copy(alpha = 0.6f), fontSize = 9.sp, fontFamily = AD_MONO)
+            Text("They fill your magazine at the start of each run. During a run an empty magazine stays empty until you collect armor. Each pack can be bought ${AmmoDepot.MAX_BUYS} times.", color = Color.White.copy(alpha = 0.6f), fontSize = 9.sp, fontFamily = AD_MONO)
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (p in AmmoDepot.PACKS) {
-                    Column(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(AD_CYAN).clickable { onBuy(p.id) { ok -> if (ok) AmmoDepot.deliver(ctx, p.id) } }.padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("${p.shots} SHOTS", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Black, fontFamily = AD_MONO)
-                        Text(p.price, color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = AD_MONO)
+                    val canBuy = AmmoDepot.canBuy(ctx, p.id, testing)
+                    Column(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (canBuy) AD_CYAN else Color.White.copy(alpha = 0.12f)).clickable(enabled = canBuy) { onBuy(p.id) { ok -> if (ok) AmmoDepot.deliver(ctx, p.id) } }.padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("${p.shots} SHOTS", color = if (canBuy) Color.Black else Color.White.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Black, fontFamily = AD_MONO)
+                        Text(if (canBuy) p.price else "LIMIT ${AmmoDepot.MAX_BUYS}/${AmmoDepot.MAX_BUYS}", color = if (canBuy) Color.Black else Color.White.copy(alpha = 0.5f), fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = AD_MONO)
                     }
                 }
             }
