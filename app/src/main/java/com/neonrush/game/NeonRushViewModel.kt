@@ -371,7 +371,7 @@ class NeonRushViewModel(
     }
 
     fun purchaseGemPack(activity: Activity, productId: String, gemAmount: Int) {
-    RevenueCatManager.purchaseGemPack(activity, productId) { success ->
+    PurchaseGate.buy(activity, productId) { success ->
         if (success) {
             viewModelScope.launch {
                 gameDao.updateProfile { prof -> prof.copy(gems = prof.gems + gemAmount) }
@@ -593,7 +593,7 @@ fun purchaseFuelTier(activity: Activity, tier: Int, productId: String) {
             _purchaseErrorEvent.tryEmit("Tier $tier is still locked. Keep your monthly streak going.")
             return@launch
         }
-        RevenueCatManager.purchaseGemPack(activity, productId) { success ->
+        PurchaseGate.buy(activity, productId) { success ->
             if (success) {
                 viewModelScope.launch {
                     gameDao.updateProfile { p ->
@@ -1881,7 +1881,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
             fuelGate.touchAsync(RevenueCatManager.isPro.value)
             assistGemsGiven = 0
             RiskGates.reset(); Siege.reset(); Fleet.reset(); ShieldLayers.reset(); Siege.configure(selectedDifficulty.name, RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE); AirSupport.newRun(); BossGuard.reset(); BossGuard.configure(selectedDifficulty != DifficultyTier.EASY, selectedDifficulty == DifficultyTier.LEGENDARY); LegendMoves.reset(); PilotDrift.reset()
-            Shooting.newRun(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE, selectedDifficulty == DifficultyTier.LEGENDARY); MagazineBay.onRunStart(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE)
+            Shooting.newRun(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE, selectedDifficulty == DifficultyTier.LEGENDARY); MagazineBay.onRunStart(RevenueCatManager.isPro.value || TESTING_DISABLE_PRO_GATE); AmmoDepot.topUp(appCtx)   // bought shots fill the magazine at the START of a run only
             gameDao.updateProfile { p -> p.copy(currentRunGemsCredited = 0, currentRunBossZonesRewarded = "", currentRunMilestonesRewarded = "") }
             var tick = 0
             mirrorSideVar = 0; mirrorFlipTickVar = -100
@@ -2752,6 +2752,7 @@ fun startRacingSimulation(ghost: GhostChallengeEntity, specialWorldId: Int? = nu
         viewModelScope.launch {
             val finalState = _simState.value
             ScoreVouchers.award(appCtx, finalState.score.toLong())
+            Flash.record(appCtx, finalState.runSeed, finalState.currentZoneNumber, finalState.fuelLevelPercent <= 0, finalState.bossActive, finalState.bossActive && Shooting.ammo(appCtx) == 0 && Shooting.runShots == 0)   // FLASH learns how runs end
             val wasAssisted = firstRunAssist
             var firstFlight = false
             var isNewPB = false
