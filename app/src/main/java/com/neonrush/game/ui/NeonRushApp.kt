@@ -83,6 +83,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.geometry.Offset
@@ -3711,6 +3712,64 @@ Text(
     }
 }
 
+/** Phase Gate ZONE ECHO: the real background of a far zone, its real hazards (same spawner, same art) and its guardian, shown through the gate. Nothing in it counts and nothing in it can hurt. */
+@Composable
+private fun PhaseGateZoneWorld(pilotY: Int, pilotFrame: ImageBitmap) {
+    @Suppress("UNUSED_VARIABLE") val tk = com.neonrush.game.PhaseGate.tick
+    if (!com.neonrush.game.PhaseGate.inGlimpse() || com.neonrush.game.PhaseGate.gKind != 4) return
+    val z = com.neonrush.game.PhaseGate.gZone
+    val worldId = remember(z) { (Worlds.ALL.firstOrNull { z in it.startZone..it.endZone } ?: Worlds.ALL.last()).worldFamily }
+    val eliteB = remember(z) { EliteBosses.forZone(z) }
+    val dens = androidx.compose.ui.platform.LocalDensity.current.density
+    Box(Modifier.fillMaxSize().drawWithContent {
+        val m = kotlin.math.sqrt(size.width * size.width + size.height * size.height)
+        val e = com.neonrush.game.PhaseGate.reveal()
+        val c = Offset(com.neonrush.game.PilotDrift.x * size.width + 30f * dens, pilotY / 100f * size.height)
+        val circle = Path().apply { addOval(androidx.compose.ui.geometry.Rect(c, m * (1f - (1f - e) * (1f - e)) + 4f * dens)) }
+        clipPath(circle) { this@drawWithContent.drawContent() }
+    }) {
+        ParallaxWorldBackground(worldId = worldId, distanceMeters = com.neonrush.game.PhaseGate.gAt * 900f, fallbackColorHex = "#0A0A1E")
+        Canvas(Modifier.fillMaxSize()) {
+            val cw = size.width; val ch = size.height
+            val time = com.neonrush.game.PhaseGate.gAt
+            val tick = com.neonrush.game.PhaseGate.echoTick
+            // the zone's own hazards, drawn by the game's own hazard art
+            for (elem in com.neonrush.game.PhaseGate.echoElems) {
+                val x = cw * elem.xOffsetFraction; val y = ch * (elem.yMatchPos / 100f)
+                drawThreat(elem, x, y, cw, ch, tick, pilotFrame, time)
+            }
+            // the guardian
+            val bt = com.neonrush.game.PhaseGate.bossT
+            if (bt > 0f) {
+                val bossImg = bossImagesByWorld[eliteB?.base ?: worldId] ?: bossImagesByWorld[1]!!
+                val bh = ch * 0.38f; val bw = bh * (bossImg.width.toFloat() / bossImg.height.toFloat())
+                val slide = (bt / 0.6f).coerceIn(0f, 1f)
+                val bx = cw * (1.32f - 0.44f * (1f - (1f - slide) * (1f - slide)))
+                val byPct = com.neonrush.game.PhaseGate.bossYPct()
+                val byPx = ch * (byPct / 100f)
+                val bpos = Offset(bx, byPx)
+                if (eliteB != null) {
+                    drawEliteBoss(eliteB, bossImg, bx, byPx, byPct, bh, time, tick, 1f, cw, ch)
+                } else {
+                    drawBossBack(worldId, bpos, bh, time, 1f)
+                    val pose = bossPose(worldId, bh, time, 1f)
+                    withTransform({ translate(pose.dx, pose.dy); rotate(pose.rot, bpos); scale(pose.sx, pose.sy, bpos) }) {
+                        drawImage(image = bossImg, dstOffset = IntOffset((bx - bw / 2f).roundToInt(), (byPx - bh / 2f).roundToInt()), dstSize = IntSize(bw.roundToInt(), bh.roundToInt()))
+                        drawBossFront(worldId, bpos, bh, time, 1f)
+                    }
+                }
+            }
+            // the guardian's shots
+            for (b in com.neonrush.game.PhaseGate.ebul) {
+                val sx = b[0] * cw; val sy = b[1] * ch
+                drawCircle(Color(0xFFFF5252).copy(alpha = 0.30f), radius = 18f * dens, center = Offset(sx, sy))
+                drawCircle(Color(0xFFFFAB40), radius = 8f * dens, center = Offset(sx, sy))
+                drawCircle(Color.White, radius = 3.5f * dens, center = Offset(sx, sy))
+            }
+        }
+    }
+}
+
 @Composable
 fun RacingSimulatorScreen(
     simState: SimulationState,
@@ -4018,6 +4077,10 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                     "⚡ PRO UNLOCKS: WEATHER • 5 WORLDS • 8 LOOKS" else null
             )
         }
+        // PHASE GATE realm: drawn behind the HUD and the pilot so it fills the whole screen and your real ship flies through it
+        PhaseGateWorld(pilotY = simState.userYPos)
+        PhaseGateZoneWorld(pilotY = simState.userYPos, pilotFrame = pilotFrames[(simState.tickIndex / 3) % pilotFrames.size])
+        PhaseGateObjects(pilotY = simState.userYPos)
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -4228,6 +4291,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                         )
 
                         for (elem in simState.activeTrackElements) {
+                            if (com.neonrush.game.PhaseGate.inGlimpse()) continue   // the Phase Gate realm replaces the track for a moment (the pilot is covered)
                             val x = cw * elem.xOffsetFraction
                             val y = ch * (elem.yMatchPos / 100f)
                             if (elem.subType == "GLASS" || elem.subType == "SCARAB" || elem.subType == "STRIKE") continue // drawn by the realm overlay
@@ -4988,7 +5052,8 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
                     onGoPro = { airPaywall = true }, onBossStrike = { d -> viewModel.airBossStrike(d) }, onSweep = { x -> viewModel.airSweep(x) },
                     onScore = { n -> viewModel.addBonusScore(n) }) // Air Support: radio call, gunship / jet sortie, missiles
                 PhaseGateOverlay(active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, bossActive = simState.bossActive, fuel = simState.fuelLevelPercent,
-                    runs = profile.totalRuns, pilotY = simState.userYPos, onGems = { n -> viewModel.creditStormGems(n) })   // Phase Gate: a 2.5 s glimpse of another realm, once in a while
+                    runs = profile.totalRuns, pilotY = simState.userYPos, onGems = { n -> viewModel.creditStormGems(n) },
+                    echoParams = { z -> viewModel.echoParams(z) }, echoSpawn = { sid, tk, rnd, gy, zn -> viewModel.echoSpawn(sid, tk, rnd, gy, zn) })   // Phase Gate: a 2.5 s glimpse of another realm, once in a while
                 DangerPromptOverlay(active = simState.isStarted && !simState.isCompleted, fuel = simState.fuelLevelPercent, shields = simState.shieldLayers, bossActive = simState.bossActive, gems = profile.gems, spend = { n, cb -> viewModel.spendStormGems(n, cb) }) // smart danger prompt (0.5 s buy chip)
                 MilShieldOverlay(active = simState.isStarted && !simState.isCompleted) // military shield: damage bar + MIL button
                 PauseOverlay(active = simState.isStarted && !simState.isCompleted, tierName = viewModel.selectedDifficulty.name, isPro = isPro || TESTING_DISABLE_PRO_GATE, bossActive = simState.bossActive) // limited pause + 3-2-1 + auto-pause when the app is left
@@ -5567,7 +5632,7 @@ fun ProfileTab(profile: GameProfile, viewModel: NeonRushViewModel) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Phase Gate", color = Color.White, fontFamily = FontFamily.Monospace)
-                        Text("A 2.5 second glimpse of another realm, once in a while", color = Color.White.copy(alpha = 0.5f), fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+                        Text("A few seconds in another realm, every 8 to 14 minutes or so", color = Color.White.copy(alpha = 0.5f), fontFamily = FontFamily.Monospace, fontSize = 10.sp)
                     }
                     Switch(checked = gateOn, onCheckedChange = { gateOn = it; com.neonrush.game.PhaseGate.setEnabled(pgCtx, it) },
                         colors = SwitchDefaults.colors(checkedThumbColor = CyberPrimary, checkedTrackColor = CyberPrimary.copy(alpha = 0.5f)))
@@ -6295,9 +6360,10 @@ fun TutorialScreen(onBack: () -> Unit) {
                 }
 
                 TutorialCard("🌀", "PHASE GATE", accent = Color(0xFF7C4DFF)) {
-                    TutorialBullet("Every 5 to 9 minutes of flying, a crack tears open in the track and a portal pulls you in. For about 2.5 seconds you glimpse another realm: a new world, a Hangar item you could own, or a gift of gems. Then you snap back.")
-                    TutorialBullet("You are safe the whole time. You cannot be hurt, you can still steer, and it never ends a run.")
-                    TutorialBullet("It only opens when no boss is on screen, at most twice per run, never in your first runs and never in Legendary. You can switch it off in Settings.")
+                    TutorialBullet("Every 8 to 14 minutes of flying, a crack splits open in your lane and a portal drifts toward you. Fly into it and the whole screen becomes another realm for a few seconds, then you snap back.")
+                    TutorialBullet("Inside, your real ship keeps flying. Steer to catch the 3 gems (the most you can win per gate) and slip past the obstacles for a PERFECT. Bumping into one costs you nothing.")
+                    TutorialBullet("Some gates are a ZONE ECHO: a few seconds in the real world of a far zone such as 30 or 50, with its real hazards at its real speed and its guardian boss. You can get hit, but nothing counts and nothing is lost, so you see what you are working toward.")
+                    TutorialBullet("You cannot be hurt while it runs. It only opens when no boss is on screen, at most twice per run, never in your first runs and never in Legendary. You can switch it off in Settings.")
                 }
 
                 TutorialCard("🚪", "HANGAR & ARMORY", accent = Color(0xFFFF4DD2)) {
