@@ -1318,6 +1318,18 @@ fun freezeStreak() {
         return y.coerceIn(4, 96)
     }
 
+    /** Phase Gate zone echo: how the REAL engine runs a zone (hazard speed per tick, ticks between spawns, obstacle set). Read only, changes nothing. */
+    fun echoParams(zone: Int): FloatArray {
+        val dna = ZoneGenerator.generateZone(zone, 42L)
+        val tierPressure = selectedDifficulty.pressure(zone) * DIFFICULTY_EASE
+        val aggro = selectedDifficulty.aggression(zone) * DIFFICULTY_EASE
+        val speed = ZoneGenerator.calculateSpeed(1) * tierPressure
+        val spacing = (dna.obstacleSpacingAndDensity / (12f * aggro)).times(RealmRules.spacingMul(zone)).coerceAtLeast(4f)
+        return floatArrayOf(speed, spacing, dna.obstacleSetId.toFloat())
+    }
+    /** The real obstacle spawner, for the zone echo. */
+    fun echoSpawn(setId: Int, tick: Int, rand: kotlin.random.Random, ghostY: Int, zone: Int): List<VisualTrackElement> = spawnObstacleForSet(setId, tick, rand, ghostY, zone)
+
     private fun spawnObstacleForSet(obstacleSetId: Int, tick: Int, rand: kotlin.random.Random, ghostY: Int, zoneNumber: Int = 1): List<VisualTrackElement> {
         val elements = mutableListOf<VisualTrackElement>()
         val baseId = "obs_${tick}_"
