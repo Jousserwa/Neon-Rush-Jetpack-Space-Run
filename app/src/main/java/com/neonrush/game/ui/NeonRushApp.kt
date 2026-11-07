@@ -3714,7 +3714,7 @@ Text(
 
 /** Phase Gate ZONE ECHO: the real background of a far zone, its real hazards (same spawner, same art) and its guardian, shown through the gate. Nothing in it counts and nothing in it can hurt. */
 @Composable
-private fun PhaseGateZoneWorld(pilotY: Int, pilotFrame: ImageBitmap) {
+private fun PhaseGateZoneWorld(pilotY: Int, pilotFrame: ImageBitmap, bossImages: Map<Int, ImageBitmap>) {
     @Suppress("UNUSED_VARIABLE") val tk = com.neonrush.game.PhaseGate.tick
     if (!com.neonrush.game.PhaseGate.inGlimpse() || com.neonrush.game.PhaseGate.gKind != 4) return
     val z = com.neonrush.game.PhaseGate.gZone
@@ -3741,7 +3741,7 @@ private fun PhaseGateZoneWorld(pilotY: Int, pilotFrame: ImageBitmap) {
             // the guardian
             val bt = com.neonrush.game.PhaseGate.bossT
             if (bt > 0f) {
-                val bossImg = bossImagesByWorld[eliteB?.base ?: worldId] ?: bossImagesByWorld[1]!!
+                val bossImg = bossImages[eliteB?.base ?: worldId] ?: bossImages[1] ?: return@Canvas
                 val bh = ch * 0.38f; val bw = bh * (bossImg.width.toFloat() / bossImg.height.toFloat())
                 val slide = (bt / 0.6f).coerceIn(0f, 1f)
                 val bx = cw * (1.32f - 0.44f * (1f - (1f - slide) * (1f - slide)))
@@ -4079,7 +4079,7 @@ val knightSword = ImageBitmap.imageResource(id = R.drawable.darkages_sword)
         }
         // PHASE GATE realm: drawn behind the HUD and the pilot so it fills the whole screen and your real ship flies through it
         PhaseGateWorld(pilotY = simState.userYPos)
-        PhaseGateZoneWorld(pilotY = simState.userYPos, pilotFrame = pilotFrames[(simState.tickIndex / 3) % pilotFrames.size])
+        PhaseGateZoneWorld(pilotY = simState.userYPos, pilotFrame = pilotFrames[(simState.tickIndex / 3) % pilotFrames.size], bossImages = bossImagesByWorld)
         PhaseGateObjects(pilotY = simState.userYPos)
         Column(
             modifier = Modifier
